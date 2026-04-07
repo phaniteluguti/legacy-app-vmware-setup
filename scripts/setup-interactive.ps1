@@ -553,37 +553,49 @@ function Main {
     # Show summary
     Show-Summary
 
-    # Confirm before proceeding
-    if (-not (Prompt-YesNo "Proceed with deployment?")) {
+    # Ask whether to save config files
+    Write-Host ""
+    Write-Host "  Would you like to save these values to config files?" -ForegroundColor Yellow
+    Write-Host "    1) Save to terraform.tfvars + ansible vars + inventory" -ForegroundColor Gray
+    Write-Host "    2) Discard and exit (nothing is written)" -ForegroundColor Gray
+    $saveChoice = Prompt-Input "Choice" "1"
+
+    if ($saveChoice -ne "1") {
         Write-Host ""
-        Write-Warn "Aborted. Config files were NOT generated."
+        Write-Warn "Aborted. No files were written."
         exit 0
     }
 
-    # Generate config files
-    Write-Header "Generating Configuration Files"
+    # Save config files
+    Write-Header "Saving Configuration Files"
     Write-TerraformVars
     Write-AnsibleVars
     Write-AnsibleInventory
 
-    # Ask what to run
     Write-Host ""
-    $runChoice = Prompt-Choice "What would you like to run?" @(
-        "Full pipeline (Terraform + Ansible + Verify)",
-        "Generate config files only (run manually later)",
+    Write-Host "  Files saved successfully:" -ForegroundColor Green
+    Write-Host "    terraform/terraform.tfvars" -ForegroundColor Cyan
+    Write-Host "    ansible/group_vars/all.yml" -ForegroundColor Cyan
+    Write-Host "    ansible/inventory/hosts.ini" -ForegroundColor Cyan
+
+    # Ask what to do next
+    Write-Host ""
+    $runChoice = Prompt-Choice "What would you like to do next?" @(
+        "Run full pipeline (Terraform + Ansible + Verify)",
+        "Stop here - I'll run Terraform & Ansible myself later",
         "Terraform only (provision VMs)",
         "Ansible only (deploy to existing VMs)"
-    ) "Full pipeline (Terraform + Ansible + Verify)"
+    ) "Stop here - I'll run Terraform & Ansible myself later"
 
     switch -Wildcard ($runChoice) {
-        "Full*" {
+        "Run full*" {
             Invoke-Terraform
             Invoke-Ansible
             Invoke-Verify
         }
-        "Generate*" {
+        "Stop here*" {
             Write-Host ""
-            Write-Step "Config files generated. Run manually:"
+            Write-Step "Config files saved. Run manually when ready:"
             Write-Host "    cd terraform; terraform init; terraform apply" -ForegroundColor Gray
             Write-Host "    cd ansible;   ansible-playbook -i inventory/hosts.ini site.yml" -ForegroundColor Gray
         }

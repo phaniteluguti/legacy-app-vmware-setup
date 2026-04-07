@@ -398,25 +398,43 @@ main() {
 
     show_summary
 
-    prompt_yn "Proceed with deployment?" || { warn "Aborted."; exit 0; }
+    echo ""
+    echo -e "  ${Y}Would you like to save these values to config files?${NC}"
+    echo -e "    ${G}1)${NC} Save to terraform.tfvars + ansible vars + inventory"
+    echo -e "    ${G}2)${NC} Discard and exit (nothing is written)"
+    read -rp "  Choice [1]: " save_choice
+    save_choice="${save_choice:-1}"
 
-    header "Generating Configuration Files"
+    if [[ "$save_choice" != "1" ]]; then
+        warn "Aborted. No files were written."
+        exit 0
+    fi
+
+    header "Saving Configuration Files"
     write_tfvars
     write_ansible_vars
     write_inventory
 
     echo ""
-    echo "  What would you like to run?"
-    echo "    [1] Full pipeline (Terraform + Ansible + Verify)"
-    echo "    [2] Generate config files only"
-    echo "    [3] Terraform only (provision VMs)"
-    echo "    [4] Ansible only (deploy to existing VMs)"
-    read -rp "  Choice [1]: " choice
-    choice="${choice:-1}"
+    echo -e "  ${G}Files saved successfully:${NC}"
+    echo -e "    ${C}terraform/terraform.tfvars${NC}"
+    echo -e "    ${C}ansible/group_vars/all.yml${NC}"
+    echo -e "    ${C}ansible/inventory/hosts.ini${NC}"
+
+    echo ""
+    echo -e "  ${Y}What would you like to do next?${NC}"
+    echo -e "    ${G}1)${NC} Run full pipeline (Terraform + Ansible + Verify)"
+    echo -e "    ${G}2)${NC} Stop here — I'll run Terraform & Ansible myself later"
+    echo -e "    ${G}3)${NC} Terraform only (provision VMs)"
+    echo -e "    ${G}4)${NC} Ansible only (deploy to existing VMs)"
+    read -rp "  Choice [2]: " choice
+    choice="${choice:-2}"
 
     case "$choice" in
         1) run_terraform; run_ansible; run_verify ;;
-        2) step "Config files generated. Run manually:"; echo "    cd terraform && terraform init && terraform apply"; echo "    cd ansible && ansible-playbook -i inventory/hosts.ini site.yml" ;;
+        2) step "Config files saved. Run manually when ready:"
+           echo -e "    ${GR}cd terraform && terraform init && terraform apply${NC}"
+           echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
         3) run_terraform ;;
         4) run_ansible; run_verify ;;
         *) err "Invalid choice"; exit 1 ;;
