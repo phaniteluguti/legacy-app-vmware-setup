@@ -9,6 +9,8 @@ if (-not $ProjectRoot) { $ProjectRoot = Split-Path -Parent (Get-Location) }
 $TfDir      = Join-Path $ProjectRoot "terraform"
 $AnsibleDir = Join-Path $ProjectRoot "ansible"
 $ScriptsDir = Join-Path $ProjectRoot "scripts"
+$TfVarsFile = Join-Path $TfDir "terraform.tfvars"
+$AllVarsFile = Join-Path $AnsibleDir "group_vars" "all.yml"
 
 # ---------------------------------------------------------------------------
 # Helpers
@@ -118,15 +120,125 @@ function Test-Prerequisites {
 }
 
 # ---------------------------------------------------------------------------
+# Load previous values from saved config files
+# ---------------------------------------------------------------------------
+function Get-TfValue($key, $fallback) {
+    if (Test-Path $TfVarsFile) {
+        $line = Get-Content $TfVarsFile | Where-Object { $_ -match "^${key}\s*=" } | Select-Object -First 1
+        if ($line) {
+            $val = ($line -split '=', 2)[1].Trim().Trim('"')
+            if ($val -ne "") { return $val }
+        }
+    }
+    return $fallback
+}
+
+function Get-YmlValue($key, $fallback) {
+    if (Test-Path $AllVarsFile) {
+        $line = Get-Content $AllVarsFile | Where-Object { $_ -match "^${key}:" } | Select-Object -First 1
+        if ($line) {
+            $val = ($line -split ':', 2)[1].Trim().Trim('"')
+            if ($val -ne "") { return $val }
+        }
+    }
+    return $fallback
+}
+
+function Load-PreviousValues {
+    # Initialize all defaults
+    $script:prev = @{}
+    $script:prev.vsphere_server = ""; $script:prev.vsphere_user = "administrator@vsphere.local"
+    $script:prev.vsphere_ssl = "true"
+    $script:prev.vsphere_datacenter = "Datacenter1"; $script:prev.vsphere_cluster = "Cluster1"
+    $script:prev.vsphere_datastore = "datastore1"; $script:prev.vsphere_network = "VM Network"
+    $script:prev.vsphere_folder = ""; $script:prev.vm_template_name = "ubuntu-2204-template"
+    $script:prev.vm_gateway = "192.168.1.1"; $script:prev.vm_netmask = "24"
+    $script:prev.vm_domain = "lab.local"; $script:prev.vm_dns = "8.8.8.8,8.8.4.4"
+    $script:prev.vm_ssh_user = "ubuntu"; $script:prev.vm_ssh_auth_method = "password"
+    $script:prev.vm_ssh_private_key_path = ""
+    $script:prev.java_vm_ip = "192.168.1.101"; $script:prev.java_vm_cpus = "2"
+    $script:prev.java_vm_memory = "4096"; $script:prev.java_vm_disk = "40"
+    $script:prev.dotnet_vm_ip = "192.168.1.102"; $script:prev.dotnet_vm_cpus = "2"
+    $script:prev.dotnet_vm_memory = "4096"; $script:prev.dotnet_vm_disk = "40"
+    $script:prev.php_vm_ip = "192.168.1.103"; $script:prev.php_vm_cpus = "2"
+    $script:prev.php_vm_memory = "2048"; $script:prev.php_vm_disk = "30"
+    $script:prev.petclinic_repo = "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
+    $script:prev.petclinic_branch = "main"; $script:prev.java_version = "17"
+    $script:prev.dotnet_sdk_version = "6.0"
+    $script:prev.dotnet_app_repo = "https://github.com/dotnet/eShop.git"
+    $script:prev.dotnet_app_branch = "main"
+    $script:prev.php_version = "8.1"
+    $script:prev.php_app_repo = "https://github.com/laravel/laravel.git"
+    $script:prev.php_app_branch = "10.x"
+    $script:prev.install_azure_migrate_agent = "false"
+
+    if (Test-Path $TfVarsFile) {
+        Write-Step "Found previous config: terraform.tfvars - loading as defaults"
+        $script:prev.vsphere_server = Get-TfValue "vsphere_server" ""
+        $script:prev.vsphere_user = Get-TfValue "vsphere_user" "administrator@vsphere.local"
+        $script:prev.vsphere_ssl = Get-TfValue "vsphere_allow_unverified_ssl" "true"
+        $script:prev.vsphere_datacenter = Get-TfValue "vsphere_datacenter" "Datacenter1"
+        $script:prev.vsphere_cluster = Get-TfValue "vsphere_cluster" "Cluster1"
+        $script:prev.vsphere_datastore = Get-TfValue "vsphere_datastore" "datastore1"
+        $script:prev.vsphere_network = Get-TfValue "vsphere_network" "VM Network"
+        $script:prev.vsphere_folder = Get-TfValue "vsphere_folder" ""
+        $script:prev.vm_template_name = Get-TfValue "vm_template_name" "ubuntu-2204-template"
+        $script:prev.vm_gateway = Get-TfValue "vm_gateway" "192.168.1.1"
+        $script:prev.vm_netmask = Get-TfValue "vm_netmask" "24"
+        $script:prev.vm_domain = Get-TfValue "vm_domain" "lab.local"
+        $dnsLine = Get-Content $TfVarsFile | Where-Object { $_ -match "^vm_dns_servers" } | Select-Object -First 1
+        if ($dnsLine) {
+            $raw = ($dnsLine -replace '.*\[','') -replace '\].*','' -replace '"','' -replace ' ',''
+            if ($raw) { $script:prev.vm_dns = $raw }
+        }
+        $script:prev.vm_ssh_user = Get-TfValue "vm_ssh_user" "ubuntu"
+        $script:prev.vm_ssh_auth_method = Get-TfValue "vm_ssh_auth_method" "password"
+        $script:prev.vm_ssh_private_key_path = Get-TfValue "vm_ssh_private_key_path" ""
+        $script:prev.java_vm_ip = Get-TfValue "java_vm_ip" "192.168.1.101"
+        $script:prev.java_vm_cpus = Get-TfValue "java_vm_cpus" "2"
+        $script:prev.java_vm_memory = Get-TfValue "java_vm_memory" "4096"
+        $script:prev.java_vm_disk = Get-TfValue "java_vm_disk" "40"
+        $script:prev.dotnet_vm_ip = Get-TfValue "dotnet_vm_ip" "192.168.1.102"
+        $script:prev.dotnet_vm_cpus = Get-TfValue "dotnet_vm_cpus" "2"
+        $script:prev.dotnet_vm_memory = Get-TfValue "dotnet_vm_memory" "4096"
+        $script:prev.dotnet_vm_disk = Get-TfValue "dotnet_vm_disk" "40"
+        $script:prev.php_vm_ip = Get-TfValue "php_vm_ip" "192.168.1.103"
+        $script:prev.php_vm_cpus = Get-TfValue "php_vm_cpus" "2"
+        $script:prev.php_vm_memory = Get-TfValue "php_vm_memory" "2048"
+        $script:prev.php_vm_disk = Get-TfValue "php_vm_disk" "30"
+    }
+
+    if (Test-Path $AllVarsFile) {
+        Write-Step "Found previous config: group_vars/all.yml - loading as defaults"
+        $script:prev.petclinic_repo = Get-YmlValue "petclinic_repo" "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
+        $script:prev.petclinic_branch = Get-YmlValue "petclinic_branch" "main"
+        $script:prev.java_version = Get-YmlValue "java_version" "17"
+        $script:prev.dotnet_sdk_version = Get-YmlValue "dotnet_sdk_version" "6.0"
+        $script:prev.dotnet_app_repo = Get-YmlValue "dotnet_app_repo" "https://github.com/dotnet/eShop.git"
+        $script:prev.dotnet_app_branch = Get-YmlValue "dotnet_app_branch" "main"
+        $script:prev.php_version = Get-YmlValue "php_version" "8.1"
+        $script:prev.php_app_repo = Get-YmlValue "php_app_repo" "https://github.com/laravel/laravel.git"
+        $script:prev.php_app_branch = Get-YmlValue "php_app_branch" "10.x"
+        $script:prev.install_azure_migrate_agent = Get-YmlValue "install_azure_migrate_agent" "false"
+    }
+}
+
+# ---------------------------------------------------------------------------
 # Section 1: vCenter Connection
 # ---------------------------------------------------------------------------
 function Get-VCenterDetails {
     Write-Header "Step 1/6 — vCenter Connection"
 
-    $script:vsphere_server   = Prompt-Input "vCenter Server FQDN or IP"
-    $script:vsphere_user     = Prompt-Input "vCenter Username" "administrator@vsphere.local"
+    $defaultServer = $script:prev.vsphere_server
+    if ($defaultServer) {
+        $script:vsphere_server = Prompt-Input "vCenter Server FQDN or IP" $defaultServer
+    } else {
+        $script:vsphere_server = Prompt-Input "vCenter Server FQDN or IP"
+    }
+    $script:vsphere_user     = Prompt-Input "vCenter Username" $script:prev.vsphere_user
     $script:vsphere_password = Prompt-SecureInput "vCenter Password"
-    $script:vsphere_allow_unverified_ssl = Prompt-YesNo "Allow unverified SSL certificates?" "y"
+    $defaultSsl = if ($script:prev.vsphere_ssl -eq "true") { "y" } else { "n" }
+    $script:vsphere_allow_unverified_ssl = Prompt-YesNo "Allow unverified SSL certificates?" $defaultSsl
 }
 
 # ---------------------------------------------------------------------------
@@ -137,12 +249,12 @@ function Get-VSphereInfra {
     Write-Host "  These names must match your vCenter inventory exactly." -ForegroundColor Gray
     Write-Host ""
 
-    $script:vsphere_datacenter = Prompt-Input "Datacenter name" "Datacenter1"
-    $script:vsphere_cluster    = Prompt-Input "Compute Cluster name" "Cluster1"
-    $script:vsphere_datastore  = Prompt-Input "Datastore name" "datastore1"
-    $script:vsphere_network    = Prompt-Input "Network / Port Group name" "VM Network"
-    $script:vsphere_folder     = Prompt-Input "VM Folder (leave blank for root)" ""
-    $script:vm_template_name   = Prompt-Input "Ubuntu 22.04 VM Template name" "ubuntu-2204-template"
+    $script:vsphere_datacenter = Prompt-Input "Datacenter name" $script:prev.vsphere_datacenter
+    $script:vsphere_cluster    = Prompt-Input "Compute Cluster name" $script:prev.vsphere_cluster
+    $script:vsphere_datastore  = Prompt-Input "Datastore name" $script:prev.vsphere_datastore
+    $script:vsphere_network    = Prompt-Input "Network / Port Group name" $script:prev.vsphere_network
+    $script:vsphere_folder     = Prompt-Input "VM Folder (leave blank for root)" $script:prev.vsphere_folder
+    $script:vm_template_name   = Prompt-Input "Ubuntu 22.04 VM Template name" $script:prev.vm_template_name
 }
 
 # ---------------------------------------------------------------------------
@@ -151,41 +263,37 @@ function Get-VSphereInfra {
 function Get-NetworkSettings {
     Write-Header "Step 3/6 — VM Network Settings"
 
-    $script:vm_gateway   = Prompt-Ip "Default Gateway IP" "192.168.1.1"
-    $script:vm_netmask   = Prompt-Input "Subnet mask (CIDR bits)" "24"
-    $script:vm_domain    = Prompt-Input "Domain suffix" "lab.local"
+    $script:vm_gateway   = Prompt-Ip "Default Gateway IP" $script:prev.vm_gateway
+    $script:vm_netmask   = Prompt-Input "Subnet mask (CIDR bits)" $script:prev.vm_netmask
+    $script:vm_domain    = Prompt-Input "Domain suffix" $script:prev.vm_domain
 
-    $dnsInput = Prompt-Input "DNS Servers (comma-separated)" "8.8.8.8,8.8.4.4"
+    $dnsInput = Prompt-Input "DNS Servers (comma-separated)" $script:prev.vm_dns
     $script:vm_dns_servers = ($dnsInput -split ',').Trim()
 
-    $script:vm_ssh_user = Prompt-Input "SSH username in template" "ubuntu"
+    $script:vm_ssh_user = Prompt-Input "SSH username in template" $script:prev.vm_ssh_user
 
     # SSH auth method
     Write-Host ""
     Write-Host "    How will Ansible connect to the VMs?" -ForegroundColor Yellow
     Write-Host "      1) SSH key (public key baked into template)" -ForegroundColor Gray
     Write-Host "      2) SSH password (simpler - no key needed in template)" -ForegroundColor Gray
-    $authChoice = Prompt-Input "Choose [1/2]" "2"
+    $defaultAuth = if ($script:prev.vm_ssh_auth_method -eq "key") { "1" } else { "2" }
+    $authChoice = Prompt-Input "Choose [1/2]" $defaultAuth
 
     if ($authChoice -eq "1") {
         $script:vm_ssh_auth_method = "key"
         $script:vm_ssh_password = ""
-        $defaultKey = Join-Path $env:USERPROFILE ".ssh\id_rsa"
-        if (Test-Path $defaultKey) {
-            $script:vm_ssh_private_key_path = Prompt-Input "SSH private key path" $defaultKey
-        }
-        else {
-            $script:vm_ssh_private_key_path = Prompt-Input "SSH private key path (full path)"
-            if (-not (Test-Path $script:vm_ssh_private_key_path)) {
-                Write-Warn "Key file not found at: $($script:vm_ssh_private_key_path)"
-                if (-not (Prompt-YesNo "Continue anyway?")) { exit 1 }
-            }
+        $defaultKey = if ($script:prev.vm_ssh_private_key_path) { $script:prev.vm_ssh_private_key_path } else { Join-Path $env:USERPROFILE ".ssh\id_rsa" }
+        $script:vm_ssh_private_key_path = Prompt-Input "SSH private key path" $defaultKey
+        if (-not (Test-Path $script:vm_ssh_private_key_path)) {
+            Write-Warn "Key file not found at: $($script:vm_ssh_private_key_path)"
+            if (-not (Prompt-YesNo "Continue anyway?")) { exit 1 }
         }
     }
     else {
         $script:vm_ssh_auth_method = "password"
         $script:vm_ssh_private_key_path = ""
-        $script:vm_ssh_password = Prompt-Secret "SSH password for user '$($script:vm_ssh_user)'"
+        $script:vm_ssh_password = Prompt-SecureInput "SSH password for user '$($script:vm_ssh_user)'"
     }
 }
 
@@ -199,24 +307,24 @@ function Get-VMSettings {
 
     # Java VM
     Write-Host "  --- Java VM (Spring PetClinic + PostgreSQL) ---" -ForegroundColor Yellow
-    $script:java_vm_ip     = Prompt-Ip   "  IP Address" "192.168.1.101"
-    $script:java_vm_cpus   = Prompt-Input "  CPUs" "2"
-    $script:java_vm_memory = Prompt-Input "  Memory (MB)" "4096"
-    $script:java_vm_disk   = Prompt-Input "  Disk (GB)" "40"
+    $script:java_vm_ip     = Prompt-Ip   "  IP Address" $script:prev.java_vm_ip
+    $script:java_vm_cpus   = Prompt-Input "  CPUs" $script:prev.java_vm_cpus
+    $script:java_vm_memory = Prompt-Input "  Memory (MB)" $script:prev.java_vm_memory
+    $script:java_vm_disk   = Prompt-Input "  Disk (GB)" $script:prev.java_vm_disk
 
     Write-Host ""
     Write-Host "  --- .NET VM (ASP.NET Core + SQL Server) ---" -ForegroundColor Yellow
-    $script:dotnet_vm_ip     = Prompt-Ip   "  IP Address" "192.168.1.102"
-    $script:dotnet_vm_cpus   = Prompt-Input "  CPUs" "2"
-    $script:dotnet_vm_memory = Prompt-Input "  Memory (MB)" "4096"
-    $script:dotnet_vm_disk   = Prompt-Input "  Disk (GB)" "40"
+    $script:dotnet_vm_ip     = Prompt-Ip   "  IP Address" $script:prev.dotnet_vm_ip
+    $script:dotnet_vm_cpus   = Prompt-Input "  CPUs" $script:prev.dotnet_vm_cpus
+    $script:dotnet_vm_memory = Prompt-Input "  Memory (MB)" $script:prev.dotnet_vm_memory
+    $script:dotnet_vm_disk   = Prompt-Input "  Disk (GB)" $script:prev.dotnet_vm_disk
 
     Write-Host ""
     Write-Host "  --- PHP VM (Laravel + MySQL) ---" -ForegroundColor Yellow
-    $script:php_vm_ip     = Prompt-Ip   "  IP Address" "192.168.1.103"
-    $script:php_vm_cpus   = Prompt-Input "  CPUs" "2"
-    $script:php_vm_memory = Prompt-Input "  Memory (MB)" "2048"
-    $script:php_vm_disk   = Prompt-Input "  Disk (GB)" "30"
+    $script:php_vm_ip     = Prompt-Ip   "  IP Address" $script:prev.php_vm_ip
+    $script:php_vm_cpus   = Prompt-Input "  CPUs" $script:prev.php_vm_cpus
+    $script:php_vm_memory = Prompt-Input "  Memory (MB)" $script:prev.php_vm_memory
+    $script:php_vm_disk   = Prompt-Input "  Disk (GB)" $script:prev.php_vm_disk
 }
 
 # ---------------------------------------------------------------------------
@@ -227,23 +335,23 @@ function Get-AppSettings {
 
     # Java / PetClinic
     Write-Host "  --- Java / Spring PetClinic ---" -ForegroundColor Yellow
-    $script:petclinic_repo   = Prompt-Input "  PetClinic Git repo URL" "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
-    $script:petclinic_branch = Prompt-Input "  Branch" "main"
-    $script:java_version     = Prompt-Input "  JDK version" "17"
+    $script:petclinic_repo   = Prompt-Input "  PetClinic Git repo URL" $script:prev.petclinic_repo
+    $script:petclinic_branch = Prompt-Input "  Branch" $script:prev.petclinic_branch
+    $script:java_version     = Prompt-Input "  JDK version" $script:prev.java_version
     $script:postgres_password= Prompt-SecureInput "  PostgreSQL password for 'petclinic' user"
 
     Write-Host ""
     Write-Host "  --- .NET / ASP.NET Core ---" -ForegroundColor Yellow
-    $script:dotnet_sdk_version = Prompt-Input "  .NET SDK version" "6.0"
-    $script:dotnet_app_repo    = Prompt-Input "  .NET app Git repo URL" "https://github.com/dotnet/eShop.git"
-    $script:dotnet_app_branch  = Prompt-Input "  Branch" "main"
+    $script:dotnet_sdk_version = Prompt-Input "  .NET SDK version" $script:prev.dotnet_sdk_version
+    $script:dotnet_app_repo    = Prompt-Input "  .NET app Git repo URL" $script:prev.dotnet_app_repo
+    $script:dotnet_app_branch  = Prompt-Input "  Branch" $script:prev.dotnet_app_branch
     $script:mssql_sa_password  = Prompt-SecureInput "  SQL Server SA password (min 8 chars, needs complexity)"
 
     Write-Host ""
     Write-Host "  --- PHP / Laravel ---" -ForegroundColor Yellow
-    $script:php_version       = Prompt-Input "  PHP version" "8.1"
-    $script:php_app_repo      = Prompt-Input "  Laravel Git repo URL" "https://github.com/laravel/laravel.git"
-    $script:php_app_branch    = Prompt-Input "  Branch" "10.x"
+    $script:php_version       = Prompt-Input "  PHP version" $script:prev.php_version
+    $script:php_app_repo      = Prompt-Input "  Laravel Git repo URL" $script:prev.php_app_repo
+    $script:php_app_branch    = Prompt-Input "  Branch" $script:prev.php_app_branch
     $script:mysql_root_password = Prompt-SecureInput "  MySQL root password"
     $script:mysql_db_password   = Prompt-SecureInput "  MySQL app user ('laravel') password"
 }
@@ -254,7 +362,8 @@ function Get-AppSettings {
 function Get-MigrateOptions {
     Write-Header "Step 6/6 — Azure Migrate Options"
 
-    $script:install_azure_migrate_agent = Prompt-YesNo "Install Azure Migrate Dependency Agent on all VMs?" "n"
+    $defaultMigrate = if ($script:prev.install_azure_migrate_agent -eq "true") { "y" } else { "n" }
+    $script:install_azure_migrate_agent = Prompt-YesNo "Install Azure Migrate Dependency Agent on all VMs?" $defaultMigrate
 }
 
 # ---------------------------------------------------------------------------
@@ -541,6 +650,9 @@ function Main {
 
     # Check tools first
     Test-Prerequisites
+
+    # Load previous values as defaults
+    Load-PreviousValues
 
     # Collect all inputs
     Get-VCenterDetails

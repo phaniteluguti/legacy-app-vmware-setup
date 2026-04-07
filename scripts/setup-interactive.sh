@@ -9,6 +9,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 TF_DIR="$PROJECT_ROOT/terraform"
 ANSIBLE_DIR="$PROJECT_ROOT/ansible"
+TFVARS_FILE="$TF_DIR/terraform.tfvars"
+ALLVARS_FILE="$ANSIBLE_DIR/group_vars/all.yml"
 
 # Colors
 C='\033[0;36m'; G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; GR='\033[0;90m'; NC='\033[0m'
@@ -62,6 +64,79 @@ prompt_ip() {
 }
 
 # ---------------------------------------------------------------------------
+# Load previous values from saved config files (if they exist)
+# ---------------------------------------------------------------------------
+# Helper: extract value for a key from terraform.tfvars
+tfval() { grep -m1 "^${1} " "$TFVARS_FILE" 2>/dev/null | sed 's/.*= *"\?\([^"]*\)"\?/\1/' || echo "$2"; }
+# Helper: extract value for a key from ansible all.yml  
+ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed 's/.*: *"\?\([^"]*\)"\?/\1/' || echo "$2"; }
+
+load_previous() {
+    # Initialize all defaults to hard-coded values
+    PREV_VSPHERE_SERVER=""; PREV_VSPHERE_USER="administrator@vsphere.local"; PREV_VSPHERE_SSL="true"
+    PREV_VSPHERE_DC="Datacenter1"; PREV_VSPHERE_CLUSTER="Cluster1"; PREV_VSPHERE_DS="datastore1"
+    PREV_VSPHERE_NET="VM Network"; PREV_VSPHERE_FOLDER=""; PREV_VM_TEMPLATE="ubuntu-2204-template"
+    PREV_VM_GW="192.168.1.1"; PREV_VM_MASK="24"; PREV_VM_DOMAIN="lab.local"
+    PREV_VM_DNS="8.8.8.8,8.8.4.4"; PREV_SSH_USER="ubuntu"
+    PREV_SSH_AUTH_METHOD="password"; PREV_SSH_KEY="\$HOME/.ssh/id_rsa"
+    PREV_JAVA_IP="192.168.1.101"; PREV_JAVA_CPU="2"; PREV_JAVA_MEM="4096"; PREV_JAVA_DISK="40"
+    PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"; PREV_DOTNET_DISK="40"
+    PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"; PREV_PHP_DISK="30"
+    PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
+    PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="17"
+    PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
+    PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
+    PREV_AZ_AGENT="false"
+
+    if [[ -f "$TFVARS_FILE" ]]; then
+        step "Found previous config: terraform.tfvars — loading as defaults"
+        PREV_VSPHERE_SERVER="$(tfval vsphere_server "")"
+        PREV_VSPHERE_USER="$(tfval vsphere_user "administrator@vsphere.local")"
+        PREV_VSPHERE_SSL="$(tfval vsphere_allow_unverified_ssl "true")"
+        PREV_VSPHERE_DC="$(tfval vsphere_datacenter "Datacenter1")"
+        PREV_VSPHERE_CLUSTER="$(tfval vsphere_cluster "Cluster1")"
+        PREV_VSPHERE_DS="$(tfval vsphere_datastore "datastore1")"
+        PREV_VSPHERE_NET="$(tfval vsphere_network "VM Network")"
+        PREV_VSPHERE_FOLDER="$(tfval vsphere_folder "")"
+        PREV_VM_TEMPLATE="$(tfval vm_template_name "ubuntu-2204-template")"
+        PREV_VM_GW="$(tfval vm_gateway "192.168.1.1")"
+        PREV_VM_MASK="$(tfval vm_netmask "24")"
+        PREV_VM_DOMAIN="$(tfval vm_domain "lab.local")"
+        local raw_dns; raw_dns=$(grep -m1 "^vm_dns_servers" "$TFVARS_FILE" 2>/dev/null | sed 's/.*\[\(.*\)\]/\1/;s/"//g;s/ //g' || echo "")
+        [[ -n "$raw_dns" ]] && PREV_VM_DNS="$raw_dns"
+        PREV_SSH_USER="$(tfval vm_ssh_user "ubuntu")"
+        PREV_SSH_AUTH_METHOD="$(tfval vm_ssh_auth_method "password")"
+        PREV_SSH_KEY="$(tfval vm_ssh_private_key_path "\$HOME/.ssh/id_rsa")"
+        PREV_JAVA_IP="$(tfval java_vm_ip "192.168.1.101")"
+        PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
+        PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
+        PREV_JAVA_DISK="$(tfval java_vm_disk "40")"
+        PREV_DOTNET_IP="$(tfval dotnet_vm_ip "192.168.1.102")"
+        PREV_DOTNET_CPU="$(tfval dotnet_vm_cpus "2")"
+        PREV_DOTNET_MEM="$(tfval dotnet_vm_memory "4096")"
+        PREV_DOTNET_DISK="$(tfval dotnet_vm_disk "40")"
+        PREV_PHP_IP="$(tfval php_vm_ip "192.168.1.103")"
+        PREV_PHP_CPU="$(tfval php_vm_cpus "2")"
+        PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
+        PREV_PHP_DISK="$(tfval php_vm_disk "30")"
+    fi
+
+    if [[ -f "$ALLVARS_FILE" ]]; then
+        step "Found previous config: group_vars/all.yml — loading as defaults"
+        PREV_PETCLINIC_REPO="$(ymlval petclinic_repo "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo")"
+        PREV_PETCLINIC_BRANCH="$(ymlval petclinic_branch "main")"
+        PREV_JAVA_VER="$(ymlval java_version "17")"
+        PREV_DOTNET_SDK="$(ymlval dotnet_sdk_version "6.0")"
+        PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet/eShop.git")"
+        PREV_DOTNET_BRANCH="$(ymlval dotnet_app_branch "main")"
+        PREV_PHP_VER="$(ymlval php_version "8.1")"
+        PREV_PHP_REPO="$(ymlval php_app_repo "https://github.com/laravel/laravel.git")"
+        PREV_PHP_BRANCH="$(ymlval php_app_branch "10.x")"
+        PREV_AZ_AGENT="$(ymlval install_azure_migrate_agent "false")"
+    fi
+}
+
+# ---------------------------------------------------------------------------
 check_prerequisites() {
     header "Checking Prerequisites"
     local missing=()
@@ -83,41 +158,42 @@ check_prerequisites() {
 # ---------------------------------------------------------------------------
 collect_vcenter() {
     header "Step 1/6 — vCenter Connection"
-    prompt "vCenter Server FQDN or IP"; VSPHERE_SERVER="$REPLY"
-    prompt "vCenter Username" "administrator@vsphere.local"; VSPHERE_USER="$REPLY"
+    prompt "vCenter Server FQDN or IP" "$PREV_VSPHERE_SERVER"; VSPHERE_SERVER="$REPLY"
+    prompt "vCenter Username" "$PREV_VSPHERE_USER"; VSPHERE_USER="$REPLY"
     prompt_secret "vCenter Password"; VSPHERE_PASSWORD="$REPLY"
-    prompt_yn "Allow unverified SSL?" "y" && VSPHERE_SSL="true" || VSPHERE_SSL="false"
+    prompt_yn "Allow unverified SSL?" "${PREV_VSPHERE_SSL:0:1}" && VSPHERE_SSL="true" || VSPHERE_SSL="false"
 }
 
 collect_infra() {
     header "Step 2/6 — vSphere Infrastructure"
     echo -e "  ${GR}Names must match your vCenter inventory exactly.${NC}"
-    prompt "Datacenter name" "Datacenter1"; VSPHERE_DC="$REPLY"
-    prompt "Compute Cluster name" "Cluster1"; VSPHERE_CLUSTER="$REPLY"
-    prompt "Datastore name" "datastore1"; VSPHERE_DS="$REPLY"
-    prompt "Network / Port Group" "VM Network"; VSPHERE_NET="$REPLY"
-    prompt "VM Folder (blank for root)" ""; VSPHERE_FOLDER="$REPLY"
-    prompt "Ubuntu 22.04 Template name" "ubuntu-2204-template"; VM_TEMPLATE="$REPLY"
+    prompt "Datacenter name" "$PREV_VSPHERE_DC"; VSPHERE_DC="$REPLY"
+    prompt "Compute Cluster name" "$PREV_VSPHERE_CLUSTER"; VSPHERE_CLUSTER="$REPLY"
+    prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
+    prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
+    prompt "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
+    prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
 }
 
 collect_network() {
     header "Step 3/6 — VM Network Settings"
-    prompt_ip "Default Gateway IP" "192.168.1.1"; VM_GW="$REPLY"
-    prompt "Subnet mask (CIDR bits)" "24"; VM_MASK="$REPLY"
-    prompt "Domain suffix" "lab.local"; VM_DOMAIN="$REPLY"
-    prompt "DNS Servers (comma-sep)" "8.8.8.8,8.8.4.4"; VM_DNS="$REPLY"
-    prompt "SSH username in template" "ubuntu"; SSH_USER="$REPLY"
+    prompt_ip "Default Gateway IP" "$PREV_VM_GW"; VM_GW="$REPLY"
+    prompt "Subnet mask (CIDR bits)" "$PREV_VM_MASK"; VM_MASK="$REPLY"
+    prompt "Domain suffix" "$PREV_VM_DOMAIN"; VM_DOMAIN="$REPLY"
+    prompt "DNS Servers (comma-sep)" "$PREV_VM_DNS"; VM_DNS="$REPLY"
+    prompt "SSH username in template" "$PREV_SSH_USER"; SSH_USER="$REPLY"
 
     echo ""
     echo -e "  ${Y}How will Ansible connect to the VMs?${NC}"
     echo -e "    ${G}1)${NC} SSH key (public key baked into template)"
     echo -e "    ${G}2)${NC} SSH password (simpler — no key needed in template)"
-    read -rp "  Choose [1/2] (default: 2): " AUTH_CHOICE
-    AUTH_CHOICE="${AUTH_CHOICE:-2}"
+    local default_auth; [[ "$PREV_SSH_AUTH_METHOD" == "key" ]] && default_auth="1" || default_auth="2"
+    read -rp "  Choose [1/2] (default: $default_auth): " AUTH_CHOICE
+    AUTH_CHOICE="${AUTH_CHOICE:-$default_auth}"
 
     if [[ "$AUTH_CHOICE" == "1" ]]; then
         SSH_AUTH_METHOD="key"
-        prompt "SSH private key path" "$HOME/.ssh/id_rsa"; SSH_KEY="$REPLY"
+        prompt "SSH private key path" "$PREV_SSH_KEY"; SSH_KEY="$REPLY"
         if [[ ! -f "$SSH_KEY" ]]; then
             warn "Key not found: $SSH_KEY"
             prompt_yn "Continue anyway?" || exit 1
@@ -135,50 +211,51 @@ collect_vms() {
     echo -e "  ${GR}Static IPs on the same subnet as gateway $VM_GW${NC}\n"
 
     echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
-    prompt_ip "  IP" "192.168.1.101"; JAVA_IP="$REPLY"
-    prompt "  CPUs" "2"; JAVA_CPU="$REPLY"
-    prompt "  Memory MB" "4096"; JAVA_MEM="$REPLY"
-    prompt "  Disk GB" "40"; JAVA_DISK="$REPLY"
+    prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+    prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
+    prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
+    prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
 
     echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
-    prompt_ip "  IP" "192.168.1.102"; DOTNET_IP="$REPLY"
-    prompt "  CPUs" "2"; DOTNET_CPU="$REPLY"
-    prompt "  Memory MB" "4096"; DOTNET_MEM="$REPLY"
-    prompt "  Disk GB" "40"; DOTNET_DISK="$REPLY"
+    prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+    prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
+    prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
+    prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
 
     echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
-    prompt_ip "  IP" "192.168.1.103"; PHP_IP="$REPLY"
-    prompt "  CPUs" "2"; PHP_CPU="$REPLY"
-    prompt "  Memory MB" "2048"; PHP_MEM="$REPLY"
-    prompt "  Disk GB" "30"; PHP_DISK="$REPLY"
+    prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+    prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
+    prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
+    prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
 }
 
 collect_apps() {
     header "Step 5/6 — Application & Database Configuration"
 
     echo -e "  ${Y}--- Java / PetClinic ---${NC}"
-    prompt "  Git repo" "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"; PETCLINIC_REPO="$REPLY"
-    prompt "  Branch" "main"; PETCLINIC_BRANCH="$REPLY"
-    prompt "  JDK version" "17"; JAVA_VER="$REPLY"
+    prompt "  Git repo" "$PREV_PETCLINIC_REPO"; PETCLINIC_REPO="$REPLY"
+    prompt "  Branch" "$PREV_PETCLINIC_BRANCH"; PETCLINIC_BRANCH="$REPLY"
+    prompt "  JDK version" "$PREV_JAVA_VER"; JAVA_VER="$REPLY"
     prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"
 
     echo -e "\n  ${Y}--- .NET / ASP.NET Core ---${NC}"
-    prompt "  .NET SDK version" "6.0"; DOTNET_SDK="$REPLY"
-    prompt "  Git repo" "https://github.com/dotnet/eShop.git"; DOTNET_REPO="$REPLY"
-    prompt "  Branch" "main"; DOTNET_BRANCH="$REPLY"
+    prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
+    prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
+    prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
     prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"
 
     echo -e "\n  ${Y}--- PHP / Laravel ---${NC}"
-    prompt "  PHP version" "8.1"; PHP_VER="$REPLY"
-    prompt "  Git repo" "https://github.com/laravel/laravel.git"; PHP_REPO="$REPLY"
-    prompt "  Branch" "10.x"; PHP_BRANCH="$REPLY"
+    prompt "  PHP version" "$PREV_PHP_VER"; PHP_VER="$REPLY"
+    prompt "  Git repo" "$PREV_PHP_REPO"; PHP_REPO="$REPLY"
+    prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
     prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
     prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
 }
 
 collect_migrate() {
     header "Step 6/6 — Azure Migrate Options"
-    prompt_yn "Install Azure Migrate Dependency Agent on VMs?" "n" && AZ_AGENT="true" || AZ_AGENT="false"
+    local default_yn; [[ "$PREV_AZ_AGENT" == "true" ]] && default_yn="y" || default_yn="n"
+    prompt_yn "Install Azure Migrate Dependency Agent on VMs?" "$default_yn" && AZ_AGENT="true" || AZ_AGENT="false"
 }
 
 # ---------------------------------------------------------------------------
@@ -388,6 +465,7 @@ main() {
     echo ""
 
     check_prerequisites
+    load_previous
 
     collect_vcenter
     collect_infra
