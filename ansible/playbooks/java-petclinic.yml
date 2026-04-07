@@ -124,6 +124,7 @@
 
     - name: Clone PetClinic repository
       shell: |
+        git config --global --add safe.directory /opt/petclinic/repo
         if [ -d /opt/petclinic/repo/.git ]; then
           cd /opt/petclinic/repo && git fetch --all && git reset --hard origin/{{ petclinic_branch }}
         else
@@ -137,11 +138,20 @@
     - name: Run local lab setup script (clones spring-petclinic inside repo)
       shell: |
         cd /opt/petclinic/repo
+        git config --global --add safe.directory /opt/petclinic/repo/spring-petclinic
         bash setup-local-lab-infra.sh
       args:
         creates: /opt/petclinic/repo/spring-petclinic
         executable: /bin/bash
       ignore_errors: true
+
+    - name: Fix ownership after setup script
+      file:
+        path: /opt/petclinic/repo
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
 
     - name: Check if spring-petclinic exists from setup script
       stat:
@@ -150,6 +160,7 @@
 
     - name: Clone spring-petclinic directly if setup script didn't create it
       shell: |
+        git config --global --add safe.directory /opt/petclinic/repo/spring-petclinic
         rm -rf /opt/petclinic/repo/spring-petclinic
         git clone https://github.com/spring-projects/spring-petclinic.git /opt/petclinic/repo/spring-petclinic
         chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo/spring-petclinic
