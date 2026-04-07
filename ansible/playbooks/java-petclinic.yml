@@ -81,25 +81,21 @@
         timeout: 30
 
     - name: Create PetClinic database
-      become: true
-      become_user: postgres
-      community.postgresql.postgresql_db:
-        name: "{{ postgres_db }}"
-        state: present
-        login_user: postgres
-        login_unix_socket: /var/run/postgresql
+      shell: |
+        sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='{{ postgres_db }}'" | grep -q 1 || \
+        sudo -u postgres createdb "{{ postgres_db }}"
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Create PetClinic database user
-      become: true
-      become_user: postgres
-      community.postgresql.postgresql_user:
-        name: "{{ postgres_user }}"
-        password: "{{ postgres_password }}"
-        db: "{{ postgres_db }}"
-        priv: "ALL"
-        state: present
-        login_user: postgres
-        login_unix_socket: /var/run/postgresql
+      shell: |
+        sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'" | grep -q 1 || \
+        sudo -u postgres psql -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}';"
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};"
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Allow local password auth for petclinic user
       lineinfile:

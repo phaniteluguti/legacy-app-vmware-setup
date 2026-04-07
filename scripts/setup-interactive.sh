@@ -437,6 +437,10 @@ run_ansible() {
     header "Phase 2 — Deploying Applications (Ansible)"
     pushd "$ANSIBLE_DIR" > /dev/null
 
+    # Fix directory permissions so ansible.cfg is loaded
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
     step "Installing Ansible Galaxy collections..."
     ansible-galaxy collection install community.postgresql community.mysql community.general --force
 
@@ -529,6 +533,10 @@ run_destroy() {
 run_ansible_resume() {
     header "Phase 2 — Resuming Ansible (failed hosts only)"
     pushd "$ANSIBLE_DIR" > /dev/null
+
+    # Fix directory permissions so ansible.cfg is loaded
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
     local retry_file="site.retry"
     if [[ -f "$retry_file" ]]; then
