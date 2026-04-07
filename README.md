@@ -329,10 +329,13 @@ After confirming the summary, choose a run mode:
 
 ```
 [1] Full pipeline (Terraform + Ansible + Verify)   ← recommended for first run
-[2] Generate config files only                      ← if you want to review before running
+[2] Stop here — review config files before running  ← default
 [3] Terraform only                                  ← just provision VMs
 [4] Ansible only                                    ← VMs already exist, just deploy apps
+[5] Destroy all VMs                                 ← clean up a failed or previous run
 ```
+
+> **Re-running the wizard:** On subsequent runs, all prompts pre-fill with your previously saved values. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
 
 **Option 1** runs everything end-to-end. Expect **~20-30 minutes** total:
 - ~5 min for Terraform to create 3 VMs
@@ -565,14 +568,31 @@ petclinic.service: Main process exited, code=exited, status=1/FAILURE
 - **Terraform:** `terraform apply` is idempotent — safe to re-run
 - **Ansible:** All playbooks are idempotent — safe to re-run
 - **Wizard:** Running the wizard again overwrites config files, so confirm backup if needed
+- **Failed run?** Run `bash scripts/setup-interactive.sh --destroy` to clean up, then re-run
+
+### vSphere tags error (404 Not Found)
+```
+Error: error attaching tags to object ID "vm-xxxxx": 404 Not Found
+```
+- This means your vCenter doesn't support the tags API (common on AVS)
+- Pull the latest code — this has been fixed (tags removed)
 
 ---
 
 ## Cleanup
 
-### Destroy only the VMs (keep config)
+### Quick destroy via wizard
+```bash
+# Fastest way — skips the wizard, goes straight to destroy
+bash scripts/setup-interactive.sh --destroy
+```
+
+Or re-run the wizard and pick **option 5** at the end.
+
+### Destroy manually (keep config)
 ```bash
 cd terraform
+terraform init       # needed if .terraform/ is missing
 terraform destroy    # type "yes" to confirm
 ```
 
