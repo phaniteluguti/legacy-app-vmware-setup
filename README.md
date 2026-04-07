@@ -174,11 +174,22 @@ sudo apt install -y python3-pip
 pip install ansible
 ```
 
+```bash
+# Add pip install location to PATH (required — pip installs to ~/.local/bin which is not on PATH by default)
+echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+source ~/.bashrc
+```
+
+```bash
+# Verify Ansible is accessible
+ansible --version
+```
+
 > **Note:** If `pip install` gives a "externally-managed-environment" error on Ubuntu 23.04+, use:
 > ```bash
 > pip install ansible --break-system-packages
 > ```
-> Or install via APT instead: `sudo apt install -y ansible`
+> Or install via APT instead: `sudo apt install -y ansible` (no PATH fix needed with APT)
 
 **2a-3. Install Ansible Galaxy Collections:**
 
@@ -491,6 +502,18 @@ Azure Portal → Azure Migrate → Create project
 ---
 
 ## Troubleshooting
+
+### "command not found" after installing Ansible via pip
+```
+ansible: command not found
+```
+- `pip install` puts binaries in `~/.local/bin` which is not on PATH by default
+- Fix:
+  ```bash
+  echo 'export PATH="$HOME/.local/bin:$PATH"' >> ~/.bashrc
+  source ~/.bashrc
+  ```
+- Then retry: `ansible --version`
 
 ### Terraform can't connect to vCenter
 ```
