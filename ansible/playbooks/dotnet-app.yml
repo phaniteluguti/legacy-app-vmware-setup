@@ -16,6 +16,12 @@
       apt:
         update_cache: true
         cache_valid_time: 3600
+      ignore_errors: true
+
+    - name: Fix broken apt state
+      command: apt-get -f install -y
+      changed_when: false
+      ignore_errors: true
 
     - name: Install base packages
       apt:
