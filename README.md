@@ -127,32 +127,116 @@ cd legacy-app-vmware-setup
 
 ### Step 2: Install Tools on Your Machine
 
-**On Ubuntu/WSL:**
-```bash
-# Terraform
-wget -O- https://apt.releases.hashicorp.com/gpg | sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | sudo tee /etc/apt/sources.list.d/hashicorp.list
-sudo apt update && sudo apt install terraform
+You need **3 tools** on the machine where you'll run the scripts (your laptop, a jump box, or WSL):
 
-# Ansible
+| Tool | What It Does | Minimum Version |
+|------|-------------|-----------------|
+| Terraform | Creates VMs on VMware vSphere | 1.5+ |
+| Ansible | Installs apps & databases on the VMs over SSH | 2.14+ |
+| SSH client | Used by Ansible to connect to VMs | any |
+
+Pick your OS below and run **each command one at a time**.
+
+---
+
+#### Option A: Ubuntu / Debian / WSL (Recommended)
+
+**2a-1. Install Terraform:**
+
+```bash
+# Download and add HashiCorp's GPG key
+wget -O- https://apt.releases.hashicorp.com/gpg | \
+  sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+```
+
+```bash
+# Add the HashiCorp APT repository
+echo "deb [signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] \
+  https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
+  sudo tee /etc/apt/sources.list.d/hashicorp.list
+```
+
+```bash
+# Update package list and install Terraform
+sudo apt update
+sudo apt install -y terraform
+```
+
+**2a-2. Install Ansible:**
+
+```bash
+# Install pip if you don't have it
+sudo apt install -y python3-pip
+```
+
+```bash
+# Install Ansible via pip
 pip install ansible
+```
 
-# Ansible Galaxy collections (required)
+> **Note:** If `pip install` gives a "externally-managed-environment" error on Ubuntu 23.04+, use:
+> ```bash
+> pip install ansible --break-system-packages
+> ```
+> Or install via APT instead: `sudo apt install -y ansible`
+
+**2a-3. Install Ansible Galaxy Collections:**
+
+These are plugins Ansible needs to manage PostgreSQL, MySQL, etc.
+
+```bash
 ansible-galaxy collection install community.postgresql community.mysql community.general
 ```
 
-**On macOS:**
+**2a-4. Verify SSH is available:**
+
 ```bash
+# SSH is usually pre-installed on Ubuntu. Verify:
+ssh -V
+```
+
+If missing: `sudo apt install -y openssh-client`
+
+---
+
+#### Option B: macOS
+
+```bash
+# Install both tools via Homebrew
 brew install terraform ansible
+
+# Install Ansible Galaxy collections
 ansible-galaxy collection install community.postgresql community.mysql community.general
 ```
 
-**Verify:**
+---
+
+#### Option C: Windows (without WSL)
+
+> **Important:** Ansible does not run natively on Windows. Choose one of these paths:
+>
+> - **WSL2 (recommended):** Open PowerShell as Admin → `wsl --install` → reboot → then follow **Option A** above inside WSL
+> - **Azure Cloud Shell:** Has Terraform + Ansible pre-installed — no setup needed, just `git clone` and run there
+> - **Docker:** Run Ansible from a Linux container on Docker Desktop
+
+---
+
+#### Verify All Tools Are Installed
+
+Run these 3 commands. All must succeed before moving on:
+
 ```bash
-terraform --version   # should show >= 1.5
-ansible --version     # should show >= 2.14
-ssh -V                # any version is fine
+terraform --version
+# Expected: Terraform v1.5.0 or higher
+
+ansible --version
+# Expected: ansible [core 2.14.0] or higher
+
+ssh -V
+# Expected: OpenSSH_... (any version is fine)
 ```
+
+If any command says "command not found", go back and redo that installation step.
 
 ### Step 3: Prepare a VM Template in vSphere
 
