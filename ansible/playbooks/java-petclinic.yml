@@ -83,22 +83,22 @@
     - name: Create PetClinic database
       become: true
       become_user: postgres
-      become_method: sudo
       community.postgresql.postgresql_db:
         name: "{{ postgres_db }}"
         state: present
+        login_user: postgres
         login_unix_socket: /var/run/postgresql
 
     - name: Create PetClinic database user
       become: true
       become_user: postgres
-      become_method: sudo
       community.postgresql.postgresql_user:
         name: "{{ postgres_user }}"
         password: "{{ postgres_password }}"
         db: "{{ postgres_db }}"
         priv: "ALL"
         state: present
+        login_user: postgres
         login_unix_socket: /var/run/postgresql
 
     - name: Allow local password auth for petclinic user
