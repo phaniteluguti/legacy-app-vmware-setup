@@ -37,16 +37,27 @@
       shell: |
         wget -q https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
         dpkg -i /tmp/packages-microsoft-prod.deb
-        rm /tmp/packages-microsoft-prod.deb
+        rm -f /tmp/packages-microsoft-prod.deb
       args:
         creates: /etc/apt/sources.list.d/microsoft-prod.list
 
-    - name: Install .NET SDK {{ dotnet_sdk_version }}
+    - name: Remove conflicting dotnet packages
       apt:
         name:
-          - "dotnet-sdk-{{ dotnet_sdk_version }}"
-        state: present
-        update_cache: true
+          - dotnet-sdk-6.0
+          - dotnet-sdk-8.0
+          - dotnet-host
+          - dotnet-hostfxr-6.0
+          - dotnet-hostfxr-8.0
+        state: absent
+      ignore_errors: true
+
+    - name: Install .NET SDK via install script
+      shell: |
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel {{ dotnet_sdk_version }} --install-dir /usr/share/dotnet
+        ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+      args:
+        creates: /usr/share/dotnet/dotnet
 
     # ---------------------------------------------------------------
     # SQL Server 2022 Express
