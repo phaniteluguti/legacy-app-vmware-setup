@@ -1,0 +1,151 @@
+---
+# =============================================================================
+# Azure Migrate Preparation — Configures VMs for agentless discovery & assessment
+# Run AFTER app deployment playbooks
+# =============================================================================
+- name: Prepare VMs for Azure Migrate Discovery
+  hosts: legacy_apps
+  become: true
+
+  tasks:
+    # ---------------------------------------------------------------
+    # SSH Hardening & Discovery Requirements
+    # ---------------------------------------------------------------
+    - name: Ensure SSH is running and enabled
+      systemd:
+        name: ssh
+        state: started
+        enabled: true
+
+    - name: Ensure SSH allows password auth (for Azure Migrate if needed)
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PasswordAuthentication'
+        line: 'PasswordAuthentication yes'
+      notify: Restart SSH
+
+    - name: Ensure SSH allows pubkey auth
+      lineinfile:
+        path: /etc/ssh/sshd_config
+        regexp: '^#?PubkeyAuthentication'
+        line: 'PubkeyAuthentication yes'
+      notify: Restart SSH
+
+    # ---------------------------------------------------------------
+    # Performance monitoring prerequisites
+    # Azure Migrate uses these for right-sizing recommendations
+    # ---------------------------------------------------------------
+    - name: Install performance monitoring tools
+      apt:
+        name:
+          - sysstat
+          - iotop
+          - net-tools
+          - lsof
+        state: present
+        update_cache: true
+
+    - name: Enable sysstat collection (for CPU/memory/disk stats)
+      lineinfile:
+        path: /etc/default/sysstat
+        regexp: '^ENABLED='
+        line: 'ENABLED="true"'
+      notify: Restart sysstat
+
+    - name: Ensure sysstat is running
+      systemd:
+        name: sysstat
+        state: started
+        enabled: true
+
+    # ---------------------------------------------------------------
+    # Network discovery prerequisites
+    # ---------------------------------------------------------------
+    - name: Install network discovery tools
+      apt:
+        name:
+          - dmidecode
+          - lshw
+        state: present
+
+    - name: Ensure UFW allows SSH (port 22)
+      ufw:
+        rule: allow
+        port: "22"
+        proto: tcp
+      ignore_errors: true
+
+    - name: Enable UFW with default deny incoming
+      ufw:
+        state: enabled
+        default: deny
+        direction: incoming
+      ignore_errors: true
+
+    - name: Allow outgoing traffic
+      ufw:
+        state: enabled
+        default: allow
+        direction: outgoing
+      ignore_errors: true
+
+    # ---------------------------------------------------------------
+    # Dependency mapping — open required ports
+    # Azure Migrate Dependency Analysis uses port 443 outbound
+    # ---------------------------------------------------------------
+    - name: Allow HTTPS outbound (for Azure Migrate agent communication)
+      ufw:
+        rule: allow
+        port: "443"
+        proto: tcp
+        direction: out
+      ignore_errors: true
+
+    # ---------------------------------------------------------------
+    # Optional: Azure Migrate Dependency Agent
+    # ---------------------------------------------------------------
+    - name: Download Azure Migrate Dependency Agent
+      get_url:
+        url: https://aka.ms/dependencyagentlinux
+        dest: /tmp/InstallDependencyAgent-Linux64.bin
+        mode: "0755"
+      when: install_azure_migrate_agent | default(false)
+
+    - name: Install Azure Migrate Dependency Agent
+      shell: /tmp/InstallDependencyAgent-Linux64.bin -s
+      args:
+        creates: /opt/microsoft/dependency-agent
+      when: install_azure_migrate_agent | default(false)
+
+    # ---------------------------------------------------------------
+    # System information for assessment
+    # ---------------------------------------------------------------
+    - name: Gather system facts for verification
+      setup:
+        gather_subset:
+          - hardware
+          - network
+          - virtual
+
+    - name: Print VM discovery summary
+      debug:
+        msg: |
+          === Azure Migrate Discovery Info ===
+          Hostname:    {{ ansible_hostname }}
+          OS:          {{ ansible_distribution }} {{ ansible_distribution_version }}
+          CPUs:        {{ ansible_processor_vcpus }}
+          Memory MB:   {{ ansible_memtotal_mb }}
+          IP Address:  {{ ansible_default_ipv4.address | default('N/A') }}
+          Virtualization: {{ ansible_virtualization_type | default('N/A') }}
+          =========================================
+
+  handlers:
+    - name: Restart SSH
+      systemd:
+        name: ssh
+        state: restarted
+
+    - name: Restart sysstat
+      systemd:
+        name: sysstat
+        state: restarted

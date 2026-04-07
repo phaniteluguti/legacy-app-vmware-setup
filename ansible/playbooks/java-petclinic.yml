@@ -1,0 +1,239 @@
+---
+# =============================================================================
+# Java VM — Spring PetClinic + PostgreSQL 15
+# Deploys the PetClinic app from the AKS_APP_Mod_Demo repo as a systemd service
+# =============================================================================
+- name: Deploy Java PetClinic + PostgreSQL
+  hosts: java_servers
+  become: true
+  vars_files:
+    - ../group_vars/all.yml.example
+
+  tasks:
+    # ---------------------------------------------------------------
+    # System updates
+    # ---------------------------------------------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - gnupg2
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - lsb-release
+          - unzip
+        state: present
+
+    # ---------------------------------------------------------------
+    # Java JDK
+    # ---------------------------------------------------------------
+    - name: Install OpenJDK {{ java_version }}
+      apt:
+        name: "openjdk-{{ java_version }}-jdk"
+        state: present
+
+    - name: Set JAVA_HOME in /etc/environment
+      lineinfile:
+        path: /etc/environment
+        regexp: '^JAVA_HOME='
+        line: "JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+
+    # ---------------------------------------------------------------
+    # PostgreSQL 15
+    # ---------------------------------------------------------------
+    - name: Add PostgreSQL APT key
+      ansible.builtin.apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Add PostgreSQL APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        state: present
+
+    - name: Install PostgreSQL {{ postgres_version }}
+      apt:
+        name:
+          - "postgresql-{{ postgres_version }}"
+          - "postgresql-client-{{ postgres_version }}"
+          - python3-psycopg2
+        state: present
+        update_cache: true
+
+    - name: Ensure PostgreSQL is started and enabled
+      systemd:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Create PetClinic database
+      become_user: postgres
+      community.postgresql.postgresql_db:
+        name: "{{ postgres_db }}"
+        state: present
+
+    - name: Create PetClinic database user
+      become_user: postgres
+      community.postgresql.postgresql_user:
+        name: "{{ postgres_user }}"
+        password: "{{ postgres_password }}"
+        db: "{{ postgres_db }}"
+        priv: "ALL"
+        state: present
+
+    - name: Allow local password auth for petclinic user
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        insertbefore: '^local\s+all\s+all'
+        line: "local   {{ postgres_db }}   {{ postgres_user }}   md5"
+      notify: Restart PostgreSQL
+
+    - name: Allow TCP connections from localhost
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        insertafter: '^# IPv4 local connections'
+        line: "host    {{ postgres_db }}   {{ postgres_user }}   127.0.0.1/32   md5"
+      notify: Restart PostgreSQL
+
+    # ---------------------------------------------------------------
+    # Clone & Build PetClinic
+    # ---------------------------------------------------------------
+    - name: Create app directory
+      file:
+        path: /opt/petclinic
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Clone PetClinic repository
+      git:
+        repo: "{{ petclinic_repo }}"
+        dest: /opt/petclinic/repo
+        version: "{{ petclinic_branch }}"
+        force: true
+      become_user: "{{ ansible_user }}"
+
+    - name: Run local lab setup script (clones spring-petclinic inside repo)
+      shell: |
+        cd /opt/petclinic/repo
+        bash setup-local-lab-infra.sh
+      args:
+        creates: /opt/petclinic/repo/spring-petclinic
+      become_user: "{{ ansible_user }}"
+      ignore_errors: true
+
+    - name: Check if spring-petclinic exists from setup script
+      stat:
+        path: /opt/petclinic/repo/spring-petclinic
+      register: petclinic_from_setup
+
+    - name: Clone spring-petclinic directly if setup script didn't create it
+      git:
+        repo: "https://github.com/spring-projects/spring-petclinic.git"
+        dest: /opt/petclinic/repo/spring-petclinic
+        force: true
+      become_user: "{{ ansible_user }}"
+      when: not petclinic_from_setup.stat.exists
+
+    - name: Configure PostgreSQL connection in application.properties
+      copy:
+        dest: /opt/petclinic/repo/spring-petclinic/src/main/resources/application-postgres.properties
+        content: |
+          spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
+          spring.datasource.username={{ postgres_user }}
+          spring.datasource.password={{ postgres_password }}
+          spring.datasource.driver-class-name=org.postgresql.Driver
+          spring.jpa.hibernate.ddl-auto=create-drop
+          spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
+          spring.sql.init.mode=always
+          spring.sql.init.schema-locations=classpath:db/postgres/schema.sql
+          spring.sql.init.data-locations=classpath:db/postgres/data.sql
+        owner: "{{ ansible_user }}"
+
+    - name: Build PetClinic with Maven (skip tests for speed)
+      shell: |
+        cd /opt/petclinic/repo/spring-petclinic
+        ./mvnw clean package -DskipTests
+      become_user: "{{ ansible_user }}"
+      environment:
+        JAVA_HOME: "/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+      args:
+        creates: /opt/petclinic/repo/spring-petclinic/target/*.jar
+
+    - name: Find built JAR
+      find:
+        paths: /opt/petclinic/repo/spring-petclinic/target
+        patterns: "*.jar"
+        excludes: "*-sources.jar,*-javadoc.jar,original-*.jar"
+      register: jar_files
+
+    - name: Copy JAR to /opt/petclinic
+      copy:
+        src: "{{ jar_files.files[0].path }}"
+        dest: /opt/petclinic/petclinic.jar
+        remote_src: true
+        owner: "{{ ansible_user }}"
+      when: jar_files.files | length > 0
+
+    # ---------------------------------------------------------------
+    # systemd service
+    # ---------------------------------------------------------------
+    - name: Create PetClinic systemd service
+      copy:
+        dest: /etc/systemd/system/petclinic.service
+        content: |
+          [Unit]
+          Description=Spring PetClinic Application
+          After=network.target postgresql.service
+          Requires=postgresql.service
+
+          [Service]
+          Type=simple
+          User={{ ansible_user }}
+          WorkingDirectory=/opt/petclinic
+          ExecStart=/usr/bin/java -jar /opt/petclinic/petclinic.jar --spring.profiles.active=postgres --server.port={{ petclinic_app_port }}
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          Environment=JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart PetClinic
+
+    - name: Enable and start PetClinic service
+      systemd:
+        name: petclinic
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow PetClinic port through UFW
+      ufw:
+        rule: allow
+        port: "{{ petclinic_app_port }}"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart PostgreSQL
+      systemd:
+        name: postgresql
+        state: restarted
+
+    - name: Restart PetClinic
+      systemd:
+        name: petclinic
+        state: restarted

@@ -1,0 +1,46 @@
+# =============================================================================
+# Global Ansible variables — copy to all.yml and edit
+# =============================================================================
+
+# --- Common ---
+ansible_become: true
+ansible_python_interpreter: /usr/bin/python3
+
+# --- Java / PetClinic ---
+petclinic_repo: "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
+petclinic_branch: "main"
+java_version: "17"                    # JDK version to install
+petclinic_app_port: 8080
+
+# PostgreSQL
+postgres_version: "15"
+postgres_db: "petclinic"
+postgres_user: "petclinic"
+postgres_password: "P@ssw0rd!Change"  # CHANGE THIS
+
+# --- .NET / ASP.NET Core ---
+dotnet_sdk_version: "6.0"
+dotnet_app_repo: "https://github.com/dotnet/eShop.git"
+dotnet_app_branch: "main"
+dotnet_app_port: 5000
+
+# SQL Server
+mssql_edition: "express"
+mssql_sa_password: "Str0ngP@ss!2024"  # CHANGE THIS — must meet complexity
+mssql_db_name: "eShopDb"
+
+# --- PHP / Laravel ---
+php_version: "8.1"
+php_app_repo: "https://github.com/laravel/laravel.git"
+php_app_branch: "10.x"
+php_app_port: 80
+
+# MySQL
+mysql_root_password: "R00tP@ss!2024"  # CHANGE THIS
+mysql_db_name: "laravel_app"
+mysql_db_user: "laravel"
+mysql_db_password: "L@r@vel2024!"     # CHANGE THIS
+
+# --- Azure Migrate Discovery ---
+# Set to true to install Azure Migrate dependencies agent
+install_azure_migrate_agent: false

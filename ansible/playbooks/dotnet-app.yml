@@ -1,0 +1,269 @@
+---
+# =============================================================================
+# .NET VM — ASP.NET Core MVC sample + SQL Server 2022 Express on Ubuntu
+# =============================================================================
+- name: Deploy ASP.NET Core App + SQL Server
+  hosts: dotnet_servers
+  become: true
+  vars_files:
+    - ../group_vars/all.yml.example
+
+  tasks:
+    # ---------------------------------------------------------------
+    # System updates
+    # ---------------------------------------------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - gnupg2
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - nginx
+        state: present
+
+    # ---------------------------------------------------------------
+    # .NET SDK
+    # ---------------------------------------------------------------
+    - name: Add Microsoft package signing key
+      shell: |
+        wget -q https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
+        dpkg -i /tmp/packages-microsoft-prod.deb
+        rm /tmp/packages-microsoft-prod.deb
+      args:
+        creates: /etc/apt/sources.list.d/microsoft-prod.list
+
+    - name: Install .NET SDK {{ dotnet_sdk_version }}
+      apt:
+        name:
+          - "dotnet-sdk-{{ dotnet_sdk_version }}"
+        state: present
+        update_cache: true
+
+    # ---------------------------------------------------------------
+    # SQL Server 2022 Express
+    # ---------------------------------------------------------------
+    - name: Add SQL Server APT key
+      ansible.builtin.apt_key:
+        url: https://packages.microsoft.com/keys/microsoft.asc
+        state: present
+
+    - name: Add SQL Server APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb [arch=amd64] https://packages.microsoft.com/ubuntu/{{ ansible_distribution_version }}/mssql-server-2022 {{ ansible_distribution_release }} main"
+        state: present
+        filename: mssql-server-2022
+
+    - name: Install SQL Server 2022
+      apt:
+        name: mssql-server
+        state: present
+        update_cache: true
+
+    - name: Configure SQL Server Express edition
+      shell: |
+        MSSQL_SA_PASSWORD="{{ mssql_sa_password }}" \
+        MSSQL_PID="{{ mssql_edition }}" \
+        /opt/mssql/bin/mssql-conf -n setup accept-eula
+      args:
+        creates: /var/opt/mssql/.system/entropy.bin
+      environment:
+        ACCEPT_EULA: "Y"
+
+    - name: Ensure SQL Server is started
+      systemd:
+        name: mssql-server
+        state: started
+        enabled: true
+
+    - name: Install SQL Server command-line tools
+      apt:
+        name:
+          - mssql-tools18
+          - unixodbc-dev
+        state: present
+        update_cache: true
+      environment:
+        ACCEPT_EULA: "Y"
+
+    - name: Add sqlcmd to PATH
+      lineinfile:
+        path: /etc/environment
+        regexp: '/opt/mssql-tools18/bin'
+        line: 'PATH="/opt/mssql-tools18/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"'
+
+    - name: Wait for SQL Server to be ready
+      shell: /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "SELECT 1"
+      register: sql_ready
+      retries: 10
+      delay: 5
+      until: sql_ready.rc == 0
+
+    - name: Create application database
+      shell: |
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "
+        IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '{{ mssql_db_name }}')
+        BEGIN CREATE DATABASE [{{ mssql_db_name }}] END"
+
+    # ---------------------------------------------------------------
+    # Sample .NET App — Create a simple MVC app
+    # ---------------------------------------------------------------
+    - name: Create app directory
+      file:
+        path: /opt/dotnet-app
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Scaffold a new ASP.NET Core MVC application
+      shell: |
+        dotnet new mvc -n LegacyWebApp -o /opt/dotnet-app/LegacyWebApp --no-https
+      args:
+        creates: /opt/dotnet-app/LegacyWebApp/LegacyWebApp.csproj
+      become_user: "{{ ansible_user }}"
+
+    - name: Add SQL Server EF Core packages
+      shell: |
+        cd /opt/dotnet-app/LegacyWebApp
+        dotnet add package Microsoft.EntityFrameworkCore.SqlServer
+        dotnet add package Microsoft.EntityFrameworkCore.Design
+      become_user: "{{ ansible_user }}"
+
+    - name: Set connection string in appsettings.json
+      copy:
+        dest: /opt/dotnet-app/LegacyWebApp/appsettings.json
+        content: |
+          {
+            "ConnectionStrings": {
+              "DefaultConnection": "Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
+            },
+            "Logging": {
+              "LogLevel": {
+                "Default": "Information",
+                "Microsoft.AspNetCore": "Warning"
+              }
+            },
+            "AllowedHosts": "*",
+            "Kestrel": {
+              "Endpoints": {
+                "Http": {
+                  "Url": "http://0.0.0.0:{{ dotnet_app_port }}"
+                }
+              }
+            }
+          }
+        owner: "{{ ansible_user }}"
+
+    - name: Build the .NET application
+      shell: |
+        cd /opt/dotnet-app/LegacyWebApp
+        dotnet publish -c Release -o /opt/dotnet-app/published
+      become_user: "{{ ansible_user }}"
+
+    # ---------------------------------------------------------------
+    # systemd service
+    # ---------------------------------------------------------------
+    - name: Create .NET app systemd service
+      copy:
+        dest: /etc/systemd/system/dotnet-app.service
+        content: |
+          [Unit]
+          Description=ASP.NET Core Legacy Web Application
+          After=network.target mssql-server.service
+          Requires=mssql-server.service
+
+          [Service]
+          Type=simple
+          User={{ ansible_user }}
+          WorkingDirectory=/opt/dotnet-app/published
+          ExecStart=/usr/bin/dotnet /opt/dotnet-app/published/LegacyWebApp.dll
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          Environment=ASPNETCORE_ENVIRONMENT=Production
+          Environment=DOTNET_CLI_HOME=/tmp
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart DotNet App
+
+    - name: Enable and start .NET app
+      systemd:
+        name: dotnet-app
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    # ---------------------------------------------------------------
+    # Nginx reverse proxy
+    # ---------------------------------------------------------------
+    - name: Configure Nginx as reverse proxy for .NET app
+      copy:
+        dest: /etc/nginx/sites-available/dotnet-app
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ dotnet_app_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/dotnet-app
+        dest: /etc/nginx/sites-enabled/dotnet-app
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
+    - name: Allow SQL Server port through UFW
+      ufw:
+        rule: allow
+        port: "1433"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart DotNet App
+      systemd:
+        name: dotnet-app
+        state: restarted
+
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted

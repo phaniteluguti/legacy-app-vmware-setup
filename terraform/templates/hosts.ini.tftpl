@@ -1,0 +1,13 @@
+[java_servers]
+${java_ip} ansible_user=${ssh_user} ansible_ssh_private_key_file=${ssh_key}
+
+[dotnet_servers]
+${dotnet_ip} ansible_user=${ssh_user} ansible_ssh_private_key_file=${ssh_key}
+
+[php_servers]
+${php_ip} ansible_user=${ssh_user} ansible_ssh_private_key_file=${ssh_key}
+
+[legacy_apps:children]
+java_servers
+dotnet_servers
+php_servers

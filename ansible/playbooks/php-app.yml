@@ -1,0 +1,276 @@
+---
+# =============================================================================
+# PHP VM — Laravel sample app + MySQL 8.0 + Apache2
+# =============================================================================
+- name: Deploy PHP Laravel App + MySQL
+  hosts: php_servers
+  become: true
+  vars_files:
+    - ../group_vars/all.yml.example
+
+  tasks:
+    # ---------------------------------------------------------------
+    # System updates
+    # ---------------------------------------------------------------
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name:
+          - git
+          - curl
+          - wget
+          - gnupg2
+          - software-properties-common
+          - apt-transport-https
+          - ca-certificates
+          - unzip
+          - acl
+        state: present
+
+    # ---------------------------------------------------------------
+    # PHP 8.1
+    # ---------------------------------------------------------------
+    - name: Add PHP PPA repository
+      ansible.builtin.apt_repository:
+        repo: "ppa:ondrej/php"
+        state: present
+
+    - name: Install PHP {{ php_version }} and extensions
+      apt:
+        name:
+          - "php{{ php_version }}"
+          - "php{{ php_version }}-cli"
+          - "php{{ php_version }}-fpm"
+          - "php{{ php_version }}-mysql"
+          - "php{{ php_version }}-xml"
+          - "php{{ php_version }}-mbstring"
+          - "php{{ php_version }}-curl"
+          - "php{{ php_version }}-zip"
+          - "php{{ php_version }}-gd"
+          - "php{{ php_version }}-bcmath"
+          - "php{{ php_version }}-intl"
+          - "php{{ php_version }}-readline"
+          - "libapache2-mod-php{{ php_version }}"
+        state: present
+        update_cache: true
+
+    # ---------------------------------------------------------------
+    # Composer
+    # ---------------------------------------------------------------
+    - name: Download Composer installer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-setup.php
+
+    - name: Install Composer globally
+      shell: |
+        php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      args:
+        creates: /usr/local/bin/composer
+
+    # ---------------------------------------------------------------
+    # MySQL 8.0
+    # ---------------------------------------------------------------
+    - name: Install MySQL 8.0
+      apt:
+        name:
+          - mysql-server
+          - mysql-client
+          - python3-pymysql
+        state: present
+
+    - name: Ensure MySQL is started and enabled
+      systemd:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Set MySQL root password
+      community.mysql.mysql_user:
+        name: root
+        password: "{{ mysql_root_password }}"
+        login_unix_socket: /var/run/mysqld/mysqld.sock
+        host: localhost
+        state: present
+
+    - name: Create Laravel database
+      community.mysql.mysql_db:
+        name: "{{ mysql_db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create Laravel database user
+      community.mysql.mysql_user:
+        name: "{{ mysql_db_user }}"
+        password: "{{ mysql_db_password }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        host: "localhost"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    # ---------------------------------------------------------------
+    # Apache2
+    # ---------------------------------------------------------------
+    - name: Install Apache2
+      apt:
+        name: apache2
+        state: present
+
+    - name: Enable Apache mod_rewrite
+      apache2_module:
+        name: rewrite
+        state: present
+      notify: Restart Apache
+
+    - name: Enable Apache mod_php
+      apache2_module:
+        name: "php{{ php_version }}"
+        state: present
+      notify: Restart Apache
+
+    # ---------------------------------------------------------------
+    # Deploy Laravel App
+    # ---------------------------------------------------------------
+    - name: Create web app directory
+      file:
+        path: /var/www/laravel
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Clone Laravel repository
+      git:
+        repo: "{{ php_app_repo }}"
+        dest: /var/www/laravel
+        version: "{{ php_app_branch }}"
+        force: true
+      notify: Set Laravel permissions
+
+    - name: Install Composer dependencies
+      shell: |
+        cd /var/www/laravel
+        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+      environment:
+        COMPOSER_ALLOW_SUPERUSER: "1"
+      args:
+        creates: /var/www/laravel/vendor
+
+    - name: Copy .env file
+      copy:
+        src: /var/www/laravel/.env.example
+        dest: /var/www/laravel/.env
+        remote_src: true
+        owner: www-data
+        group: www-data
+        force: false
+
+    - name: Configure .env database settings
+      lineinfile:
+        path: /var/www/laravel/.env
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^DB_CONNECTION=', line: 'DB_CONNECTION=mysql' }
+        - { regexp: '^DB_HOST=', line: 'DB_HOST=127.0.0.1' }
+        - { regexp: '^DB_PORT=', line: 'DB_PORT=3306' }
+        - { regexp: '^DB_DATABASE=', line: 'DB_DATABASE={{ mysql_db_name }}' }
+        - { regexp: '^DB_USERNAME=', line: 'DB_USERNAME={{ mysql_db_user }}' }
+        - { regexp: '^DB_PASSWORD=', line: 'DB_PASSWORD={{ mysql_db_password }}' }
+
+    - name: Generate Laravel application key
+      shell: |
+        cd /var/www/laravel
+        php artisan key:generate --force
+      args:
+        creates: /var/www/laravel/storage/framework/sessions/.gitkeep
+
+    - name: Run Laravel migrations
+      shell: |
+        cd /var/www/laravel
+        php artisan migrate --force
+      ignore_errors: true
+
+    - name: Set Laravel directory permissions
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0775"
+        recurse: true
+      loop:
+        - /var/www/laravel/storage
+        - /var/www/laravel/bootstrap/cache
+
+    # ---------------------------------------------------------------
+    # Apache Virtual Host
+    # ---------------------------------------------------------------
+    - name: Configure Apache virtual host for Laravel
+      copy:
+        dest: /etc/apache2/sites-available/laravel.conf
+        content: |
+          <VirtualHost *:80>
+              ServerName localhost
+              DocumentRoot /var/www/laravel/public
+
+              <Directory /var/www/laravel/public>
+                  AllowOverride All
+                  Require all granted
+                  Options -Indexes +FollowSymLinks
+              </Directory>
+
+              ErrorLog ${APACHE_LOG_DIR}/laravel-error.log
+              CustomLog ${APACHE_LOG_DIR}/laravel-access.log combined
+          </VirtualHost>
+      notify: Restart Apache
+
+    - name: Enable Laravel site
+      shell: a2ensite laravel.conf
+      notify: Restart Apache
+
+    - name: Disable default Apache site
+      shell: a2dissite 000-default.conf
+      notify: Restart Apache
+
+    - name: Ensure Apache is started and enabled
+      systemd:
+        name: apache2
+        state: started
+        enabled: true
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
+    - name: Allow MySQL port through UFW
+      ufw:
+        rule: allow
+        port: "3306"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart Apache
+      systemd:
+        name: apache2
+        state: restarted
+
+    - name: Set Laravel permissions
+      file:
+        path: /var/www/laravel
+        owner: www-data
+        group: www-data
+        recurse: true
