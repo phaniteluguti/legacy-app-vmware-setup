@@ -469,7 +469,40 @@ run_verify() {
 }
 
 # ---------------------------------------------------------------------------
+run_destroy() {
+    header "Destroying VMs (Terraform Destroy)"
+    pushd "$TF_DIR" > /dev/null
+
+    if [[ ! -f "terraform.tfstate" ]] && [[ ! -f ".terraform/terraform.tfstate" ]]; then
+        warn "No Terraform state found. Nothing to destroy."
+        warn "If VMs were created, delete them manually in vCenter."
+        popd > /dev/null
+        return
+    fi
+
+    step "terraform init ..."
+    terraform init -input=false
+
+    step "terraform destroy ..."
+    terraform destroy -auto-approve
+
+    step "VMs destroyed successfully."
+    popd > /dev/null
+}
+
+# ---------------------------------------------------------------------------
 main() {
+    # Handle --destroy flag for quick cleanup
+    if [[ "${1:-}" == "--destroy" || "${1:-}" == "destroy" ]]; then
+        echo ""
+        echo -e "  ${R}================================================================${NC}"
+        echo -e "  ${R}     Terraform Destroy — Remove All VMs${NC}"
+        echo -e "  ${R}================================================================${NC}"
+        echo ""
+        run_destroy
+        exit 0
+    fi
+
     echo ""
     echo -e "  ${C}================================================================${NC}"
     echo -e "  ${C}     Legacy App Lab — Interactive Setup Wizard${NC}"
@@ -519,6 +552,7 @@ main() {
     echo -e "    ${G}2)${NC} Stop here — I'll run Terraform & Ansible myself later"
     echo -e "    ${G}3)${NC} Terraform only (provision VMs)"
     echo -e "    ${G}4)${NC} Ansible only (deploy to existing VMs)"
+    echo -e "    ${G}5)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -529,6 +563,7 @@ main() {
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
         3) run_terraform ;;
         4) run_ansible; run_verify ;;
+        5) run_destroy ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }

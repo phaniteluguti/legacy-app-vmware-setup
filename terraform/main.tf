@@ -112,11 +112,6 @@ resource "vsphere_virtual_machine" "vm" {
     }
   }
 
-  tags = [
-    "legacy-app",
-    "azure-migrate-target"
-  ]
-
   lifecycle {
     ignore_changes = [
       annotation,
