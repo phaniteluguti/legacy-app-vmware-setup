@@ -122,26 +122,19 @@
         group: "{{ ansible_user }}"
         mode: "0755"
 
+    - name: Remove stale petclinic repo directory
+      file:
+        path: /opt/petclinic/repo
+        state: absent
+
+    - name: Set git safe.directory globally
+      command: git config --global --add safe.directory '*'
+      changed_when: false
+
     - name: Clone PetClinic repository
-      shell: |
-        git config --global --add safe.directory '*'
-        rm -rf /opt/petclinic/repo
-        git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
-        chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo
-      args:
-        executable: /bin/bash
+      command: git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
 
-    - name: Run local lab setup script (clones spring-petclinic inside repo)
-      shell: |
-        cd /opt/petclinic/repo
-        git config --global --add safe.directory /opt/petclinic/repo/spring-petclinic
-        bash setup-local-lab-infra.sh
-      args:
-        creates: /opt/petclinic/repo/spring-petclinic
-        executable: /bin/bash
-      ignore_errors: true
-
-    - name: Fix ownership after setup script
+    - name: Fix repo ownership
       file:
         path: /opt/petclinic/repo
         state: directory
@@ -149,19 +142,31 @@
         group: "{{ ansible_user }}"
         recurse: true
 
+    - name: Run local lab setup script (clones spring-petclinic inside repo)
+      shell: |
+        cd /opt/petclinic/repo
+        bash setup-local-lab-infra.sh
+      args:
+        creates: /opt/petclinic/repo/spring-petclinic
+        executable: /bin/bash
+      ignore_errors: true
+
     - name: Check if spring-petclinic exists from setup script
       stat:
         path: /opt/petclinic/repo/spring-petclinic
       register: petclinic_from_setup
 
     - name: Clone spring-petclinic directly if setup script didn't create it
-      shell: |
-        git config --global --add safe.directory /opt/petclinic/repo/spring-petclinic
-        rm -rf /opt/petclinic/repo/spring-petclinic
-        git clone https://github.com/spring-projects/spring-petclinic.git /opt/petclinic/repo/spring-petclinic
-        chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo/spring-petclinic
-      args:
-        executable: /bin/bash
+      command: git clone https://github.com/spring-projects/spring-petclinic.git /opt/petclinic/repo/spring-petclinic
+      when: not petclinic_from_setup.stat.exists
+
+    - name: Fix all petclinic ownership
+      file:
+        path: /opt/petclinic
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
       when: not petclinic_from_setup.stat.exists
 
     - name: Configure PostgreSQL connection in application.properties
