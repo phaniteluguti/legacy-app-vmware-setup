@@ -538,9 +538,6 @@ run_ansible_resume() {
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
-    step "Installing Ansible Galaxy collections..."
-    ansible-galaxy collection install community.postgresql community.mysql community.general --force
-
     if [[ -f "site.retry" ]]; then
         step "Previous retry file found with failed hosts: $(cat site.retry)"
         rm -f site.retry
