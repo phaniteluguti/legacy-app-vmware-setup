@@ -125,17 +125,18 @@
 
     - name: Scaffold a new ASP.NET Core MVC application
       shell: |
-        dotnet new mvc -n LegacyWebApp -o /opt/dotnet-app/LegacyWebApp --no-https
+        sudo -u {{ ansible_user }} dotnet new mvc -n LegacyWebApp -o /opt/dotnet-app/LegacyWebApp --no-https
       args:
         creates: /opt/dotnet-app/LegacyWebApp/LegacyWebApp.csproj
-      become_user: "{{ ansible_user }}"
+        executable: /bin/bash
 
     - name: Add SQL Server EF Core packages
       shell: |
         cd /opt/dotnet-app/LegacyWebApp
-        dotnet add package Microsoft.EntityFrameworkCore.SqlServer
-        dotnet add package Microsoft.EntityFrameworkCore.Design
-      become_user: "{{ ansible_user }}"
+        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.SqlServer
+        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.Design
+      args:
+        executable: /bin/bash
 
     - name: Set connection string in appsettings.json
       copy:
@@ -165,8 +166,9 @@
     - name: Build the .NET application
       shell: |
         cd /opt/dotnet-app/LegacyWebApp
-        dotnet publish -c Release -o /opt/dotnet-app/published
-      become_user: "{{ ansible_user }}"
+        sudo -u {{ ansible_user }} dotnet publish -c Release -o /opt/dotnet-app/published
+      args:
+        executable: /bin/bash
 
     # ---------------------------------------------------------------
     # systemd service

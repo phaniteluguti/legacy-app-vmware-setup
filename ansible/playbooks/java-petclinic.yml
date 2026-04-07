@@ -119,15 +119,20 @@
         path: /opt/petclinic
         state: directory
         owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
         mode: "0755"
 
     - name: Clone PetClinic repository
-      git:
-        repo: "{{ petclinic_repo }}"
-        dest: /opt/petclinic/repo
-        version: "{{ petclinic_branch }}"
-        force: true
-      become_user: "{{ ansible_user }}"
+      shell: |
+        if [ -d /opt/petclinic/repo/.git ]; then
+          cd /opt/petclinic/repo && git fetch --all && git reset --hard origin/{{ petclinic_branch }}
+        else
+          rm -rf /opt/petclinic/repo
+          git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
+        fi
+        chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo
+      args:
+        executable: /bin/bash
 
     - name: Run local lab setup script (clones spring-petclinic inside repo)
       shell: |
@@ -135,7 +140,7 @@
         bash setup-local-lab-infra.sh
       args:
         creates: /opt/petclinic/repo/spring-petclinic
-      become_user: "{{ ansible_user }}"
+        executable: /bin/bash
       ignore_errors: true
 
     - name: Check if spring-petclinic exists from setup script
@@ -144,11 +149,12 @@
       register: petclinic_from_setup
 
     - name: Clone spring-petclinic directly if setup script didn't create it
-      git:
-        repo: "https://github.com/spring-projects/spring-petclinic.git"
-        dest: /opt/petclinic/repo/spring-petclinic
-        force: true
-      become_user: "{{ ansible_user }}"
+      shell: |
+        rm -rf /opt/petclinic/repo/spring-petclinic
+        git clone https://github.com/spring-projects/spring-petclinic.git /opt/petclinic/repo/spring-petclinic
+        chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo/spring-petclinic
+      args:
+        executable: /bin/bash
       when: not petclinic_from_setup.stat.exists
 
     - name: Configure PostgreSQL connection in application.properties
@@ -169,11 +175,9 @@
     - name: Build PetClinic with Maven (skip tests for speed)
       shell: |
         cd /opt/petclinic/repo/spring-petclinic
-        ./mvnw clean package -DskipTests
-      become_user: "{{ ansible_user }}"
-      environment:
-        JAVA_HOME: "/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
+        sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests'
       args:
+        executable: /bin/bash
         creates: /opt/petclinic/repo/spring-petclinic/target/*.jar
 
     - name: Find built JAR
