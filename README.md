@@ -143,39 +143,14 @@ Pick your OS below and run **each command one at a time**.
 
 **2a-1. Install Terraform:**
 
-There are two methods. Try **Method A** first; if it fails with "Unable to locate package", use **Method B**.
-
-**Method A — APT repository:**
-
 ```bash
-# Add HashiCorp GPG key
-wget -O- https://apt.releases.hashicorp.com/gpg | \
-  sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
-```
-
-```bash
-# Add the repo (make sure this is ONE line with no extra spaces)
-echo "deb [arch=amd64 signed-by=/usr/share/keyrings/hashicorp-archive-keyring.gpg] https://apt.releases.hashicorp.com $(lsb_release -cs) main" | \
-  sudo tee /etc/apt/sources.list.d/hashicorp.list
-```
-
-```bash
-sudo apt update
-sudo apt install -y terraform
-```
-
-**Method B — Direct binary download (works on any Ubuntu):**
-
-If Method A gives `E: Unable to locate package terraform`, use this instead:
-
-```bash
-# Download the latest Terraform binary
+# Download Terraform binary
 TERRAFORM_VERSION="1.9.8"
 wget "https://releases.hashicorp.com/terraform/${TERRAFORM_VERSION}/terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
 ```
 
 ```bash
-# Unzip and install
+# Unzip and move to PATH
 sudo apt install -y unzip
 unzip "terraform_${TERRAFORM_VERSION}_linux_amd64.zip"
 sudo mv terraform /usr/local/bin/
