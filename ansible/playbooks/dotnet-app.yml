@@ -84,15 +84,26 @@
         state: present
         update_cache: true
 
+    - name: Check if SQL Server is already configured
+      shell: systemctl is-active mssql-server
+      register: mssql_status
+      ignore_errors: true
+      changed_when: false
+
+    - name: Stop SQL Server for reconfiguration
+      systemd:
+        name: mssql-server
+        state: stopped
+      when: mssql_status.rc != 0
+
     - name: Configure SQL Server Express edition
       shell: |
         MSSQL_SA_PASSWORD="{{ mssql_sa_password }}" \
         MSSQL_PID="{{ mssql_edition }}" \
         /opt/mssql/bin/mssql-conf -n setup accept-eula
-      args:
-        creates: /var/opt/mssql/.system/entropy.bin
       environment:
         ACCEPT_EULA: "Y"
+      when: mssql_status.rc != 0
 
     - name: Ensure SQL Server is started
       systemd:
