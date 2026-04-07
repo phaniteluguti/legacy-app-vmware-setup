@@ -570,6 +570,9 @@ main() {
         echo -e "  ${C}================================================================${NC}"
         echo ""
         check_prerequisites
+        load_previous
+        JAVA_IP="$PREV_JAVA_IP"; DOTNET_IP="$PREV_DOTNET_IP"; PHP_IP="$PREV_PHP_IP"
+        VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         run_ansible_resume
         run_verify
         exit 0
