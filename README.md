@@ -146,8 +146,10 @@ Pick your OS below and run **each command one at a time**.
 ```bash
 # Download and add HashiCorp's GPG key
 wget -O- https://apt.releases.hashicorp.com/gpg | \
-  sudo gpg --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
+  sudo gpg --batch --yes --dearmor -o /usr/share/keyrings/hashicorp-archive-keyring.gpg
 ```
+
+> **If you see** `Overwrite? (y/N)` — that means the key already exists. The `--batch --yes` flags above handle this automatically. If you ran the old command without those flags, just type `y` and press Enter.
 
 ```bash
 # Add the HashiCorp APT repository
