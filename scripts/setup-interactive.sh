@@ -155,7 +155,7 @@ load_previous() {
 check_prerequisites() {
     header "Checking Prerequisites"
     local missing=()
-    for cmd in terraform ansible-playbook ssh; do
+    for cmd in terraform ansible-playbook ssh sshpass; do
         if command -v "$cmd" &>/dev/null; then
             step "$cmd ... found"
         else
@@ -165,6 +165,7 @@ check_prerequisites() {
     done
     if [[ ${#missing[@]} -gt 0 ]]; then
         err "Missing: ${missing[*]}. Install and re-run."
+        echo -e "  ${GR}Hint: sudo apt install -y sshpass  (for password-based SSH)${NC}"
         exit 1
     fi
     step "All prerequisites met."
@@ -439,8 +440,43 @@ run_ansible() {
     step "Installing Ansible Galaxy collections..."
     ansible-galaxy collection install community.postgresql community.mysql community.general --force
 
-    step "Running master playbook (15-30 min)..."
-    ansible-playbook -i inventory/hosts.ini site.yml -v
+    local max_retries=3
+    local attempt=1
+    local retry_file=""
+
+    while [[ $attempt -le $max_retries ]]; do
+        if [[ $attempt -eq 1 && -z "$retry_file" ]]; then
+            step "Running master playbook (attempt $attempt/$max_retries)..."
+            ansible-playbook -i inventory/hosts.ini site.yml -v && break
+        else
+            step "Retrying failed tasks (attempt $attempt/$max_retries)..."
+            ansible-playbook -i inventory/hosts.ini site.yml -v --limit @site.retry && break
+        fi
+
+        if [[ -f "site.retry" ]]; then
+            retry_file="site.retry"
+            warn "Attempt $attempt failed. Hosts with failures: $(cat site.retry)"
+        fi
+
+        if [[ $attempt -lt $max_retries ]]; then
+            step "Waiting 30s before retry..."
+            sleep 30
+        fi
+        ((attempt++))
+    done
+
+    if [[ $attempt -gt $max_retries ]]; then
+        err "Ansible failed after $max_retries attempts."
+        echo -e "  ${Y}To resume later, run:${NC}"
+        echo -e "    ${GR}cd ansible${NC}"
+        if [[ -f "site.retry" ]]; then
+            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini site.yml -v --limit @site.retry${NC}"
+        else
+            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini site.yml -v${NC}"
+        fi
+        popd > /dev/null
+        return 1
+    fi
 
     popd > /dev/null
 }
@@ -490,6 +526,23 @@ run_destroy() {
     popd > /dev/null
 }
 
+run_ansible_resume() {
+    header "Phase 2 — Resuming Ansible (failed hosts only)"
+    pushd "$ANSIBLE_DIR" > /dev/null
+
+    local retry_file="site.retry"
+    if [[ -f "$retry_file" ]]; then
+        step "Found retry file with hosts: $(cat "$retry_file")"
+        step "Resuming playbook for failed hosts..."
+        ansible-playbook -i inventory/hosts.ini site.yml -v --limit "@$retry_file"
+    else
+        warn "No retry file found. Running full playbook..."
+        ansible-playbook -i inventory/hosts.ini site.yml -v
+    fi
+
+    popd > /dev/null
+}
+
 # ---------------------------------------------------------------------------
 main() {
     # Handle --destroy flag for quick cleanup
@@ -500,6 +553,19 @@ main() {
         echo -e "  ${R}================================================================${NC}"
         echo ""
         run_destroy
+        exit 0
+    fi
+
+    # Handle --resume flag to retry failed Ansible hosts
+    if [[ "${1:-}" == "--resume" || "${1:-}" == "resume" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Resume Ansible — Retry Failed Hosts${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        run_ansible_resume
+        run_verify
         exit 0
     fi
 
@@ -552,7 +618,8 @@ main() {
     echo -e "    ${G}2)${NC} Stop here — I'll run Terraform & Ansible myself later"
     echo -e "    ${G}3)${NC} Terraform only (provision VMs)"
     echo -e "    ${G}4)${NC} Ansible only (deploy to existing VMs)"
-    echo -e "    ${G}5)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
+    echo -e "    ${G}5)${NC} Resume Ansible (retry failed hosts only)"
+    echo -e "    ${G}6)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -563,7 +630,8 @@ main() {
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
         3) run_terraform ;;
         4) run_ansible; run_verify ;;
-        5) run_destroy ;;
+        5) run_ansible_resume; run_verify ;;
+        6) run_destroy ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }

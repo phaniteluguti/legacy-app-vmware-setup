@@ -570,6 +570,23 @@ petclinic.service: Main process exited, code=exited, status=1/FAILURE
 - **Wizard:** Running the wizard again overwrites config files, so confirm backup if needed
 - **Failed run?** Run `bash scripts/setup-interactive.sh --destroy` to clean up, then re-run
 
+### Resuming after Ansible failure
+If Ansible fails (e.g., SSH connection timeout, missing sshpass), you can resume without re-running Terraform:
+
+```bash
+# Resume — retries only the failed hosts
+bash scripts/setup-interactive.sh --resume
+```
+
+Or re-run the wizard and pick **option 5 (Resume Ansible)** at the menu.
+
+The script uses Ansible retry files (`.retry`) to track which hosts failed and only re-runs against those hosts.
+
+**Common fix before resuming:** If you see `"you must install the sshpass program"`, run:
+```bash
+sudo apt install -y sshpass
+```
+
 ### vSphere tags error (404 Not Found)
 ```
 Error: error attaching tags to object ID "vm-xxxxx": 404 Not Found
@@ -587,7 +604,7 @@ Error: error attaching tags to object ID "vm-xxxxx": 404 Not Found
 bash scripts/setup-interactive.sh --destroy
 ```
 
-Or re-run the wizard and pick **option 5** at the end.
+Or re-run the wizard and pick **option 6** at the end.
 
 ### Destroy manually (keep config)
 ```bash
