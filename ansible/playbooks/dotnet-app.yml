@@ -213,7 +213,7 @@
           Type=simple
           User={{ ansible_user }}
           WorkingDirectory=/opt/dotnet-app/published
-          ExecStart=/usr/bin/dotnet /opt/dotnet-app/published/LegacyWebApp.dll
+          ExecStart=/usr/local/bin/dotnet /opt/dotnet-app/published/LegacyWebApp.dll
           Restart=on-failure
           RestartSec=10
           StandardOutput=journal
