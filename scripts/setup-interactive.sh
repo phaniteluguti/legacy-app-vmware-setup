@@ -84,7 +84,7 @@ prompt_ip() {
 # Helper: extract value for a key from terraform.tfvars
 tfval() { grep -m1 "^${1} " "$TFVARS_FILE" 2>/dev/null | sed 's/.*= *"\?\([^"]*\)"\?/\1/' || echo "$2"; }
 # Helper: extract value for a key from ansible all.yml  
-ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed 's/.*: *"\?\([^"]*\)"\?/\1/' || echo "$2"; }
+ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed "s/^${1}: *\"\{0,1\}\([^\"]*\)\"\{0,1\}/\1/" || echo "$2"; }
 
 load_previous() {
     # Initialize all defaults to hard-coded values
