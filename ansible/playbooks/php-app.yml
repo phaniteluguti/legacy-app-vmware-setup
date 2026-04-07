@@ -6,7 +6,7 @@
   hosts: php_servers
   become: true
   vars_files:
-    - ../group_vars/all.yml.example
+    - ../group_vars/all.yml
 
   tasks:
     # ---------------------------------------------------------------

@@ -7,7 +7,7 @@
   hosts: java_servers
   become: true
   vars_files:
-    - ../group_vars/all.yml.example
+    - ../group_vars/all.yml
 
   tasks:
     # ---------------------------------------------------------------
@@ -73,6 +73,12 @@
         name: postgresql
         state: started
         enabled: true
+
+    - name: Wait for PostgreSQL to accept connections
+      wait_for:
+        path: /var/run/postgresql/.s.PGSQL.5432
+        state: present
+        timeout: 30
 
     - name: Create PetClinic database
       become_user: postgres
