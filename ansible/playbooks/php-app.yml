@@ -89,13 +89,21 @@
         state: started
         enabled: true
 
-    - name: Set MySQL root password
-      community.mysql.mysql_user:
-        name: root
-        password: "{{ mysql_root_password }}"
-        login_unix_socket: /var/run/mysqld/mysqld.sock
-        host: localhost
-        state: present
+    - name: Set MySQL root password and create .my.cnf
+      shell: |
+        # Try socket auth first (fresh install), then password auth (re-run)
+        mysql --defaults-file=/dev/null -u root -S /var/run/mysqld/mysqld.sock -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}'; FLUSH PRIVILEGES;" 2>/dev/null || \
+        mysql -u root -p'{{ mysql_root_password }}' -e "SELECT 1" 2>/dev/null
+        # Create .my.cnf for subsequent tasks
+        cat > /root/.my.cnf <<MYCNF
+        [client]
+        user=root
+        password={{ mysql_root_password }}
+        MYCNF
+        chmod 600 /root/.my.cnf
+      args:
+        executable: /bin/bash
+      changed_when: false
 
     - name: Create Laravel database
       community.mysql.mysql_db:
