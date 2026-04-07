@@ -124,13 +124,9 @@
 
     - name: Clone PetClinic repository
       shell: |
-        git config --global --add safe.directory /opt/petclinic/repo
-        if [ -d /opt/petclinic/repo/.git ]; then
-          cd /opt/petclinic/repo && git fetch --all && git reset --hard origin/{{ petclinic_branch }}
-        else
-          rm -rf /opt/petclinic/repo
-          git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
-        fi
+        git config --global --add safe.directory '*'
+        rm -rf /opt/petclinic/repo
+        git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
         chown -R {{ ansible_user }}:{{ ansible_user }} /opt/petclinic/repo
       args:
         executable: /bin/bash
