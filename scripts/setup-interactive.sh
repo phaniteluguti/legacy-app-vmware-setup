@@ -35,6 +35,17 @@ prompt() {
     fi
 }
 
+# prompt_optional "Label" "default" → sets REPLY (allows blank)
+prompt_optional() {
+    local label="$1" default="${2:-}"
+    if [[ -n "$default" ]]; then
+        read -rp "  $label [$default]: " REPLY
+        REPLY="${REPLY:-$default}"
+    else
+        read -rp "  $label: " REPLY
+    fi
+}
+
 prompt_secret() {
     local label="$1"
     while true; do
@@ -171,7 +182,7 @@ collect_infra() {
     prompt "Compute Cluster name" "$PREV_VSPHERE_CLUSTER"; VSPHERE_CLUSTER="$REPLY"
     prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
     prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
-    prompt "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
+    prompt_optional "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
     prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
 }
 
