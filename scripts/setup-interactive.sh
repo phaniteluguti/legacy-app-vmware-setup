@@ -35,12 +35,16 @@ prompt() {
     fi
 }
 
-# prompt_optional "Label" "default" → sets REPLY (allows blank)
+# prompt_optional "Label" "default" → sets REPLY (allows blank, type - to clear)
 prompt_optional() {
     local label="$1" default="${2:-}"
     if [[ -n "$default" ]]; then
-        read -rp "  $label [$default]: " REPLY
-        REPLY="${REPLY:-$default}"
+        read -rp "  $label [$default] (type - to clear): " REPLY
+        if [[ "$REPLY" == "-" ]]; then
+            REPLY=""
+        else
+            REPLY="${REPLY:-$default}"
+        fi
     else
         read -rp "  $label: " REPLY
     fi
