@@ -160,8 +160,8 @@
     - name: Add SQL Server EF Core packages
       shell: |
         cd /opt/dotnet-app/LegacyWebApp
-        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.SqlServer
-        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.Design
+        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.SqlServer --version 6.0.*
+        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.Design --version 6.0.*
       args:
         executable: /bin/bash
 
