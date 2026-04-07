@@ -127,11 +127,11 @@ resource "vsphere_virtual_machine" "vm" {
 # --- Generate Ansible inventory ---
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/hosts.ini.tftpl", {
-    java_ip   = vsphere_virtual_machine.vm["java-vm"].default_ip_address
-    dotnet_ip = vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address
-    php_ip    = vsphere_virtual_machine.vm["php-vm"].default_ip_address
-    ssh_user  = var.vm_ssh_user
-    ssh_key   = var.vm_ssh_private_key_path
+    java_ip       = vsphere_virtual_machine.vm["java-vm"].default_ip_address
+    dotnet_ip     = vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address
+    php_ip        = vsphere_virtual_machine.vm["php-vm"].default_ip_address
+    ssh_user      = var.vm_ssh_user
+    ssh_auth_line = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
   })
   filename = "${path.module}/../ansible/inventory/hosts.ini"
 }

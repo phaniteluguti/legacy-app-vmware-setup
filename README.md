@@ -94,7 +94,7 @@ This repo provisions 3 VMware VMs, installs a full web + database stack on each,
 | **vSphere credentials** | A user with permission to create VMs (e.g., `administrator@vsphere.local`) |
 | **Ubuntu 22.04 VM template** | A template in your vCenter inventory (see [Step 3](#step-3-prepare-a-vm-template-in-vsphere)) |
 | **Network** | A port group with DHCP or a static IP range you can assign to 3 VMs |
-| **SSH key pair** | The public key must be in the template; you keep the private key on your machine |
+| **SSH access** | Either password auth enabled in template, or SSH key pair (public key in template, private key on your machine) |
 
 ### Information You'll Need to Gather
 
@@ -165,8 +165,8 @@ terraform --version
 **2a-2. Install Ansible:**
 
 ```bash
-# Install pip if you don't have it
-sudo apt install -y python3-pip
+# Install pip and sshpass (sshpass is needed for password-based SSH auth)
+sudo apt install -y python3-pip sshpass
 ```
 
 ```bash
@@ -258,7 +258,7 @@ The automation clones VMs from a template. You create this **once**.
    - 2 vCPUs, 4 GB RAM, 40 GB thin-provisioned disk
    - Attach the [Ubuntu 22.04 Server ISO](https://releases.ubuntu.com/22.04/)
 
-2. **Install Ubuntu** with default options. Create a user (e.g., `ubuntu`).
+2. **Install Ubuntu** with default options. Create a user (e.g., `ubuntu`) with a password you remember.
 
 3. **Inside the VM, run:**
    ```bash
@@ -272,13 +272,12 @@ The automation clones VMs from a template. You create this **once**.
    sudo apt install -y openssh-server
    sudo systemctl enable ssh
 
+   # Enable password-based SSH login (so Ansible can connect without keys)
+   sudo sed -i 's/^#\?PasswordAuthentication .*/PasswordAuthentication yes/' /etc/ssh/sshd_config
+   sudo systemctl restart ssh
+
    # Install Python3 (required by Ansible)
    sudo apt install -y python3 python3-pip
-
-   # Add your SSH public key
-   mkdir -p ~/.ssh
-   echo "YOUR_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
-   chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
 
    # Clean up for templating
    sudo truncate -s 0 /etc/machine-id
@@ -286,6 +285,14 @@ The automation clones VMs from a template. You create this **once**.
    sudo apt clean
    history -c
    ```
+
+   > **Optional — SSH key auth instead:** If you prefer key-based auth, skip the `PasswordAuthentication` line above and instead do:
+   > ```bash
+   > mkdir -p ~/.ssh
+   > echo "YOUR_PUBLIC_KEY_HERE" >> ~/.ssh/authorized_keys
+   > chmod 700 ~/.ssh && chmod 600 ~/.ssh/authorized_keys
+   > ```
+   > Then choose "SSH key" in the wizard (Step 4). Most users can just use password auth — it's simpler.
 
 4. **Shut down the VM.**
 

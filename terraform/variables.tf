@@ -83,10 +83,23 @@ variable "vm_ssh_user" {
   default     = "ubuntu"
 }
 
+variable "vm_ssh_auth_method" {
+  description = "SSH auth method: 'key' or 'password'"
+  type        = string
+  default     = "key"
+}
+
 variable "vm_ssh_private_key_path" {
-  description = "Path to SSH private key for VM access"
+  description = "Path to SSH private key for VM access (used when auth_method = key)"
   type        = string
   default     = "~/.ssh/id_rsa"
+}
+
+variable "vm_ssh_password" {
+  description = "SSH password for VM access (used when auth_method = password)"
+  type        = string
+  default     = ""
+  sensitive   = true
 }
 
 # --- Java VM ---

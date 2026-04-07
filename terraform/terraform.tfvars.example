@@ -24,7 +24,9 @@ vm_gateway   = "192.168.1.1"
 vm_netmask   = 24
 vm_dns_servers = ["8.8.8.8", "8.8.4.4"]
 vm_ssh_user            = "ubuntu"
-vm_ssh_private_key_path = "~/.ssh/id_rsa"
+vm_ssh_auth_method     = "password"            # "password" or "key"
+vm_ssh_password        = "CHANGE_ME"           # used when auth_method = "password"
+vm_ssh_private_key_path = "~/.ssh/id_rsa"      # used when auth_method = "key"
 
 # =============================================================================
 # Per-VM Settings
