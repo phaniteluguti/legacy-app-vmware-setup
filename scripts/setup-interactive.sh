@@ -531,22 +531,23 @@ run_destroy() {
 }
 
 run_ansible_resume() {
-    header "Phase 2 — Resuming Ansible (failed hosts only)"
+    header "Phase 2 — Resuming Ansible (all hosts, idempotent)"
     pushd "$ANSIBLE_DIR" > /dev/null
 
     # Fix directory permissions so ansible.cfg is loaded
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
-    local retry_file="site.retry"
-    if [[ -f "$retry_file" ]]; then
-        step "Found retry file with hosts: $(cat "$retry_file")"
-        step "Resuming playbook for failed hosts..."
-        ansible-playbook -i inventory/hosts.ini site.yml -v --limit "@$retry_file"
-    else
-        warn "No retry file found. Running full playbook..."
-        ansible-playbook -i inventory/hosts.ini site.yml -v
+    step "Installing Ansible Galaxy collections..."
+    ansible-galaxy collection install community.postgresql community.mysql community.general --force
+
+    if [[ -f "site.retry" ]]; then
+        step "Previous retry file found with failed hosts: $(cat site.retry)"
+        rm -f site.retry
     fi
+
+    step "Running full playbook (idempotent — skips completed tasks)..."
+    ansible-playbook -i inventory/hosts.ini site.yml -v
 
     popd > /dev/null
 }
