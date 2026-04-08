@@ -1,0 +1,149 @@
+---
+# =============================================================================
+# .NET 3-Tier — App Server VM: eShopOnWeb ASP.NET Core (port 5000)
+# Connects to SQL Server on the database VM
+# =============================================================================
+- name: Deploy eShopOnWeb App Server (.NET 3-Tier)
+  hosts: dotnet_appserver
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['dotnet_database'][0]]['ansible_host'] | default(groups['dotnet_database'][0]) }}"
+
+  tasks:
+    - name: Clean apt cache and fix broken state
+      shell: |
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+        apt-get update -y || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates]
+        state: present
+
+    - name: Add Microsoft package signing key
+      shell: |
+        wget -q https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
+        dpkg -i /tmp/packages-microsoft-prod.deb
+        rm -f /tmp/packages-microsoft-prod.deb
+      args:
+        creates: /etc/apt/sources.list.d/microsoft-prod.list
+
+    - name: Remove conflicting dotnet packages
+      apt:
+        name: [dotnet-sdk-6.0, dotnet-sdk-8.0, dotnet-host, dotnet-hostfxr-6.0, dotnet-hostfxr-8.0]
+        state: absent
+      ignore_errors: true
+
+    - name: Install .NET SDK via install script
+      shell: |
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
+        ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+      args:
+        creates: /usr/share/dotnet/dotnet
+
+    - name: Create app directory
+      file:
+        path: /opt/eshop
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Set git safe.directory globally
+      command: git config --global --add safe.directory '*'
+      changed_when: false
+
+    - name: Clone eShopOnWeb repository
+      command: git clone https://github.com/NimblePros/eShopOnWeb.git /opt/eshop/repo
+      args:
+        creates: /opt/eshop/repo/eShopOnWeb.sln
+
+    - name: Fix repo ownership
+      file:
+        path: /opt/eshop/repo
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
+
+    - name: Update Web project connection string for remote SQL Server
+      copy:
+        dest: /opt/eshop/repo/src/Web/appsettings.json
+        content: |
+          {
+            "ConnectionStrings": {
+              "CatalogConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
+              "IdentityConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
+            },
+            "Logging": {
+              "LogLevel": {
+                "Default": "Information",
+                "Microsoft.AspNetCore": "Warning"
+              }
+            },
+            "AllowedHosts": "*",
+            "Kestrel": {
+              "Endpoints": {
+                "Http": {
+                  "Url": "http://0.0.0.0:{{ dotnet_app_port }}"
+                }
+              }
+            }
+          }
+        owner: "{{ ansible_user }}"
+
+    - name: Build and publish eShopOnWeb Web project
+      shell: |
+        cd /opt/eshop/repo
+        sudo -u {{ ansible_user }} dotnet publish src/Web/Web.csproj -c Release -o /opt/eshop/published
+      args:
+        executable: /bin/bash
+
+    - name: Create eShopOnWeb systemd service
+      copy:
+        dest: /etc/systemd/system/eshop-web.service
+        content: |
+          [Unit]
+          Description=eShopOnWeb ASP.NET Core Application
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ ansible_user }}
+          WorkingDirectory=/opt/eshop/published
+          ExecStart=/usr/local/bin/dotnet /opt/eshop/published/Web.dll
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          Environment=ASPNETCORE_ENVIRONMENT=Production
+          Environment=DOTNET_CLI_HOME=/tmp
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart eShop
+
+    - name: Enable and start eShopOnWeb service
+      systemd:
+        name: eshop-web
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    - name: Allow app port through UFW
+      ufw:
+        rule: allow
+        port: "{{ dotnet_app_port }}"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart eShop
+      systemd:
+        name: eshop-web
+        state: restarted

@@ -1,0 +1,108 @@
+---
+# =============================================================================
+# PHP 3-Tier — Database VM: MySQL 8.0
+# Accepts connections from the app-server VM
+# =============================================================================
+- name: Deploy MySQL Database (PHP 3-Tier)
+  hosts: php_database
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['php_appserver'][0]]['ansible_host'] | default(groups['php_appserver'][0]) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip, acl]
+        state: present
+
+    - name: Install MySQL 8.0
+      apt:
+        name:
+          - mysql-server
+          - mysql-client
+          - python3-pymysql
+        state: present
+
+    - name: Ensure MySQL is started and enabled
+      systemd:
+        name: mysql
+        state: started
+        enabled: true
+
+    - name: Configure MySQL to listen on all interfaces
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: "^bind-address"
+        line: "bind-address = 0.0.0.0"
+      notify: Restart MySQL
+
+    - name: Set MySQL root password and create .my.cnf
+      shell: |
+        mysql --defaults-file=/dev/null -u root -S /var/run/mysqld/mysqld.sock -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}'; FLUSH PRIVILEGES;" 2>/dev/null || \
+        mysql -u root -p'{{ mysql_root_password }}' -e "SELECT 1" 2>/dev/null
+        cat > /root/.my.cnf <<MYCNF
+        [client]
+        user=root
+        password={{ mysql_root_password }}
+        MYCNF
+        chmod 600 /root/.my.cnf
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Create Laravel database
+      community.mysql.mysql_db:
+        name: "{{ mysql_db_name }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create Laravel database user (localhost)
+      community.mysql.mysql_user:
+        name: "{{ mysql_db_user }}"
+        password: "{{ mysql_db_password }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        host: "localhost"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create Laravel database user (remote app server)
+      community.mysql.mysql_user:
+        name: "{{ mysql_db_user }}"
+        password: "{{ mysql_db_password }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        host: "{{ app_host }}"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create Laravel database user (wildcard for subnet)
+      community.mysql.mysql_user:
+        name: "{{ mysql_db_user }}"
+        password: "{{ mysql_db_password }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        host: "%"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Allow MySQL port through UFW
+      ufw:
+        rule: allow
+        port: "3306"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart MySQL
+      systemd:
+        name: mysql
+        state: restarted

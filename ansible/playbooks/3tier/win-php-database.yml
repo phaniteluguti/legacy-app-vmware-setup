@@ -1,0 +1,105 @@
+---
+# =============================================================================
+# Windows PHP 3-Tier — Database VM: MySQL
+# Accepts connections from the app-server VM
+# =============================================================================
+- name: Deploy MySQL Database (Windows PHP 3-Tier)
+  hosts: win_php_database
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['win_php_appserver'][0]]['ansible_host'] | default(groups['win_php_appserver'][0]) }}"
+
+  tasks:
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install MySQL via Chocolatey
+      win_chocolatey:
+        name: mysql
+        state: present
+
+    - name: Ensure MySQL service is running
+      win_service:
+        name: MySQL
+        start_mode: auto
+        state: started
+
+    - name: Wait for MySQL to be ready
+      win_wait_for:
+        port: 3306
+        timeout: 60
+
+    - name: Set MySQL root password and create app database with remote access
+      win_shell: |
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        & $mysqlBin -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';" 2>$null
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE DATABASE IF NOT EXISTS {{ mysql_db_name }};"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'localhost' IDENTIFIED BY '{{ mysql_db_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'{{ app_host }}' IDENTIFIED BY '{{ mysql_db_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'%' IDENTIFIED BY '{{ mysql_db_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'localhost'; FLUSH PRIVILEGES;"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'{{ app_host }}'; FLUSH PRIVILEGES;"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'%'; FLUSH PRIVILEGES;"
+      changed_when: false
+
+    - name: Configure MySQL to listen on all interfaces
+      win_shell: |
+        $mysqlIni = "C:\tools\mysql\current\my.ini"
+        if (!(Test-Path $mysqlIni)) { $mysqlIni = "C:\ProgramData\MySQL\MySQL Server 8.0\my.ini" }
+        if (Test-Path $mysqlIni) {
+          $content = Get-Content $mysqlIni -Raw
+          $content = $content -replace 'bind-address\s*=\s*127\.0\.0\.1', 'bind-address = 0.0.0.0'
+          Set-Content $mysqlIni $content
+        }
+      changed_when: false
+      notify: Restart MySQL
+
+    - name: Allow MySQL port through Windows Firewall
+      win_firewall_rule:
+        name: "MySQL Inbound"
+        localport: 3306
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+  handlers:
+    - name: Restart MySQL
+      win_service:
+        name: MySQL
+        state: restarted

@@ -1,0 +1,168 @@
+---
+# =============================================================================
+# Windows .NET 3-Tier — App Server VM: IIS + ASP.NET Framework app
+# Connects to SQL Server on the database VM
+# =============================================================================
+- name: Deploy ASP.NET App Server (Windows .NET 3-Tier)
+  hosts: win_dotnet_appserver
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['win_dotnet_database'][0]]['ansible_host'] | default(groups['win_dotnet_database'][0]) }}"
+
+  tasks:
+    - name: Install IIS with ASP.NET 4.5
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Asp-Net45
+          - Web-Net-Ext45
+          - Web-ISAPI-Ext
+          - Web-ISAPI-Filter
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+          - NET-Framework-45-Core
+          - NET-Framework-45-ASPNET
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    - name: Create application directory
+      win_file:
+        path: C:\inetpub\LegacyMvcApp
+        state: directory
+
+    - name: Create Default.aspx page
+      win_copy:
+        dest: C:\inetpub\LegacyMvcApp\Default.aspx
+        content: |
+          <%@ Page Language="C#" %>
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>Legacy MVC App — 3-Tier Architecture</title>
+              <style>
+                  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: #f0f0f0; }
+                  .header { background: #0078d4; color: white; padding: 20px 40px; }
+                  .container { max-width: 960px; margin: 40px auto; padding: 0 20px; }
+                  .card { background: white; border-radius: 4px; padding: 30px; margin-bottom: 20px;
+                          box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                  table { width: 100%; border-collapse: collapse; }
+                  table th, table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
+                  table th { background: #f8f8f8; color: #555; }
+                  .badge { display: inline-block; padding: 4px 10px; border-radius: 3px; font-size: 12px; font-weight: 600; }
+                  .badge-green { background: #dff6dd; color: #107c10; }
+                  .badge-blue { background: #deecf9; color: #0078d4; }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>Legacy MVC Application — 3-Tier</h1>
+                  <p>ASP.NET Web Forms (App Server) → SQL Server (Database VM: {{ db_host }})</p>
+              </div>
+              <div class="container">
+                  <div class="card">
+                      <h2>System Information</h2>
+                      <table>
+                          <tr><th>Server Name</th><td><%= Environment.MachineName %></td></tr>
+                          <tr><th>OS Version</th><td><%= Environment.OSVersion %></td></tr>
+                          <tr><th>.NET Version</th><td><%= Environment.Version %></td></tr>
+                          <tr><th>Server Time (UTC)</th><td><%= DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") %></td></tr>
+                          <tr><th>IIS</th><td><span class="badge badge-green">Running</span></td></tr>
+                          <tr><th>SQL Server</th><td><span class="badge badge-blue">Remote ({{ db_host }})</span></td></tr>
+                      </table>
+                  </div>
+                  <div class="card">
+                      <h2>Database Connectivity</h2>
+                      <%
+                          try {
+                              var connStr = "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};";
+                              using (var conn = new System.Data.SqlClient.SqlConnection(connStr)) {
+                                  conn.Open();
+                                  Response.Write("<p><span class='badge badge-green'>Connected</span> to remote database <strong>" +
+                                      conn.Database + "</strong> on " + conn.DataSource + "</p>");
+                              }
+                          } catch (Exception ex) {
+                              Response.Write("<p style='color:red;'>Connection failed: " + ex.Message + "</p>");
+                          }
+                      %>
+                  </div>
+              </div>
+          </body>
+          </html>
+
+    - name: Create web.config
+      win_copy:
+        dest: C:\inetpub\LegacyMvcApp\web.config
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.web>
+              <compilation targetFramework="4.5" />
+              <httpRuntime targetFramework="4.5" />
+            </system.web>
+            <connectionStrings>
+              <add name="DefaultConnection"
+                   connectionString="Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};"
+                   providerName="System.Data.SqlClient" />
+            </connectionStrings>
+          </configuration>
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool
+      win_iis_webapppool:
+        name: LegacyMvcPool
+        state: started
+        attributes:
+          managedRuntimeVersion: v4.0
+          managedPipelineMode: 0
+
+    - name: Create IIS website
+      win_iis_website:
+        name: LegacyMvcApp
+        state: started
+        port: 80
+        physical_path: C:\inetpub\LegacyMvcApp
+        application_pool: LegacyMvcPool
+
+    - name: Allow HTTP through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

@@ -1,0 +1,164 @@
+---
+# =============================================================================
+# Windows Java 3-Tier — App Server VM: Spring PetClinic REST API (port 9966)
+# Connects to PostgreSQL on the database VM
+# =============================================================================
+- name: Deploy PetClinic REST API (Windows Java 3-Tier)
+  hosts: win_java_appserver
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['win_java_database'][0]]['ansible_host'] | default(groups['win_java_database'][0]) }}"
+    petclinic_rest_port: 9966
+
+  tasks:
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install OpenJDK {{ java_version }} via Chocolatey
+      win_chocolatey:
+        name: "openjdk{{ java_version }}"
+        state: present
+
+    - name: Detect JDK install path
+      win_shell: |
+        $jdkPath = Get-ChildItem "C:\Program Files" -Directory | Where-Object { $_.Name -match 'jdk.*{{ java_version }}' -or $_.Name -match 'OpenJDK.*{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $jdkPath) {
+          $jdkPath = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
+        }
+        if (-not $jdkPath) {
+          $jdkPath = (Get-Command java -ErrorAction SilentlyContinue).Source | Split-Path | Split-Path
+        }
+        Write-Output $jdkPath
+      register: jdk_detect
+      changed_when: false
+
+    - name: Set JAVA_HOME fact
+      set_fact:
+        java_home_path: "{{ jdk_detect.stdout | trim }}"
+
+    - name: Set JAVA_HOME environment variable
+      win_environment:
+        name: JAVA_HOME
+        value: '{{ java_home_path }}'
+        level: machine
+        state: present
+
+    - name: Add Java to PATH
+      win_path:
+        elements:
+          - '{{ java_home_path }}\bin'
+        state: present
+
+    - name: Install Git via Chocolatey
+      win_chocolatey:
+        name: git
+        state: present
+
+    - name: Clone spring-petclinic-rest repository
+      win_shell: |
+        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-petclinic/spring-petclinic-rest.git C:\Apps\petclinic-rest
+      args:
+        creates: C:\Apps\petclinic-rest\pom.xml
+
+    - name: Create PostgreSQL application properties
+      win_copy:
+        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
+        content: |
+          spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
+          spring.datasource.username={{ postgres_user }}
+          spring.datasource.password={{ postgres_password }}
+          spring.datasource.driver-class-name=org.postgresql.Driver
+          spring.jpa.database=POSTGRESQL
+          spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+          spring.jpa.hibernate.ddl-auto=update
+          spring.jpa.generate-ddl=true
+
+    - name: Build PetClinic REST API with Maven wrapper
+      win_shell: |
+        Set-Location C:\Apps\petclinic-rest
+        $env:JAVA_HOME = "{{ java_home_path }}"
+        .\mvnw.cmd package -DskipTests
+      args:
+        creates: C:\Apps\petclinic-rest\target
+      timeout: 600
+
+    - name: Find the built JAR file
+      win_find:
+        paths: C:\Apps\petclinic-rest\target
+        patterns: "*.jar"
+        file_type: file
+      register: jar_files
+
+    - name: Set JAR path fact
+      set_fact:
+        petclinic_jar: "{{ jar_files.files[0].path }}"
+      when: jar_files.files | length > 0
+
+    - name: Install NSSM
+      win_chocolatey:
+        name: nssm
+        state: present
+
+    - name: Check if PetClinic REST service exists
+      win_service:
+        name: PetClinicREST
+      register: petclinic_svc
+      ignore_errors: true
+
+    - name: Install PetClinic REST as a Windows service
+      win_shell: |
+        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgresql --server.port={{ petclinic_rest_port }}"
+        nssm set PetClinicREST AppDirectory "C:\Apps\petclinic-rest"
+        nssm set PetClinicREST DisplayName "Spring PetClinic REST API"
+        nssm set PetClinicREST Description "Spring PetClinic REST API on PostgreSQL"
+        nssm set PetClinicREST Start SERVICE_AUTO_START
+      when: petclinic_svc.state is not defined
+
+    - name: Ensure PetClinic REST service is running
+      win_service:
+        name: PetClinicREST
+        start_mode: auto
+        state: started
+
+    - name: Allow PetClinic REST port through Windows Firewall
+      win_firewall_rule:
+        name: "PetClinic REST Inbound"
+        localport: "{{ petclinic_rest_port }}"
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

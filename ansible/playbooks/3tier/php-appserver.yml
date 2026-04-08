@@ -1,0 +1,171 @@
+---
+# =============================================================================
+# PHP 3-Tier — App Server VM: Laravel API (port 8000)
+# Connects to MySQL on the database VM
+# =============================================================================
+- name: Deploy Laravel App Server (PHP 3-Tier)
+  hosts: php_appserver
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['php_database'][0]]['ansible_host'] | default(groups['php_database'][0]) }}"
+    laravel_port: 8000
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip, acl]
+        state: present
+
+    - name: Add PHP PPA repository
+      ansible.builtin.apt_repository:
+        repo: "ppa:ondrej/php"
+        state: present
+
+    - name: Install PHP {{ php_version }} and extensions
+      apt:
+        name:
+          - "php{{ php_version }}"
+          - "php{{ php_version }}-cli"
+          - "php{{ php_version }}-fpm"
+          - "php{{ php_version }}-mysql"
+          - "php{{ php_version }}-xml"
+          - "php{{ php_version }}-mbstring"
+          - "php{{ php_version }}-curl"
+          - "php{{ php_version }}-zip"
+          - "php{{ php_version }}-gd"
+          - "php{{ php_version }}-bcmath"
+          - "php{{ php_version }}-intl"
+          - "php{{ php_version }}-readline"
+        state: present
+        update_cache: true
+
+    - name: Download Composer installer
+      get_url:
+        url: https://getcomposer.org/installer
+        dest: /tmp/composer-setup.php
+
+    - name: Install Composer globally
+      shell: |
+        php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
+      args:
+        creates: /usr/local/bin/composer
+
+    - name: Create web app directory
+      file:
+        path: /var/www/laravel
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0755"
+
+    - name: Clone Laravel repository
+      command: git clone -b {{ php_app_branch }} {{ php_app_repo }} /var/www/laravel
+      args:
+        creates: /var/www/laravel/composer.json
+
+    - name: Install Composer dependencies
+      shell: |
+        cd /var/www/laravel
+        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+      environment:
+        COMPOSER_ALLOW_SUPERUSER: "1"
+      args:
+        creates: /var/www/laravel/vendor
+
+    - name: Copy .env file
+      copy:
+        src: /var/www/laravel/.env.example
+        dest: /var/www/laravel/.env
+        remote_src: true
+        owner: www-data
+        group: www-data
+        force: false
+
+    - name: Configure .env database settings (remote DB)
+      lineinfile:
+        path: /var/www/laravel/.env
+        regexp: "{{ item.regexp }}"
+        line: "{{ item.line }}"
+      loop:
+        - { regexp: '^DB_CONNECTION=', line: 'DB_CONNECTION=mysql' }
+        - { regexp: '^DB_HOST=', line: 'DB_HOST={{ db_host }}' }
+        - { regexp: '^DB_PORT=', line: 'DB_PORT=3306' }
+        - { regexp: '^DB_DATABASE=', line: 'DB_DATABASE={{ mysql_db_name }}' }
+        - { regexp: '^DB_USERNAME=', line: 'DB_USERNAME={{ mysql_db_user }}' }
+        - { regexp: '^DB_PASSWORD=', line: 'DB_PASSWORD={{ mysql_db_password }}' }
+        - { regexp: '^APP_URL=', line: 'APP_URL=http://0.0.0.0:{{ laravel_port }}' }
+
+    - name: Generate Laravel application key
+      shell: |
+        cd /var/www/laravel
+        php artisan key:generate --force
+      args:
+        creates: /var/www/laravel/storage/framework/sessions/.gitkeep
+
+    - name: Run Laravel migrations
+      shell: |
+        cd /var/www/laravel
+        php artisan migrate --force
+      ignore_errors: true
+
+    - name: Set Laravel directory permissions
+      file:
+        path: "{{ item }}"
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: "0775"
+        recurse: true
+      loop:
+        - /var/www/laravel/storage
+        - /var/www/laravel/bootstrap/cache
+
+    - name: Create Laravel systemd service (artisan serve)
+      copy:
+        dest: /etc/systemd/system/laravel-api.service
+        content: |
+          [Unit]
+          Description=Laravel API Server
+          After=network.target
+
+          [Service]
+          Type=simple
+          User=www-data
+          Group=www-data
+          WorkingDirectory=/var/www/laravel
+          ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port={{ laravel_port }}
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart Laravel API
+
+    - name: Enable and start Laravel API service
+      systemd:
+        name: laravel-api
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    - name: Allow Laravel port through UFW
+      ufw:
+        rule: allow
+        port: "{{ laravel_port }}"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart Laravel API
+      systemd:
+        name: laravel-api
+        state: restarted

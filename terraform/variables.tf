@@ -1,11 +1,11 @@
 # --- Deployment Mode ---
 variable "deploy_mode" {
-  description = "Deployment mode: 'linux' for 3 Linux VMs or 'windows' for 3 Windows VMs"
+  description = "Deployment mode: 'linux' or 'windows' (single VM per app), 'linux-3tier' or 'windows-3tier' (frontend + appserver + database VMs)"
   type        = string
   default     = "linux"
   validation {
-    condition     = contains(["linux", "windows"], var.deploy_mode)
-    error_message = "deploy_mode must be 'linux' or 'windows'."
+    condition     = contains(["linux", "windows", "linux-3tier", "windows-3tier"], var.deploy_mode)
+    error_message = "deploy_mode must be 'linux', 'windows', 'linux-3tier', or 'windows-3tier'."
   }
 }
 
@@ -193,4 +193,102 @@ variable "win_admin_password" {
   type        = string
   default     = ""
   sensitive   = true
+}
+
+# =============================================================================
+# 3-Tier Mode — Linux VMs (9 VMs: 3 apps × frontend + appserver + database)
+# =============================================================================
+variable "java_fe_ip" {
+  description = "Static IP for Java frontend VM (Nginx + Angular)"
+  type        = string
+  default     = "10.1.2.20"
+}
+variable "java_app_ip" {
+  description = "Static IP for Java app server VM (Spring Boot REST)"
+  type        = string
+  default     = "10.1.2.21"
+}
+variable "java_db_ip" {
+  description = "Static IP for Java database VM (PostgreSQL)"
+  type        = string
+  default     = "10.1.2.22"
+}
+variable "dotnet_fe_ip" {
+  description = "Static IP for .NET frontend VM (Nginx + Blazor)"
+  type        = string
+  default     = "10.1.2.23"
+}
+variable "dotnet_app_ip" {
+  description = "Static IP for .NET app server VM (ASP.NET Core)"
+  type        = string
+  default     = "10.1.2.24"
+}
+variable "dotnet_db_ip" {
+  description = "Static IP for .NET database VM (SQL Server)"
+  type        = string
+  default     = "10.1.2.25"
+}
+variable "php_fe_ip" {
+  description = "Static IP for PHP frontend VM (Nginx + Vue.js)"
+  type        = string
+  default     = "10.1.2.26"
+}
+variable "php_app_ip" {
+  description = "Static IP for PHP app server VM (Laravel API)"
+  type        = string
+  default     = "10.1.2.27"
+}
+variable "php_db_ip" {
+  description = "Static IP for PHP database VM (MySQL)"
+  type        = string
+  default     = "10.1.2.28"
+}
+
+# =============================================================================
+# 3-Tier Mode — Windows VMs (9 VMs)
+# =============================================================================
+variable "win_java_fe_ip" {
+  description = "Static IP for Windows Java frontend VM"
+  type        = string
+  default     = "10.1.2.30"
+}
+variable "win_java_app_ip" {
+  description = "Static IP for Windows Java app server VM"
+  type        = string
+  default     = "10.1.2.31"
+}
+variable "win_java_db_ip" {
+  description = "Static IP for Windows Java database VM"
+  type        = string
+  default     = "10.1.2.32"
+}
+variable "win_dotnet_fe_ip" {
+  description = "Static IP for Windows .NET frontend VM"
+  type        = string
+  default     = "10.1.2.33"
+}
+variable "win_dotnet_app_ip" {
+  description = "Static IP for Windows .NET app server VM"
+  type        = string
+  default     = "10.1.2.34"
+}
+variable "win_dotnet_db_ip" {
+  description = "Static IP for Windows .NET database VM"
+  type        = string
+  default     = "10.1.2.35"
+}
+variable "win_php_fe_ip" {
+  description = "Static IP for Windows PHP frontend VM"
+  type        = string
+  default     = "10.1.2.36"
+}
+variable "win_php_app_ip" {
+  description = "Static IP for Windows PHP app server VM"
+  type        = string
+  default     = "10.1.2.37"
+}
+variable "win_php_db_ip" {
+  description = "Static IP for Windows PHP database VM"
+  type        = string
+  default     = "10.1.2.38"
 }

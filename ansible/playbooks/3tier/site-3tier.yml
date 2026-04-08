@@ -1,0 +1,52 @@
+---
+# =============================================================================
+# Master Playbook — Linux 3-Tier Architecture
+# Deploys databases first, then app servers, then frontends
+# Usage: ansible-playbook -i inventory/hosts.ini playbooks/3tier/site-3tier.yml
+# =============================================================================
+
+# --- Common setup for all 3-tier VMs ---
+- name: Common setup for all Linux 3-tier VMs
+  hosts: legacy_apps_3tier
+  become: true
+  tasks:
+    - name: Fix broken apt state if needed
+      shell: |
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+        apt-get update -y
+      args:
+        executable: /bin/bash
+      changed_when: false
+      ignore_errors: true
+
+    - name: Update all packages
+      apt:
+        update_cache: true
+        upgrade: safe
+      ignore_errors: true
+
+    - name: Set timezone
+      timezone:
+        name: UTC
+
+    - name: Ensure SSH is running
+      systemd:
+        name: ssh
+        state: started
+        enabled: true
+
+# --- Phase 1: Databases (must come first) ---
+- import_playbook: java-database.yml
+- import_playbook: dotnet-database.yml
+- import_playbook: php-database.yml
+
+# --- Phase 2: Application Servers ---
+- import_playbook: java-appserver.yml
+- import_playbook: dotnet-appserver.yml
+- import_playbook: php-appserver.yml
+
+# --- Phase 3: Frontends ---
+- import_playbook: java-frontend.yml
+- import_playbook: dotnet-frontend.yml
+- import_playbook: php-frontend.yml

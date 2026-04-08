@@ -1,0 +1,21 @@
+---
+# =============================================================================
+# Master Playbook — Windows 3-Tier Architecture
+# Deploys databases first, then app servers, then frontends
+# Usage: ansible-playbook -i inventory/hosts.ini playbooks/3tier/site-3tier-win.yml
+# =============================================================================
+
+# --- Phase 1: Databases (must come first) ---
+- import_playbook: win-java-database.yml
+- import_playbook: win-dotnet-database.yml
+- import_playbook: win-php-database.yml
+
+# --- Phase 2: Application Servers ---
+- import_playbook: win-java-appserver.yml
+- import_playbook: win-dotnet-appserver.yml
+- import_playbook: win-php-appserver.yml
+
+# --- Phase 3: Frontends ---
+- import_playbook: win-java-frontend.yml
+- import_playbook: win-dotnet-frontend.yml
+- import_playbook: win-php-frontend.yml

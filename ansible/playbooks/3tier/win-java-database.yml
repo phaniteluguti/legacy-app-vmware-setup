@@ -1,0 +1,113 @@
+---
+# =============================================================================
+# Windows Java 3-Tier — Database VM: PostgreSQL
+# Accepts connections from the app-server VM
+# =============================================================================
+- name: Deploy PostgreSQL Database (Windows Java 3-Tier)
+  hosts: win_java_database
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['win_java_appserver'][0]]['ansible_host'] | default(groups['win_java_appserver'][0]) }}"
+
+  tasks:
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install PostgreSQL {{ postgres_version }} via Chocolatey
+      win_chocolatey:
+        name: postgresql{{ postgres_version }}
+        state: present
+        package_params: "/Password:{{ postgres_password }}"
+
+    - name: Ensure PostgreSQL service is running
+      win_service:
+        name: "postgresql-x64-{{ postgres_version }}"
+        start_mode: auto
+        state: started
+
+    - name: Wait for PostgreSQL to be ready
+      win_wait_for:
+        port: 5432
+        timeout: 60
+
+    - name: Configure PostgreSQL to listen on all interfaces
+      win_lineinfile:
+        path: 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\postgresql.conf'
+        regexp: "^#?listen_addresses"
+        line: "listen_addresses = '*'"
+      notify: Restart PostgreSQL
+
+    - name: Allow app server in pg_hba.conf
+      win_lineinfile:
+        path: 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\pg_hba.conf'
+        line: "host    {{ postgres_db }}   {{ postgres_user }}   {{ app_host }}/32   md5"
+        insertafter: "^# IPv4 local connections"
+      notify: Restart PostgreSQL
+
+    - name: Create petclinic database
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        $result = & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='{{ postgres_db }}'"
+        if ($result -ne '1') {
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "CREATE DATABASE {{ postgres_db }}"
+        }
+      changed_when: false
+
+    - name: Create petclinic database user
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        $result = & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'"
+        if ($result -ne '1') {
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}'"
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }}"
+        }
+      changed_when: false
+
+    - name: Allow PostgreSQL port through Windows Firewall
+      win_firewall_rule:
+        name: "PostgreSQL Inbound"
+        localport: 5432
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+  handlers:
+    - name: Restart PostgreSQL
+      win_service:
+        name: "postgresql-x64-{{ postgres_version }}"
+        state: restarted

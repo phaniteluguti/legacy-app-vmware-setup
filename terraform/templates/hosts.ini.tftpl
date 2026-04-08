@@ -37,3 +37,116 @@ ansible_password=${win_password}
 ansible_port=5985
 ansible_become=false
 %{ endif }
+%{ if deploy_mode == "linux-3tier" }
+# --- Java 3-Tier ---
+[java_frontend]
+${java_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[java_appserver]
+${java_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[java_database]
+${java_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+# --- .NET 3-Tier ---
+[dotnet_frontend]
+${dotnet_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[dotnet_appserver]
+${dotnet_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[dotnet_database]
+${dotnet_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+# --- PHP 3-Tier ---
+[php_frontend]
+${php_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[php_appserver]
+${php_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[php_database]
+${php_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+# --- Aggregate groups ---
+[frontends:children]
+java_frontend
+dotnet_frontend
+php_frontend
+
+[appservers:children]
+java_appserver
+dotnet_appserver
+php_appserver
+
+[databases:children]
+java_database
+dotnet_database
+php_database
+
+[legacy_apps_3tier:children]
+frontends
+appservers
+databases
+%{ endif }
+%{ if deploy_mode == "windows-3tier" }
+# --- Java 3-Tier ---
+[win_java_frontend]
+${win_java_fe_ip}
+
+[win_java_appserver]
+${win_java_app_ip}
+
+[win_java_database]
+${win_java_db_ip}
+
+# --- .NET 3-Tier ---
+[win_dotnet_frontend]
+${win_dotnet_fe_ip}
+
+[win_dotnet_appserver]
+${win_dotnet_app_ip}
+
+[win_dotnet_database]
+${win_dotnet_db_ip}
+
+# --- PHP 3-Tier ---
+[win_php_frontend]
+${win_php_fe_ip}
+
+[win_php_appserver]
+${win_php_app_ip}
+
+[win_php_database]
+${win_php_db_ip}
+
+# --- Aggregate groups ---
+[win_frontends:children]
+win_java_frontend
+win_dotnet_frontend
+win_php_frontend
+
+[win_appservers:children]
+win_java_appserver
+win_dotnet_appserver
+win_php_appserver
+
+[win_databases:children]
+win_java_database
+win_dotnet_database
+win_php_database
+
+[win_servers_3tier:children]
+win_frontends
+win_appservers
+win_databases
+
+[win_servers_3tier:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_scheme=http
+ansible_user=Administrator
+ansible_password=${win_password}
+ansible_port=5985
+ansible_become=false
+%{ endif }

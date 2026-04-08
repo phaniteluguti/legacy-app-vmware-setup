@@ -192,7 +192,7 @@ collect_infra() {
     prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
     prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
     prompt_optional "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
         prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
     else
         prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
@@ -207,7 +207,7 @@ collect_network() {
     prompt "Domain suffix" "$PREV_VM_DOMAIN"; VM_DOMAIN="$REPLY"
     prompt "DNS Servers (comma-sep)" "$PREV_VM_DNS"; VM_DNS="$REPLY"
 
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
         prompt "SSH username in template" "$PREV_SSH_USER"; SSH_USER="$REPLY"
 
         echo ""
@@ -242,37 +242,68 @@ collect_vms() {
     header "Step 4/6 — VM Sizing & IP Addresses"
     echo -e "  ${GR}Static IPs on the same subnet as gateway $VM_GW${NC}\n"
 
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
-    else
-        echo -e "  ${Y}--- Windows Java VM (PetClinic + PostgreSQL) ---${NC}"
-    fi
-    prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
-    prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
-    prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
-    prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
+    if [[ "$DEPLOY_MODE" == "linux-3tier" || "$DEPLOY_MODE" == "windows-3tier" ]]; then
+        echo -e "  ${Y}--- 3-Tier Architecture: 9 VMs (3 apps × Frontend + App Server + Database) ---${NC}"
+        echo -e "  ${GR}Sizes: Frontend=1CPU/2GB/20GB, App=2CPU/4GB/40GB, DB=2CPU/4GB/60GB${NC}\n"
 
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
-    else
-        echo -e "\n  ${Y}--- Windows .NET VM (IIS + ASP.NET + SQL Server) ---${NC}"
-    fi
-    prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
-    prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
-    prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
-    prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
+        echo -e "  ${Y}--- Java Stack ---${NC}"
+        prompt_ip "  Java Frontend IP" "${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_FE_IP="$REPLY"
+        prompt_ip "  Java App Server IP" "${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_APP_IP="$REPLY"
+        prompt_ip "  Java Database IP" "${PREV_JAVA_DB_IP:-10.1.2.22}"; JAVA_DB_IP="$REPLY"
 
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
-    else
-        echo -e "\n  ${Y}--- Windows PHP VM (IIS + Laravel + MySQL) ---${NC}"
-    fi
-    prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
-    prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
-    prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
-    prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+        echo -e "\n  ${Y}--- .NET Stack ---${NC}"
+        prompt_ip "  .NET Frontend IP" "${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_FE_IP="$REPLY"
+        prompt_ip "  .NET App Server IP" "${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_APP_IP="$REPLY"
+        prompt_ip "  .NET Database IP" "${PREV_DOTNET_DB_IP:-10.1.2.25}"; DOTNET_DB_IP="$REPLY"
 
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "\n  ${Y}--- PHP Stack ---${NC}"
+        prompt_ip "  PHP Frontend IP" "${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_FE_IP="$REPLY"
+        prompt_ip "  PHP App Server IP" "${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_APP_IP="$REPLY"
+        prompt_ip "  PHP Database IP" "${PREV_PHP_DB_IP:-10.1.2.28}"; PHP_DB_IP="$REPLY"
+
+        # Set dummy values for single-VM vars (not used in 3-tier but needed for tfvars)
+        JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU=2; JAVA_MEM=4096; JAVA_DISK=40
+        DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU=2; DOTNET_MEM=4096; DOTNET_DISK=40
+        PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU=2; PHP_MEM=2048; PHP_DISK=30
+
+    else
+        if [[ "$DEPLOY_MODE" == "linux" ]]; then
+            echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
+        else
+            echo -e "  ${Y}--- Windows Java VM (PetClinic + PostgreSQL) ---${NC}"
+        fi
+        prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+        prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
+        prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
+        prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
+
+        if [[ "$DEPLOY_MODE" == "linux" ]]; then
+            echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
+        else
+            echo -e "\n  ${Y}--- Windows .NET VM (IIS + ASP.NET + SQL Server) ---${NC}"
+        fi
+        prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+        prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
+        prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
+        prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
+
+        if [[ "$DEPLOY_MODE" == "linux" ]]; then
+            echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
+        else
+            echo -e "\n  ${Y}--- Windows PHP VM (IIS + Laravel + MySQL) ---${NC}"
+        fi
+        prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+        prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
+        prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
+        prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+
+        # Initialize 3-tier IPs to empty
+        JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
+        DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
+        PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
+    fi
+
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
         WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
         WIN_ADMIN_PASS="${WIN_ADMIN_PASS:-}"
     fi
@@ -317,25 +348,53 @@ show_summary() {
     echo -e "  Deploy Mode: ${Y}${DEPLOY_MODE^^}${NC}"
     echo -e "  vCenter:    $VSPHERE_SERVER"
     echo -e "  Datacenter: $VSPHERE_DC   Cluster: $VSPHERE_CLUSTER"
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
         echo -e "  Template:   $VM_TEMPLATE"
     else
         echo -e "  Template:   $WIN_TEMPLATE"
     fi
     echo -e "  Network:    $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
-    echo -e "  VMs:"
-    echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
-    echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
-    echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
-    echo ""
-    echo -e "  Apps:"
-    echo -e "    Java:  $PETCLINIC_REPO"
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        echo -e "    .NET:  $DOTNET_REPO"
+
+    if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+        echo -e "  VMs (3-Tier Architecture):"
+        echo -e "    ${Y}Java Stack:${NC}"
+        echo -e "      Frontend    $JAVA_FE_IP   1CPU / 2048MB / 20GB"
+        echo -e "      App Server  $JAVA_APP_IP  2CPU / 4096MB / 40GB"
+        echo -e "      Database    $JAVA_DB_IP   2CPU / 4096MB / 60GB"
+        echo -e "    ${Y}.NET Stack:${NC}"
+        echo -e "      Frontend    $DOTNET_FE_IP   1CPU / 2048MB / 20GB"
+        echo -e "      App Server  $DOTNET_APP_IP  2CPU / 4096MB / 40GB"
+        echo -e "      Database    $DOTNET_DB_IP   2CPU / 4096MB / 60GB"
+        echo -e "    ${Y}PHP Stack:${NC}"
+        echo -e "      Frontend    $PHP_FE_IP   1CPU / 2048MB / 20GB"
+        echo -e "      App Server  $PHP_APP_IP  2CPU / 4096MB / 40GB"
+        echo -e "      Database    $PHP_DB_IP   2CPU / 4096MB / 60GB"
+        echo ""
+        echo -e "  Apps:"
+        if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
+            echo -e "    Java:  Angular → spring-petclinic-rest → PostgreSQL"
+            echo -e "    .NET:  Nginx → eShopOnWeb ASP.NET Core → SQL Server"
+            echo -e "    PHP:   Nginx → Laravel → MySQL"
+        else
+            echo -e "    Java:  IIS+ARR → spring-petclinic-rest → PostgreSQL"
+            echo -e "    .NET:  IIS+ARR → ASP.NET Core → SQL Server"
+            echo -e "    PHP:   IIS+ARR → Laravel → MySQL"
+        fi
     else
-        echo -e "    .NET:  IIS + ASP.NET Framework + SQL Server"
+        echo -e "  VMs:"
+        echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
+        echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
+        echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
+        echo ""
+        echo -e "  Apps:"
+        echo -e "    Java:  $PETCLINIC_REPO"
+        if [[ "$DEPLOY_MODE" == "linux" ]]; then
+            echo -e "    .NET:  $DOTNET_REPO"
+        else
+            echo -e "    .NET:  IIS + ASP.NET Framework + SQL Server"
+        fi
+        echo -e "    PHP:   $PHP_REPO"
     fi
-    echo -e "    PHP:   $PHP_REPO"
 }
 
 # ---------------------------------------------------------------------------
@@ -387,6 +446,28 @@ php_vm_disk   = $PHP_DISK
 
 win_template_name  = "$WIN_TEMPLATE"
 win_admin_password = "$WIN_ADMIN_PASS"
+
+# --- 3-Tier IPs (Linux) ---
+java_fe_ip    = "${JAVA_FE_IP:-10.1.2.20}"
+java_app_ip   = "${JAVA_APP_IP:-10.1.2.21}"
+java_db_ip    = "${JAVA_DB_IP:-10.1.2.22}"
+dotnet_fe_ip  = "${DOTNET_FE_IP:-10.1.2.23}"
+dotnet_app_ip = "${DOTNET_APP_IP:-10.1.2.24}"
+dotnet_db_ip  = "${DOTNET_DB_IP:-10.1.2.25}"
+php_fe_ip     = "${PHP_FE_IP:-10.1.2.26}"
+php_app_ip    = "${PHP_APP_IP:-10.1.2.27}"
+php_db_ip     = "${PHP_DB_IP:-10.1.2.28}"
+
+# --- 3-Tier IPs (Windows) ---
+win_java_fe_ip    = "${WIN_JAVA_FE_IP:-10.1.2.30}"
+win_java_app_ip   = "${WIN_JAVA_APP_IP:-10.1.2.31}"
+win_java_db_ip    = "${WIN_JAVA_DB_IP:-10.1.2.32}"
+win_dotnet_fe_ip  = "${WIN_DOTNET_FE_IP:-10.1.2.33}"
+win_dotnet_app_ip = "${WIN_DOTNET_APP_IP:-10.1.2.34}"
+win_dotnet_db_ip  = "${WIN_DOTNET_DB_IP:-10.1.2.35}"
+win_php_fe_ip     = "${WIN_PHP_FE_IP:-10.1.2.36}"
+win_php_app_ip    = "${WIN_PHP_APP_IP:-10.1.2.37}"
+win_php_db_ip     = "${WIN_PHP_DB_IP:-10.1.2.38}"
 EOF
     step "Created: terraform/terraform.tfvars"
 }
@@ -462,7 +543,7 @@ java_servers
 dotnet_servers
 php_servers
 EOF
-    else
+    elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
 # Auto-generated by setup-interactive.sh
 [win_java_servers]
@@ -480,6 +561,121 @@ win_dotnet_servers
 win_php_servers
 
 [win_servers:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_scheme=http
+ansible_user=Administrator
+ansible_password=$WIN_ADMIN_PASS
+ansible_port=5985
+ansible_become=false
+EOF
+    elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
+        if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+        else
+            AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
+        fi
+
+        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+# Auto-generated by setup-interactive.sh (linux-3tier)
+[java_frontend]
+$JAVA_FE_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[java_appserver]
+$JAVA_APP_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[java_database]
+$JAVA_DB_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[dotnet_frontend]
+$DOTNET_FE_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[dotnet_appserver]
+$DOTNET_APP_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[dotnet_database]
+$DOTNET_DB_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[php_frontend]
+$PHP_FE_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[php_appserver]
+$PHP_APP_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[php_database]
+$PHP_DB_IP ansible_user=$SSH_USER $AUTH_LINE
+
+[frontends:children]
+java_frontend
+dotnet_frontend
+php_frontend
+
+[appservers:children]
+java_appserver
+dotnet_appserver
+php_appserver
+
+[databases:children]
+java_database
+dotnet_database
+php_database
+
+[legacy_apps_3tier:children]
+frontends
+appservers
+databases
+EOF
+    elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
+        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+# Auto-generated by setup-interactive.sh (windows-3tier)
+[win_java_frontend]
+$JAVA_FE_IP
+
+[win_java_appserver]
+$JAVA_APP_IP
+
+[win_java_database]
+$JAVA_DB_IP
+
+[win_dotnet_frontend]
+$DOTNET_FE_IP
+
+[win_dotnet_appserver]
+$DOTNET_APP_IP
+
+[win_dotnet_database]
+$DOTNET_DB_IP
+
+[win_php_frontend]
+$PHP_FE_IP
+
+[win_php_appserver]
+$PHP_APP_IP
+
+[win_php_database]
+$PHP_DB_IP
+
+[win_frontends:children]
+win_java_frontend
+win_dotnet_frontend
+win_php_frontend
+
+[win_appservers:children]
+win_java_appserver
+win_dotnet_appserver
+win_php_appserver
+
+[win_databases:children]
+win_java_database
+win_dotnet_database
+win_php_database
+
+[win_servers_3tier:children]
+win_frontends
+win_appservers
+win_databases
+
+[win_servers_3tier:vars]
 ansible_connection=winrm
 ansible_winrm_transport=ntlm
 ansible_winrm_scheme=http
@@ -525,7 +721,7 @@ run_ansible() {
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
     step "Installing Ansible Galaxy collections..."
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
         ansible-galaxy collection install community.postgresql community.mysql community.general --force
     else
         ansible-galaxy collection install ansible.windows community.general --force
@@ -578,8 +774,32 @@ run_verify() {
     local checks=()
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
         checks=("Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80")
-    else
+    elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         checks=("Win Java PetClinic|$JAVA_IP|8080" "Win .NET IIS App|$DOTNET_IP|80" "Win PHP Laravel|$PHP_IP|80")
+    elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
+        checks=(
+            "Java Frontend (Angular)|$JAVA_FE_IP|80"
+            "Java App Server (REST)|$JAVA_APP_IP|9966"
+            "Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
+            ".NET Frontend (Nginx)|$DOTNET_FE_IP|80"
+            ".NET App Server (ASP.NET)|$DOTNET_APP_IP|5000"
+            ".NET Database (SQL Server)|$DOTNET_DB_IP|1433"
+            "PHP Frontend (Nginx)|$PHP_FE_IP|80"
+            "PHP App Server (Laravel)|$PHP_APP_IP|8000"
+            "PHP Database (MySQL)|$PHP_DB_IP|3306"
+        )
+    elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
+        checks=(
+            "Win Java Frontend (IIS+ARR)|$JAVA_FE_IP|80"
+            "Win Java App Server (NSSM)|$JAVA_APP_IP|9966"
+            "Win Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
+            "Win .NET Frontend (IIS+ARR)|$DOTNET_FE_IP|80"
+            "Win .NET App Server (IIS)|$DOTNET_APP_IP|80"
+            "Win .NET Database (SQL Server)|$DOTNET_DB_IP|1433"
+            "Win PHP Frontend (IIS+ARR)|$PHP_FE_IP|80"
+            "Win PHP App Server (IIS+PHP)|$PHP_APP_IP|80"
+            "Win PHP Database (MySQL)|$PHP_DB_IP|3306"
+        )
     fi
     for pair in "${checks[@]}"; do
         IFS='|' read -r name ip port <<< "$pair"
@@ -596,10 +816,14 @@ run_verify() {
         echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
         echo -e "    ${C}.NET MVC App:${NC}    http://$DOTNET_IP"
         echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
-    else
+    elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
         echo -e "    ${C}.NET IIS App:${NC}    http://$DOTNET_IP"
         echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+    elif [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+        echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP"
+        echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP"
+        echo -e "    ${C}PHP Frontend:${NC}    http://$PHP_FE_IP"
     fi
     echo ""
     echo -e "  ${G}All VMs ready for Azure Migrate discovery.${NC}"
@@ -682,14 +906,23 @@ main() {
         echo -e "  ${Y}Which deployment to resume?${NC}"
         echo -e "    ${G}1)${NC} Linux"
         echo -e "    ${G}2)${NC} Windows"
-        local default_r; [[ "$PREV_DEPLOY_MODE" == "windows" ]] && default_r="2" || default_r="1"
-        read -rp "  Choice [1/2] (default: $default_r): " resume_mode
+        echo -e "    ${G}3)${NC} Linux 3-Tier"
+        echo -e "    ${G}4)${NC} Windows 3-Tier"
+        local default_r
+        case "$PREV_DEPLOY_MODE" in
+            windows) default_r="2" ;;
+            linux-3tier) default_r="3" ;;
+            windows-3tier) default_r="4" ;;
+            *) default_r="1" ;;
+        esac
+        read -rp "  Choice [1/2/3/4] (default: $default_r): " resume_mode
         resume_mode="${resume_mode:-$default_r}"
-        if [[ "$resume_mode" == "2" ]]; then
-            DEPLOY_MODE="windows"
-        else
-            DEPLOY_MODE="linux"
-        fi
+        case "$resume_mode" in
+            2) DEPLOY_MODE="windows" ;;
+            3) DEPLOY_MODE="linux-3tier" ;;
+            4) DEPLOY_MODE="windows-3tier" ;;
+            *) DEPLOY_MODE="linux" ;;
+        esac
 
         # Get actual VM IPs from the Terraform workspace state
         pushd "$TF_DIR" > /dev/null
@@ -698,18 +931,31 @@ main() {
             warn "Terraform workspace '$DEPLOY_MODE' not found. Run the full wizard first."
             exit 1
         }
-        JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
-        DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
-        PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
+        if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+            JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+            JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+            JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+            DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+            DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+            PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+            PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            step "Using 3-tier IPs from Terraform state"
+        else
+            JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
+            DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
+            PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
+            step "Using IPs from Terraform state: Java=$JAVA_IP, .NET=$DOTNET_IP, PHP=$PHP_IP"
+        fi
         popd > /dev/null
-        step "Using IPs from Terraform state: Java=$JAVA_IP, .NET=$DOTNET_IP, PHP=$PHP_IP"
 
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        if [[ "$DEPLOY_MODE" == "windows" ]]; then
+        if [[ "$DEPLOY_MODE" == "windows" || "$DEPLOY_MODE" == "windows-3tier" ]]; then
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         else
             # Linux mode needs SSH password for inventory
@@ -742,16 +988,31 @@ main() {
     echo -e "  ${Y}Choose your deployment type:${NC}"
     echo -e "    ${G}1)${NC} Linux apps  — 3 Ubuntu VMs: Java (PetClinic), .NET (ASP.NET Core), PHP (Laravel)"
     echo -e "    ${G}2)${NC} Windows apps — 3 Windows VMs: Java (PetClinic), .NET (IIS + ASP.NET), PHP (IIS + Laravel)"
-    local default_mode_num; [[ "$PREV_DEPLOY_MODE" == "windows" ]] && default_mode_num="2" || default_mode_num="1"
-    read -rp "  Choice [1/2] (default: $default_mode_num): " MODE_CHOICE
+    echo -e "    ${G}3)${NC} Linux 3-Tier — 9 Ubuntu VMs: 3 apps × (Frontend + App Server + Database)"
+    echo -e "    ${G}4)${NC} Windows 3-Tier — 9 Windows VMs: 3 apps × (Frontend + App Server + Database)"
+    local default_mode_num
+    case "$PREV_DEPLOY_MODE" in
+        windows) default_mode_num="2" ;;
+        linux-3tier) default_mode_num="3" ;;
+        windows-3tier) default_mode_num="4" ;;
+        *) default_mode_num="1" ;;
+    esac
+    read -rp "  Choice [1/2/3/4] (default: $default_mode_num): " MODE_CHOICE
     MODE_CHOICE="${MODE_CHOICE:-$default_mode_num}"
-    if [[ "$MODE_CHOICE" == "2" ]]; then
-        DEPLOY_MODE="windows"
-        step "Mode: Windows (3 Windows Server VMs — Java, .NET, PHP)"
-    else
-        DEPLOY_MODE="linux"
-        step "Mode: Linux (3 VMs — Java, .NET, PHP)"
-    fi
+    case "$MODE_CHOICE" in
+        2)
+            DEPLOY_MODE="windows"
+            step "Mode: Windows (3 Windows Server VMs — Java, .NET, PHP)" ;;
+        3)
+            DEPLOY_MODE="linux-3tier"
+            step "Mode: Linux 3-Tier (9 VMs — 3 apps × Frontend + App + DB)" ;;
+        4)
+            DEPLOY_MODE="windows-3tier"
+            step "Mode: Windows 3-Tier (9 VMs — 3 apps × Frontend + App + DB)" ;;
+        *)
+            DEPLOY_MODE="linux"
+            step "Mode: Linux (3 VMs — Java, .NET, PHP)" ;;
+    esac
     echo ""
 
     collect_vcenter

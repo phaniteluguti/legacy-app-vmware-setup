@@ -1,0 +1,273 @@
+---
+# =============================================================================
+# Windows PHP 3-Tier — App Server VM: IIS + PHP + Laravel
+# Connects to MySQL on the database VM
+# =============================================================================
+- name: Deploy PHP Laravel App Server (Windows PHP 3-Tier)
+  hosts: win_php_appserver
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['win_php_database'][0]]['ansible_host'] | default(groups['win_php_database'][0]) }}"
+
+  tasks:
+    - name: Increase WinRM shell memory to 1GB
+      win_shell: |
+        Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 1024
+        Set-Item WSMan:\localhost\Plugin\microsoft.powershell\Quotas\MaxMemoryPerShellMB 1024
+      changed_when: false
+      ignore_errors: true
+
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install IIS with CGI support
+      win_feature:
+        name:
+          - Web-Server
+          - Web-CGI
+          - Web-ISAPI-Ext
+          - Web-ISAPI-Filter
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    - name: Install Git via Chocolatey
+      win_chocolatey:
+        name: git
+        state: present
+
+    - name: Install Composer via Chocolatey
+      win_chocolatey:
+        name: composer
+        state: present
+
+    - name: Install PHP via Chocolatey
+      win_chocolatey:
+        name: php
+        state: present
+        package_params: "/InstallDir:C:\\PHP"
+
+    - name: Detect PHP install path
+      win_shell: |
+        $phpExe = (Get-Command php -ErrorAction SilentlyContinue).Source
+        if ($phpExe) {
+          Write-Output (Split-Path $phpExe)
+        } elseif (Test-Path "C:\PHP\php.exe") {
+          Write-Output "C:\PHP"
+        } else {
+          $found = Get-ChildItem "C:\tools" -Directory -Filter "php*" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          Write-Output $found
+        }
+      register: php_detect
+      changed_when: false
+
+    - name: Set PHP path fact
+      set_fact:
+        php_path: "{{ php_detect.stdout | trim }}"
+
+    - name: Add PHP to PATH
+      win_path:
+        elements:
+          - '{{ php_path }}'
+        state: present
+
+    - name: Create php.ini from development template if missing
+      win_shell: |
+        if (!(Test-Path "{{ php_path }}\php.ini")) {
+          if (Test-Path "{{ php_path }}\php.ini-development") {
+            Copy-Item "{{ php_path }}\php.ini-development" "{{ php_path }}\php.ini"
+          } elseif (Test-Path "{{ php_path }}\php.ini-production") {
+            Copy-Item "{{ php_path }}\php.ini-production" "{{ php_path }}\php.ini"
+          }
+        }
+      args:
+        creates: '{{ php_path }}\php.ini'
+
+    - name: Enable required PHP extensions
+      win_lineinfile:
+        path: '{{ php_path }}\php.ini'
+        regexp: "^;?extension={{ item }}"
+        line: "extension={{ item }}"
+      loop:
+        - curl
+        - fileinfo
+        - mbstring
+        - openssl
+        - pdo_mysql
+        - mysqli
+
+    - name: Set PHP cgi.fix_pathinfo
+      win_lineinfile:
+        path: '{{ php_path }}\php.ini'
+        regexp: "^;?cgi\\.fix_pathinfo"
+        line: "cgi.fix_pathinfo=0"
+
+    - name: Configure FastCGI handler for PHP
+      win_shell: |
+        Import-Module WebAdministration
+        $handler = Get-WebHandler -Name "PHP_via_FastCGI" -ErrorAction SilentlyContinue
+        if (!$handler) {
+          New-WebHandler -Name "PHP_via_FastCGI" -Path "*.php" -Verb "*" -Modules "FastCgiModule" -ScriptProcessor "{{ php_path }}\php-cgi.exe" -ResourceType File
+        }
+        $existing = Get-WebConfiguration "/system.webServer/fastCgi/application[@fullPath='{{ php_path }}\php-cgi.exe']" -ErrorAction SilentlyContinue
+        if (!$existing) {
+          Add-WebConfiguration "/system.webServer/fastCgi" -Value @{fullPath='{{ php_path }}\php-cgi.exe'}
+        }
+      changed_when: false
+
+    - name: Clone Laravel repository
+      win_shell: |
+        if (!(Test-Path "C:\inetpub\LaravelApp\.git")) {
+          & "C:\Program Files\Git\bin\git.exe" clone --branch {{ php_app_branch }} {{ php_app_repo }} C:\inetpub\LaravelApp
+        }
+      args:
+        creates: C:\inetpub\LaravelApp\composer.json
+
+    - name: Install Composer dependencies
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        composer install --no-interaction --no-dev --optimize-autoloader --quiet 2>&1 | Out-File C:\composer-install.log
+        if ($LASTEXITCODE -ne 0) { Get-Content C:\composer-install.log | Select-Object -Last 20; exit 1 }
+      args:
+        creates: C:\inetpub\LaravelApp\vendor\autoload.php
+      environment:
+        COMPOSER_HOME: C:\ProgramData\ComposerData
+      timeout: 600
+
+    - name: Copy .env file
+      win_shell: |
+        if (!(Test-Path "C:\inetpub\LaravelApp\.env")) {
+          Copy-Item "C:\inetpub\LaravelApp\.env.example" "C:\inetpub\LaravelApp\.env"
+        }
+      args:
+        creates: C:\inetpub\LaravelApp\.env
+
+    - name: Configure Laravel .env for remote MySQL
+      win_lineinfile:
+        path: C:\inetpub\LaravelApp\.env
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: "DB_CONNECTION", value: "mysql" }
+        - { key: "DB_HOST", value: "{{ db_host }}" }
+        - { key: "DB_PORT", value: "3306" }
+        - { key: "DB_DATABASE", value: "{{ mysql_db_name }}" }
+        - { key: "DB_USERNAME", value: "{{ mysql_db_user }}" }
+        - { key: "DB_PASSWORD", value: "{{ mysql_db_password }}" }
+
+    - name: Generate Laravel app key
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        php artisan key:generate --force
+      changed_when: false
+
+    - name: Run Laravel migrations
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        php artisan migrate --force
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set permissions on storage and bootstrap/cache
+      win_shell: |
+        icacls "C:\inetpub\LaravelApp\storage" /grant "IIS_IUSRS:(OI)(CI)F" /T
+        icacls "C:\inetpub\LaravelApp\bootstrap\cache" /grant "IIS_IUSRS:(OI)(CI)F" /T
+      changed_when: false
+
+    - name: Create web.config for Laravel URL rewriting
+      win_copy:
+        dest: C:\inetpub\LaravelApp\public\web.config
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <rewrite>
+                <rules>
+                  <rule name="Laravel" stopProcessing="true">
+                    <match url="^" ignoreCase="false" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="index.php" appendQueryString="true" />
+                  </rule>
+                </rules>
+              </rewrite>
+              <defaultDocument>
+                <files>
+                  <add value="index.php" />
+                </files>
+              </defaultDocument>
+            </system.webServer>
+          </configuration>
+
+    - name: Install IIS URL Rewrite module
+      win_chocolatey:
+        name: urlrewrite
+        state: present
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool for Laravel
+      win_iis_webapppool:
+        name: LaravelPool
+        state: started
+
+    - name: Create IIS website for Laravel
+      win_iis_website:
+        name: LaravelApp
+        state: started
+        port: 80
+        physical_path: C:\inetpub\LaravelApp\public
+        application_pool: LaravelPool
+
+    - name: Allow HTTP through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

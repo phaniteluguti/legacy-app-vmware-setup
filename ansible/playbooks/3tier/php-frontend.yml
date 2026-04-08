@@ -1,0 +1,78 @@
+---
+# =============================================================================
+# PHP 3-Tier — Frontend VM: Nginx reverse proxy + static asset server
+# Proxies requests to Laravel API on the app-server VM
+# =============================================================================
+- name: Deploy Nginx Frontend (PHP 3-Tier)
+  hosts: php_frontend
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['php_appserver'][0]]['ansible_host'] | default(groups['php_appserver'][0]) }}"
+    laravel_port: 8000
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx as reverse proxy for Laravel
+      copy:
+        dest: /etc/nginx/sites-available/laravel
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://{{ app_host }}:{{ laravel_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/laravel
+        dest: /etc/nginx/sites-enabled/laravel
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted

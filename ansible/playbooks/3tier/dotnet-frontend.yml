@@ -1,0 +1,76 @@
+---
+# =============================================================================
+# .NET 3-Tier — Frontend VM: Nginx reverse proxy to app server
+# =============================================================================
+- name: Deploy Nginx Frontend (.NET 3-Tier)
+  hosts: dotnet_frontend
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['dotnet_appserver'][0]]['ansible_host'] | default(groups['dotnet_appserver'][0]) }}"
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx as reverse proxy for eShopOnWeb
+      copy:
+        dest: /etc/nginx/sites-available/eshop
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://{{ app_host }}:{{ dotnet_app_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/eshop
+        dest: /etc/nginx/sites-enabled/eshop
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted

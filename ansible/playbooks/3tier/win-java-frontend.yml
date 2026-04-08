@@ -1,0 +1,178 @@
+---
+# =============================================================================
+# Windows Java 3-Tier — Frontend VM: IIS reverse proxy to REST API
+# Proxies requests to PetClinic REST API on app-server VM (port 9966)
+# =============================================================================
+- name: Deploy IIS Frontend (Windows Java 3-Tier)
+  hosts: win_java_frontend
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['win_java_appserver'][0]]['ansible_host'] | default(groups['win_java_appserver'][0]) }}"
+    petclinic_rest_port: 9966
+
+  tasks:
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install IIS URL Rewrite and ARR modules
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - urlrewrite
+        - iis-arr
+
+    - name: Enable ARR proxy
+      win_shell: |
+        Import-Module WebAdministration
+        Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled" -value "True"
+      changed_when: false
+      ignore_errors: true
+
+    - name: Create frontend web directory
+      win_file:
+        path: C:\inetpub\PetClinicFrontend
+        state: directory
+
+    - name: Create index.html landing page
+      win_copy:
+        dest: C:\inetpub\PetClinicFrontend\index.html
+        content: |
+          <!DOCTYPE html>
+          <html>
+          <head>
+              <title>PetClinic - 3-Tier Frontend</title>
+              <style>
+                  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; background: #f5f5f5; }
+                  .header { background: #34a853; color: white; padding: 20px 40px; }
+                  .container { max-width: 960px; margin: 40px auto; padding: 0 20px; }
+                  .card { background: white; border-radius: 4px; padding: 30px; margin-bottom: 20px;
+                          box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
+                  a { color: #1a73e8; }
+              </style>
+          </head>
+          <body>
+              <div class="header">
+                  <h1>Spring PetClinic — 3-Tier Architecture</h1>
+                  <p>Frontend (IIS) → App Server (REST API) → Database (PostgreSQL)</p>
+              </div>
+              <div class="container">
+                  <div class="card">
+                      <h2>PetClinic REST API</h2>
+                      <p>API is served from: <a href="/petclinic/api/owners">{{ app_host }}:{{ petclinic_rest_port }}</a></p>
+                      <p><a href="/petclinic/api/vets">View Vets (API)</a> |
+                         <a href="/petclinic/api/owners">View Owners (API)</a></p>
+                  </div>
+                  <div class="card">
+                      <h2>Architecture</h2>
+                      <table style="width:100%;border-collapse:collapse;">
+                          <tr><th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Tier</th>
+                              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Role</th></tr>
+                          <tr><td style="padding:8px;border-bottom:1px solid #eee;">Frontend (this VM)</td>
+                              <td style="padding:8px;border-bottom:1px solid #eee;">IIS Reverse Proxy</td></tr>
+                          <tr><td style="padding:8px;border-bottom:1px solid #eee;">App Server</td>
+                              <td style="padding:8px;border-bottom:1px solid #eee;">Spring Boot REST API (port {{ petclinic_rest_port }})</td></tr>
+                          <tr><td style="padding:8px;">Database</td>
+                              <td style="padding:8px;">PostgreSQL {{ postgres_version }}</td></tr>
+                      </table>
+                  </div>
+              </div>
+          </body>
+          </html>
+
+    - name: Create web.config with URL rewrite rules for API proxy
+      win_copy:
+        dest: C:\inetpub\PetClinicFrontend\web.config
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <rewrite>
+                <rules>
+                  <rule name="Proxy to PetClinic API" stopProcessing="true">
+                    <match url="^petclinic/api/(.*)" />
+                    <action type="Rewrite" url="http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/api/{R:1}" />
+                  </rule>
+                </rules>
+              </rewrite>
+              <defaultDocument>
+                <files>
+                  <add value="index.html" />
+                </files>
+              </defaultDocument>
+            </system.webServer>
+          </configuration>
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool
+      win_iis_webapppool:
+        name: PetClinicFrontendPool
+        state: started
+
+    - name: Create IIS website
+      win_iis_website:
+        name: PetClinicFrontend
+        state: started
+        port: 80
+        physical_path: C:\inetpub\PetClinicFrontend
+        application_pool: PetClinicFrontendPool
+
+    - name: Allow HTTP through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

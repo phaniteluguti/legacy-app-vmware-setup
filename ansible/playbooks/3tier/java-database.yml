@@ -1,0 +1,95 @@
+---
+# =============================================================================
+# Java 3-Tier — Database VM: PostgreSQL 15
+# Accepts connections from the app-server VM
+# =============================================================================
+- name: Deploy PostgreSQL Database (Java 3-Tier)
+  hosts: java_database
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+
+  tasks:
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates]
+        state: present
+
+    - name: Add PostgreSQL APT key
+      ansible.builtin.apt_key:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        state: present
+
+    - name: Add PostgreSQL APT repository
+      ansible.builtin.apt_repository:
+        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        state: present
+
+    - name: Install PostgreSQL {{ postgres_version }}
+      apt:
+        name:
+          - "postgresql-{{ postgres_version }}"
+          - "postgresql-client-{{ postgres_version }}"
+          - python3-psycopg2
+        state: present
+        update_cache: true
+
+    - name: Ensure PostgreSQL is started and enabled
+      systemd:
+        name: postgresql
+        state: started
+        enabled: true
+
+    - name: Configure PostgreSQL to listen on all interfaces
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+        regexp: "^#?listen_addresses"
+        line: "listen_addresses = '*'"
+      notify: Restart PostgreSQL
+
+    - name: Allow app server to connect via pg_hba.conf
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        insertafter: '^# IPv4 local connections'
+        line: "host    {{ postgres_db }}   {{ postgres_user }}   {{ hostvars[groups['java_appserver'][0]]['ansible_host'] | default(groups['java_appserver'][0]) }}/32   md5"
+      notify: Restart PostgreSQL
+
+    - name: Wait for PostgreSQL to accept connections
+      wait_for:
+        port: 5432
+        timeout: 30
+
+    - name: Create PetClinic database
+      shell: |
+        sudo -u postgres psql -tc "SELECT 1 FROM pg_database WHERE datname='{{ postgres_db }}'" | grep -q 1 || \
+        sudo -u postgres createdb "{{ postgres_db }}"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Create PetClinic database user
+      shell: |
+        sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'" | grep -q 1 || \
+        sudo -u postgres psql -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}';"
+        sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Allow PostgreSQL port through UFW
+      ufw:
+        rule: allow
+        port: "5432"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart PostgreSQL
+      systemd:
+        name: postgresql
+        state: restarted

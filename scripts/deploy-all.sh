@@ -96,15 +96,45 @@ verify_deployment() {
   log "=== Phase 3: Verifying Deployment ==="
   cd "$ANSIBLE_DIR"
 
-  ansible-playbook -i inventory/hosts.ini -m shell -a "systemctl is-active petclinic || true"    java_servers    2>/dev/null || true
-  ansible-playbook -i inventory/hosts.ini -m shell -a "systemctl is-active dotnet-app || true"   dotnet_servers  2>/dev/null || true
-  ansible-playbook -i inventory/hosts.ini -m shell -a "systemctl is-active apache2 || true"      php_servers     2>/dev/null || true
+  local mode
+  mode=$(grep 'deploy_mode' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*"\(.*\)"/\1/' || echo "linux")
 
-  log ""
-  log "=== Deployment Summary ==="
-  log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
-  log ".NET MVC App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
-  log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
+  case "$mode" in
+    linux)
+      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active petclinic || true"    --limit java_servers    2>/dev/null || true
+      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active dotnet-app || true"   --limit dotnet_servers  2>/dev/null || true
+      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active apache2 || true"      --limit php_servers     2>/dev/null || true
+      log ""
+      log "=== Deployment Summary ==="
+      log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
+      log ".NET MVC App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
+      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
+      ;;
+    windows)
+      log ""
+      log "=== Deployment Summary ==="
+      log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
+      log ".NET IIS App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
+      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
+      ;;
+    linux-3tier|windows-3tier)
+      log ""
+      log "=== 3-Tier Deployment Summary ==="
+      log "Java Stack:"
+      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
+      log "  App Server: $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"{d.get(\"appserver\",\"N/A\")}:9966")' 2>/dev/null || echo 'N/A')"
+      log "  Database:   $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
+      log ".NET Stack:"
+      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
+      log "  App Server: $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo 'N/A')"
+      log "  Database:   $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
+      log "PHP Stack:"
+      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
+      log "  App Server: $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo 'N/A')"
+      log "  Database:   $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
+      ;;
+  esac
+
   log ""
   log "All VMs are ready for Azure Migrate discovery & assessment."
   log "=== Done ==="

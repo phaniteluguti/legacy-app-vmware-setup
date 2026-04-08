@@ -35,15 +35,20 @@
         state: started
         enabled: true
 
-# Deploy each application stack (Linux)
+# Deploy each application stack (Linux single-VM)
 - import_playbook: playbooks/java-petclinic.yml
 - import_playbook: playbooks/dotnet-app.yml
 - import_playbook: playbooks/php-app.yml
 
-# Deploy each application stack (Windows)
+# Deploy each application stack (Windows single-VM)
 - import_playbook: playbooks/win-java-petclinic.yml
 - import_playbook: playbooks/win-iis-app.yml
 - import_playbook: playbooks/win-php-app.yml
+
+# Deploy 3-tier stacks (Linux)
+- import_playbook: playbooks/3tier/site-3tier.yml
+# Deploy 3-tier stacks (Windows)
+- import_playbook: playbooks/3tier/site-3tier-win.yml
 
 # Prepare all VMs for Azure Migrate assessment
 - import_playbook: playbooks/azure-migrate-prep.yml
