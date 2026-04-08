@@ -487,6 +487,7 @@ ansible_winrm_server_cert_validation=ignore
 ansible_user=Administrator
 ansible_password=$WIN_ADMIN_PASS
 ansible_port=5986
+ansible_become=false
 EOF
     fi
 
