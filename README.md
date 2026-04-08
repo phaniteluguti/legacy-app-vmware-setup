@@ -1,8 +1,8 @@
 # VMware Legacy App Lab — Azure Migrate Assessment Setup
 
-Automated deployment of legacy applications (.NET, Java, PHP) on VMware Ubuntu VMs to simulate a real-world on-premises environment for **Azure Migrate discovery and assessment**.
+Automated deployment of legacy applications (.NET, Java, PHP on Linux + ASP.NET Framework on Windows) on VMware VMs to simulate a real-world on-premises environment for **Azure Migrate discovery and assessment**.
 
-This repo provisions 3 VMware VMs, installs a full web + database stack on each, and configures them for Azure Migrate agentless discovery — all from a single interactive wizard or script.
+This repo provisions 3 Linux VMs and an optional Windows Server VM, installs a full web + database stack on each, and configures them for Azure Migrate agentless discovery — all from a single interactive wizard or script.
 
 ---
 
@@ -15,6 +15,7 @@ This repo provisions 3 VMware VMs, installs a full web + database stack on each,
    - [Step 1: Clone This Repo](#step-1-clone-this-repo)
    - [Step 2: Install Tools on Your Machine](#step-2-install-tools-on-your-machine)
    - [Step 3: Prepare a VM Template in vSphere](#step-3-prepare-a-vm-template-in-vsphere)
+   - [Step 3b: Prepare a Windows Template (Optional)](#step-3b-prepare-a-windows-template-optional)
    - [Step 4: Run the Interactive Setup Wizard](#step-4-run-the-interactive-setup-wizard)
    - [Step 5: Verify Deployment](#step-5-verify-deployment)
 5. [Manual Setup (Alternative to Wizard)](#manual-setup-alternative-to-wizard)
@@ -31,41 +32,42 @@ This repo provisions 3 VMware VMs, installs a full web + database stack on each,
 
 | Phase | Tool | Action |
 |-------|------|--------|
-| **Provision** | Terraform | Clones an Ubuntu 22.04 template in vSphere into 3 VMs with static IPs |
-| **Deploy** | Ansible | Installs Java/PetClinic + PostgreSQL, .NET/MVC + SQL Server, PHP/Laravel + MySQL |
-| **Prepare** | Ansible | Enables SSH, sysstat, firewall rules, and optional Azure Migrate Dependency Agent |
-| **Assess** | Azure Migrate | You point the Azure Migrate appliance at your vCenter and discover all 3 VMs |
+| **Provision** | Terraform | Clones Ubuntu 22.04 and Windows Server 2019 templates in vSphere into VMs with static IPs |
+| **Deploy** | Ansible | Installs Java/PetClinic + PostgreSQL, .NET Core/MVC + SQL Server, PHP/Laravel + MySQL (Linux); IIS + ASP.NET Framework + SQL Server Express (Windows) |
+| **Prepare** | Ansible | Enables SSH/WinRM, sysstat, firewall rules, and optional Azure Migrate Dependency Agent |
+| **Assess** | Azure Migrate | You point the Azure Migrate appliance at your vCenter and discover all VMs |
 
 ---
 
 ## Architecture
 
 ```
-┌─────────────────────────────────────────────────────────────┐
-│                     VMware vSphere                          │
-│                                                             │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐      │
-│  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │      │
-│  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│      │
-│  │               │  │               │  │              │      │
-│  │  Spring       │  │  ASP.NET Core │  │  Laravel     │      │
-│  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │      │
-│  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │      │
-│  │               │  │               │  │              │      │
-│  │  PostgreSQL   │  │  SQL Server   │  │  MySQL 8.0   │      │
-│  │  15           │  │  2022 Express │  │              │      │
-│  └──────────────┘  └──────────────┘  └──────────────┘      │
-│                                                             │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              VMware vSphere                                  │
+│                                                                              │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐ │
+│  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │  │  VM: win-iis-vm  │ │
+│  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│  │  Win Server 2019 │ │
+│  │               │  │               │  │              │  │                  │ │
+│  │  Spring       │  │  ASP.NET Core │  │  Laravel     │  │  ASP.NET         │ │
+│  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │  │  Framework (IIS) │ │
+│  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │  │  (.NET 4.5)      │ │
+│  │               │  │               │  │              │  │                  │ │
+│  │  PostgreSQL   │  │  SQL Server   │  │  MySQL 8.0   │  │  SQL Server      │ │
+│  │  15           │  │  2022 Express │  │              │  │  2019 Express    │ │
+│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────┘ │
+│                                                                              │
+│                         (Windows VM is optional)                             │
+└──────────────────────────────────────────────────────────────────────────────┘
          │
          ▼  Azure Migrate Appliance discovers these VMs
-┌─────────────────────────────────────────────────────────────┐
-│  Migration Targets:                                         │
-│  Azure IaaS (VMs)           │  Azure PaaS                   │
-│  • Azure VMs                │  • App Service                 │
-│  • Managed Disks            │  • Azure SQL / Postgres / MySQL│
-│  • NSGs, VNets              │  • Azure Container Apps        │
-└─────────────────────────────────────────────────────────────┘
+┌──────────────────────────────────────────────────────────────────────────────┐
+│  Migration Targets:                                                          │
+│  Azure IaaS (VMs)           │  Azure PaaS                                    │
+│  • Azure VMs                │  • App Service                                 │
+│  • Managed Disks            │  • Azure SQL / Postgres / MySQL                │
+│  • NSGs, VNets              │  • Azure Container Apps                        │
+└──────────────────────────────────────────────────────────────────────────────┘
 ```
 
 ---
@@ -77,8 +79,9 @@ This repo provisions 3 VMware VMs, installs a full web + database stack on each,
 | Tool | Version | How to Install | Why Needed |
 |------|---------|----------------|------------|
 | **Terraform** | >= 1.5 | [terraform.io/install](https://developer.hashicorp.com/terraform/install) | Creates VMs on vSphere |
-| **Ansible** | >= 2.14 | `pip install ansible` or use WSL on Windows | Deploys apps over SSH |
-| **SSH client** | any | Built into Windows 10+, macOS, Linux | Ansible connects to VMs |
+| **Ansible** | >= 2.14 | `pip install ansible` or use WSL on Windows | Deploys apps over SSH/WinRM |
+| **SSH client** | any | Built into Windows 10+, macOS, Linux | Ansible connects to Linux VMs |
+| **pywinrm** | any | `pip install pywinrm` | Ansible connects to Windows VMs (only needed if deploying Windows VM) |
 | **Git** | any | [git-scm.com](https://git-scm.com/) | Clone this repo |
 
 **Windows users:** Ansible doesn't run natively on Windows. Use one of:
@@ -93,7 +96,8 @@ This repo provisions 3 VMware VMs, installs a full web + database stack on each,
 | **vCenter Server** | 6.7 or later — Terraform talks to the vCenter API |
 | **vSphere credentials** | A user with permission to create VMs (e.g., `administrator@vsphere.local`) |
 | **Ubuntu 22.04 VM template** | A template in your vCenter inventory (see [Step 3](#step-3-prepare-a-vm-template-in-vsphere)) |
-| **Network** | A port group with DHCP or a static IP range you can assign to 3 VMs |
+| **Windows Server 2019 template** | *(Optional)* A template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
+| **Network** | A port group with DHCP or a static IP range you can assign to 3–4 VMs |
 | **SSH access** | Either password auth enabled in template, or SSH key pair (public key in template, private key on your machine) |
 
 ### Information You'll Need to Gather
@@ -107,9 +111,10 @@ Datacenter name               → visible in vCenter inventory tree
 Cluster name                  → the compute cluster under the datacenter
 Datastore name                → where VM disks will be stored
 Network/Port Group name       → the network VMs will connect to
-VM Template name              → the Ubuntu 22.04 template you created
+Linux VM Template name        → the Ubuntu 22.04 template you created
+Windows VM Template name      → (optional) your Windows Server 2019 template
 Gateway IP                    → your lab network gateway
-3 available static IPs        → one per VM (e.g., 192.168.1.101-103)
+3-4 available static IPs      → one per VM (e.g., 192.168.1.101-104)
 ```
 
 > **Tip:** Open your vSphere Web Client and note down these names — they must match exactly.
@@ -193,13 +198,19 @@ ansible --version
 
 **2a-3. Install Ansible Galaxy Collections:**
 
-These are plugins Ansible needs to manage PostgreSQL, MySQL, etc.
+These are plugins Ansible needs to manage PostgreSQL, MySQL, Windows, etc.
 
 ```bash
-ansible-galaxy collection install community.postgresql community.mysql community.general
+ansible-galaxy collection install community.postgresql community.mysql community.general ansible.windows
 ```
 
-**2a-4. Verify SSH is available:**
+**2a-4. Install pywinrm (needed for Windows VMs):**
+
+```bash
+pip install pywinrm
+```
+
+**2a-5. Verify SSH is available:**
 
 ```bash
 # SSH is usually pre-installed on Ubuntu. Verify:
@@ -217,7 +228,10 @@ If missing: `sudo apt install -y openssh-client`
 brew install terraform ansible
 
 # Install Ansible Galaxy collections
-ansible-galaxy collection install community.postgresql community.mysql community.general
+ansible-galaxy collection install community.postgresql community.mysql community.general ansible.windows
+
+# Install pywinrm (for Windows VM support)
+pip install pywinrm
 ```
 
 ---
@@ -300,6 +314,49 @@ The automation clones VMs from a template. You create this **once**.
 
 > **Why a template?** Terraform doesn't install an OS from scratch — it clones this template and customizes each clone with a unique hostname and static IP via VMware's guest customization spec. This takes ~2 minutes per VM instead of 30+ minutes for a fresh OS install.
 
+### Step 3b: Prepare a Windows Template (Optional)
+
+If you want to deploy the Windows IIS + ASP.NET Framework legacy app, you need a Windows Server 2019 template with WinRM enabled.
+
+1. **Create a new VM** in vCenter with:
+   - Guest OS: Windows Server 2019 (64-bit)
+   - 2 vCPUs, 4 GB RAM, 60 GB thin-provisioned disk
+   - Attach the Windows Server 2019 ISO
+
+2. **Install Windows Server 2019** with Desktop Experience. Set an Administrator password.
+
+3. **Inside the VM, open PowerShell as Administrator and run:**
+   ```powershell
+   # Enable WinRM for Ansible connectivity
+   winrm quickconfig -force
+   winrm set winrm/config/service '@{AllowUnencrypted="true"}'
+   winrm set winrm/config/service/auth '@{Basic="true"}'
+   Enable-PSRemoting -Force
+
+   # Configure WinRM for HTTPS (self-signed cert)
+   $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
+   winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$env:COMPUTERNAME`";CertificateThumbprint=`"$($cert.Thumbprint)`"}"
+
+   # Open firewall for WinRM HTTPS
+   New-NetFirewallRule -Name "WinRM-HTTPS" -DisplayName "WinRM HTTPS" -Protocol TCP -LocalPort 5986 -Action Allow
+
+   # Install VMware Tools (required for guest customization)
+   # Mount the VMware Tools ISO from vCenter and run setup.exe, or:
+   # Install-WindowsFeature -Name NET-Framework-45-Core
+
+   # Clean up for templating
+   # Run sysprep if you want unique SIDs:
+   # C:\Windows\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown
+   ```
+
+   > **Note:** The template must have VMware Tools installed for Terraform's guest customization (setting hostname and static IP) to work. Mount the VMware Tools ISO from vCenter → VM → Install VMware Tools.
+
+4. **Shut down the VM.**
+
+5. In vCenter: **Right-click the VM → Convert to Template** → name it `windows-2019-template`.
+
+> **Tip:** If you already have a Windows Server 2019 template from another project, just make sure WinRM is configured on port 5986 (HTTPS) or 5985 (HTTP). The wizard will ask for the template name.
+
 ### Step 4: Run the Interactive Setup Wizard
 
 The wizard asks you every question, validates inputs, generates all config files, and runs the full deployment.
@@ -321,7 +378,7 @@ The wizard walks through 6 sections:
 | 1. vCenter Connection | Server, username, password | `vcenter.lab.local` |
 | 2. vSphere Infrastructure | Datacenter, cluster, datastore, template name | `Datacenter1`, `ubuntu-2204-template` |
 | 3. Network Settings | Gateway, DNS, SSH user, key path | `192.168.1.1`, `ubuntu` |
-| 4. VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM | `192.168.1.101`, 2 CPU, 4096 MB |
+| 4. VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM; optional Windows VM | `192.168.1.101`, 2 CPU, 4096 MB |
 | 5. App & DB Config | Git repos, versions, database passwords | JDK 17, PostgreSQL password |
 | 6. Azure Migrate | Install dependency agent? | Yes/No |
 
@@ -337,10 +394,11 @@ After confirming the summary, choose a run mode:
 
 > **Re-running the wizard:** On subsequent runs, all prompts pre-fill with your previously saved values. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
 
-**Option 1** runs everything end-to-end. Expect **~20-30 minutes** total:
-- ~5 min for Terraform to create 3 VMs
+**Option 1** runs everything end-to-end. Expect **~20-35 minutes** total:
+- ~5 min for Terraform to create VMs (3 Linux + optional Windows)
 - ~1 min waiting for VMs to boot
 - ~15-25 min for Ansible to install all apps and databases
+- ~5-10 min extra if Windows VM is included (SQL Server download + install)
 
 ### Step 5: Verify Deployment
 
@@ -351,11 +409,15 @@ After the wizard finishes, it runs health checks automatically. You can also ver
 curl http://192.168.1.101:8080     # Java PetClinic — should return HTML
 curl http://192.168.1.102          # .NET MVC App — should return HTML
 curl http://192.168.1.103          # PHP Laravel — should return HTML
+curl http://192.168.1.104          # Windows IIS App (if deployed) — should return HTML
 
-# SSH into any VM
+# SSH into any Linux VM
 ssh ubuntu@192.168.1.101
 
-# Check service status on a VM
+# RDP into the Windows VM (if deployed)
+# Use Remote Desktop to connect to 192.168.1.104
+
+# Check service status on Linux VMs
 systemctl status petclinic         # on java-vm
 systemctl status dotnet-app        # on dotnet-vm
 systemctl status apache2           # on php-vm
@@ -393,17 +455,19 @@ bash scripts/deploy-all.sh all
 
 ## What Gets Deployed
 
-| VM | Hostname | Application | Web Server | Database | Access URL |
-|----|----------|------------|------------|----------|------------|
-| **Java VM** | legacy-java-vm | Spring PetClinic (Java 17, Spring Boot 2.x) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **\.NET VM** | legacy-dotnet-vm | ASP.NET Core MVC (.NET 6) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
-| **PHP VM** | legacy-php-vm | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
+| VM | Hostname | OS | Application | Web Server | Database | Access URL |
+|----|----------|-----|------------|------------|----------|------------|
+| **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 6) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
+| **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
+| **Windows VM** *(optional)* | legacy-win-iis | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<win-ip>` |
 
 Each app:
-- Runs as a **systemd service** (auto-starts on boot)
+- Runs as a **systemd service** (Linux) or **IIS/Windows service** (Windows) — auto-starts on boot
 - Has its database installed **locally on the same VM** (simulates typical legacy architecture)
 - Has **firewall rules** configured for its ports
-- Has **sysstat** enabled for performance data collection
+- Has **sysstat** enabled for performance data collection (Linux VMs)
+- Has **RDP** and **WinRM** enabled for Azure Migrate discovery (Windows VM)
 
 ---
 
@@ -418,14 +482,14 @@ legacy-app-vmware-setup/
 │   └── deploy-all.sh                  # Non-interactive orchestration script
 │
 ├── terraform/                         # VM provisioning on vSphere
-│   ├── main.tf                        # VM resources + clone from template
-│   ├── variables.tf                   # All configurable parameters
+│   ├── main.tf                        # Linux + Windows VM resources + clone from template
+│   ├── variables.tf                   # All configurable parameters (incl. Windows VM)
 │   ├── outputs.tf                     # VM IPs output after apply
 │   ├── terraform.tfvars.example       # Template — fill with your values
 │   └── templates/
-│       └── hosts.ini.tftpl            # Auto-generates Ansible inventory
+│       └── hosts.ini.tftpl            # Auto-generates Ansible inventory (SSH + WinRM)
 │
-├── ansible/                           # App deployment over SSH
+├── ansible/                           # App deployment over SSH (Linux) / WinRM (Windows)
 │   ├── site.yml                       # Master playbook (runs everything)
 │   ├── requirements.yml               # Ansible Galaxy dependencies
 │   ├── inventory/
@@ -436,6 +500,7 @@ legacy-app-vmware-setup/
 │       ├── java-petclinic.yml         # Java 17 + Spring PetClinic + PostgreSQL 15
 │       ├── dotnet-app.yml             # .NET 6 + ASP.NET MVC + SQL Server 2022
 │       ├── php-app.yml                # PHP 8.1 + Laravel + MySQL 8.0 + Apache2
+│       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server 2019
 │       └── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
 │
 ├── .gitignore                         # Excludes secrets (tfvars, all.yml, keys)
@@ -462,6 +527,10 @@ legacy-app-vmware-setup/
 | `java_vm_ip` | Static IP for Java VM | `192.168.1.101` |
 | `dotnet_vm_ip` | Static IP for .NET VM | `192.168.1.102` |
 | `php_vm_ip` | Static IP for PHP VM | `192.168.1.103` |
+| `win_vm_enabled` | Deploy Windows VM? | `true` or `false` |
+| `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
+| `win_vm_ip` | Static IP for Windows VM | `192.168.1.104` |
+| `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
 
 ### ansible/group_vars/all.yml
 
@@ -474,6 +543,8 @@ legacy-app-vmware-setup/
 | `php_version` | PHP version | `8.1` |
 | `mysql_root_password` | MySQL root password | *(you set this)* |
 | `install_azure_migrate_agent` | Install dependency agent on VMs | `false` |
+| `win_mssql_sa_password` | SQL Server SA password for Windows VM | *(you set this)* |
+| `win_mssql_db_name` | Database name for Windows app | `LegacyAppDb` |
 
 ---
 
@@ -508,6 +579,7 @@ Azure Portal → Azure Migrate → Create project
 | legacy-java-vm | Java 17, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-dotnet-vm | .NET 6, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
 | legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
+| legacy-win-iis *(if deployed)* | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
 
 ---
 
@@ -593,6 +665,20 @@ Error: error attaching tags to object ID "vm-xxxxx": 404 Not Found
 ```
 - This means your vCenter doesn't support the tags API (common on AVS)
 - Pull the latest code — this has been fixed (tags removed)
+
+### Windows VM: WinRM connection fails
+```
+UNREACHABLE! => {"msg": "winrm connection error"}
+```
+- Ensure WinRM is configured in the Windows template (see [Step 3b](#step-3b-prepare-a-windows-template-optional))
+- Test connectivity: `curl -k https://<win-ip>:5986/wsman`
+- Verify `pywinrm` is installed: `pip install pywinrm`
+- Try HTTP (port 5985) if HTTPS fails — update `ansible_port` in inventory to `5985`
+
+### Windows VM: SQL Server download hangs or fails
+- The SQL Server 2019 Express installer is ~800 MB and needs internet access
+- Ensure the Windows VM can reach `go.microsoft.com` and `download.microsoft.com`
+- If behind a proxy, configure the proxy in the Windows template before templating
 
 ---
 
