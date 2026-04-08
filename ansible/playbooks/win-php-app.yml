@@ -13,6 +13,16 @@
 
   tasks:
     # ---------------------------------------------------------------
+    # WinRM memory limit (composer install produces large output)
+    # ---------------------------------------------------------------
+    - name: Increase WinRM shell memory to 1GB
+      win_shell: |
+        Set-Item WSMan:\localhost\Shell\MaxMemoryPerShellMB 1024
+        Set-Item WSMan:\localhost\Plugin\microsoft.powershell\Quotas\MaxMemoryPerShellMB 1024
+      changed_when: false
+      ignore_errors: true
+
+    # ---------------------------------------------------------------
     # Chocolatey (package manager)
     # ---------------------------------------------------------------
     - name: Install Chocolatey
@@ -182,12 +192,13 @@
     - name: Install Composer dependencies
       win_shell: |
         Set-Location C:\inetpub\LaravelApp
-        composer install --no-interaction --no-dev --optimize-autoloader
+        composer install --no-interaction --no-dev --optimize-autoloader --quiet 2>&1 | Out-File C:\composer-install.log
+        if ($LASTEXITCODE -ne 0) { Get-Content C:\composer-install.log | Select-Object -Last 20; exit 1 }
       args:
         creates: C:\inetpub\LaravelApp\vendor\autoload.php
       environment:
         COMPOSER_HOME: C:\ProgramData\ComposerData
-      timeout: 300
+      timeout: 600
 
     - name: Copy .env file
       win_shell: |
