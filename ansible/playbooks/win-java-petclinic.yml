@@ -102,7 +102,7 @@
     # ---------------------------------------------------------------
     # Clone & Build PetClinic
     # ---------------------------------------------------------------
-    - name: Clone PetClinic repository
+    - name: Clone setup repository
       win_shell: |
         if (!(Test-Path "C:\Apps\petclinic\.git")) {
           & "C:\Program Files\Git\bin\git.exe" clone --branch {{ petclinic_branch }} {{ petclinic_repo }} C:\Apps\petclinic
@@ -111,11 +111,17 @@
           & "C:\Program Files\Git\bin\git.exe" pull
         }
       args:
-        creates: C:\Apps\petclinic\pom.xml
+        creates: C:\Apps\petclinic\setup-local-lab-infra.sh
+
+    - name: Clone spring-petclinic inside setup repo
+      win_shell: |
+        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-projects/spring-petclinic.git C:\Apps\petclinic\spring-petclinic
+      args:
+        creates: C:\Apps\petclinic\spring-petclinic\pom.xml
 
     - name: Create PostgreSQL application properties
       win_copy:
-        dest: C:\Apps\petclinic\src\main\resources\application-postgres.properties
+        dest: C:\Apps\petclinic\spring-petclinic\src\main\resources\application-postgres.properties
         content: |
           spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
@@ -123,17 +129,17 @@
 
     - name: Build PetClinic with Maven wrapper
       win_shell: |
-        Set-Location C:\Apps\petclinic
+        Set-Location C:\Apps\petclinic\spring-petclinic
         $env:JAVA_HOME = "C:\Program Files\OpenJDK\jdk-{{ java_version }}"
         .\mvnw.cmd package -DskipTests -Ppostgres
       args:
-        creates: C:\Apps\petclinic\target\*.jar
+        creates: C:\Apps\petclinic\spring-petclinic\target\*.jar
       register: mvn_build
       timeout: 600
 
     - name: Find the built JAR file
       win_find:
-        paths: C:\Apps\petclinic\target
+        paths: C:\Apps\petclinic\spring-petclinic\target
         patterns: "*.jar"
         file_type: file
       register: jar_files
@@ -160,7 +166,7 @@
     - name: Install PetClinic as a Windows service
       win_shell: |
         nssm install PetClinic "C:\Program Files\OpenJDK\jdk-{{ java_version }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgres --server.port={{ petclinic_app_port }}"
-        nssm set PetClinic AppDirectory "C:\Apps\petclinic"
+        nssm set PetClinic AppDirectory "C:\Apps\petclinic\spring-petclinic"
         nssm set PetClinic DisplayName "Spring PetClinic"
         nssm set PetClinic Description "Spring PetClinic on PostgreSQL"
         nssm set PetClinic Start SERVICE_AUTO_START
