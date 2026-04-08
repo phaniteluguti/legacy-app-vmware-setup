@@ -182,8 +182,7 @@ resource "vsphere_virtual_machine" "win_vm" {
   }
 
   clone {
-    template_uuid    = data.vsphere_virtual_machine.windows_template[0].id
-    customize_timeout = 30
+    template_uuid = data.vsphere_virtual_machine.windows_template[0].id
 
     customize {
       windows_options {
