@@ -345,7 +345,11 @@ If you want to deploy the Windows IIS + ASP.NET Framework legacy app, you need a
 
    # Configure WinRM for HTTPS (self-signed cert)
    $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
-   winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$env:COMPUTERNAME`";CertificateThumbprint=`"$($cert.Thumbprint)`"}"
+
+   # Create the HTTPS listener using the cert thumbprint (run this SEPARATELY after the line above)
+   $hostname = $env:COMPUTERNAME
+   $thumbprint = $cert.Thumbprint
+   winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$hostname`";CertificateThumbprint=`"$thumbprint`"}"
 
    # Open firewall for WinRM HTTPS
    New-NetFirewallRule -Name "WinRM-HTTPS" -DisplayName "WinRM HTTPS" -Protocol TCP -LocalPort 5986 -Action Allow
