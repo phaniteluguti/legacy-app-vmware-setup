@@ -678,9 +678,38 @@ main() {
         echo ""
         check_prerequisites
         load_previous
-        DEPLOY_MODE="$PREV_DEPLOY_MODE"
+
+        # Ask which mode to resume
+        echo -e "  ${Y}Which deployment to resume?${NC}"
+        echo -e "    ${G}1)${NC} Linux"
+        echo -e "    ${G}2)${NC} Windows"
+        local default_r; [[ "$PREV_DEPLOY_MODE" == "windows" ]] && default_r="2" || default_r="1"
+        read -rp "  Choice [1/2] (default: $default_r): " resume_mode
+        resume_mode="${resume_mode:-$default_r}"
+        if [[ "$resume_mode" == "2" ]]; then
+            DEPLOY_MODE="windows"
+        else
+            DEPLOY_MODE="linux"
+        fi
+
         JAVA_IP="$PREV_JAVA_IP"; DOTNET_IP="$PREV_DOTNET_IP"; PHP_IP="$PREV_PHP_IP"
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+
+        if [[ "$DEPLOY_MODE" == "windows" ]]; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        else
+            # Linux mode needs SSH password for inventory
+            if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+                prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+            fi
+        fi
+
+        # Regenerate inventory with current fixes
+        write_inventory
+
         run_ansible_resume
         run_verify
         exit 0
