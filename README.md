@@ -106,7 +106,7 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 | **vCenter Server** | 6.7 or later — Terraform talks to the vCenter API |
 | **vSphere credentials** | A user with permission to create VMs (e.g., `administrator@vsphere.local`) |
 | **Ubuntu 22.04 VM template** | A template in your vCenter inventory (see [Step 3](#step-3-prepare-a-vm-template-in-vsphere)) |
-| **Windows Server 2019 template** | Required for Windows mode — a template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
+| **Windows Server 2019/2022 template** | Required for Windows mode — a template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
 | **Network** | A port group with DHCP or a static IP range you can assign to 3 VMs |
 | **SSH access** | Either password auth enabled in template, or SSH key pair (public key in template, private key on your machine) |
 
@@ -122,7 +122,7 @@ Cluster name                  → the compute cluster under the datacenter
 Datastore name                → where VM disks will be stored
 Network/Port Group name       → the network VMs will connect to
 Linux VM Template name        → the Ubuntu 22.04 template you created
-Windows VM Template name      → (Windows mode) your Windows Server 2019 template
+Windows VM Template name      → (Windows mode) your Windows Server 2019/2022 template
 Gateway IP                    → your lab network gateway
 3 available static IPs        → one per VM (e.g., 192.168.1.101-103)
 ```
@@ -326,14 +326,14 @@ The automation clones VMs from a template. You create this **once**.
 
 ### Step 3b: Prepare a Windows Template (Optional)
 
-If you want to deploy the Windows IIS + ASP.NET Framework legacy app, you need a Windows Server 2019 template with WinRM enabled.
+If you want to deploy Windows legacy apps, you need a Windows Server template with WinRM enabled. Both **Windows Server 2019** and **2022** are supported.
 
 1. **Create a new VM** in vCenter with:
-   - Guest OS: Windows Server 2019 (64-bit)
+   - Guest OS: Windows Server 2019 or 2022 (64-bit)
    - 2 vCPUs, 4 GB RAM, 60 GB thin-provisioned disk
-   - Attach the Windows Server 2019 ISO
+   - Attach the Windows Server ISO
 
-2. **Install Windows Server 2019** with Desktop Experience. Set an Administrator password.
+2. **Install Windows Server** with Desktop Experience. Set an Administrator password.
 
 3. **Inside the VM, open PowerShell as Administrator and run:**
    ```powershell
