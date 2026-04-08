@@ -133,7 +133,7 @@
         $env:JAVA_HOME = "C:\Program Files\OpenJDK\jdk-{{ java_version }}"
         .\mvnw.cmd package -DskipTests -Ppostgres
       args:
-        creates: C:\Apps\petclinic\spring-petclinic\target\*.jar
+        creates: C:\Apps\petclinic\spring-petclinic\target
       register: mvn_build
       timeout: 600
 
