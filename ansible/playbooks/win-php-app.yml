@@ -7,6 +7,7 @@
 - name: Deploy PHP Laravel + MySQL on Windows
   hosts: win_php_servers
   gather_facts: true
+  become: false
   vars_files:
     - ../group_vars/all.yml
 

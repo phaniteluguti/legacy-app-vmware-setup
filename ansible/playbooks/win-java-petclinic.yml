@@ -7,6 +7,7 @@
 - name: Deploy Java PetClinic + PostgreSQL on Windows
   hosts: win_java_servers
   gather_facts: true
+  become: false
   vars_files:
     - ../group_vars/all.yml
 
