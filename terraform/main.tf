@@ -188,6 +188,13 @@ resource "vsphere_virtual_machine" "win_vm" {
       windows_options {
         computer_name  = each.value.computer_name
         admin_password = var.win_admin_password
+        run_once_command_list = [
+          "cmd.exe /c winrm quickconfig -force",
+          "cmd.exe /c winrm set winrm/config/service @{AllowUnencrypted=\"true\"}",
+          "cmd.exe /c winrm set winrm/config/service/auth @{Basic=\"true\"}",
+          "powershell.exe -Command Enable-PSRemoting -Force",
+          "powershell.exe -Command New-NetFirewallRule -Name WinRM-HTTP -DisplayName 'WinRM HTTP' -Protocol TCP -LocalPort 5985 -Action Allow",
+        ]
       }
 
       network_interface {
