@@ -76,21 +76,24 @@ locals {
 
   win_vms = var.deploy_mode == "windows" ? {
     win-java-vm = {
-      name   = "legacy-win-java-vm"
+      name          = "legacy-win-java-vm"
+      computer_name = "WIN-JAVA"
       cpus   = var.java_vm_cpus
       memory = var.java_vm_memory
       disk   = var.java_vm_disk
       ip     = var.java_vm_ip
     }
     win-dotnet-vm = {
-      name   = "legacy-win-dotnet-vm"
+      name          = "legacy-win-dotnet-vm"
+      computer_name = "WIN-DOTNET"
       cpus   = var.dotnet_vm_cpus
       memory = var.dotnet_vm_memory
       disk   = var.dotnet_vm_disk
       ip     = var.dotnet_vm_ip
     }
     win-php-vm = {
-      name   = "legacy-win-php-vm"
+      name          = "legacy-win-php-vm"
+      computer_name = "WIN-PHP"
       cpus   = var.php_vm_cpus
       memory = var.php_vm_memory
       disk   = var.php_vm_disk
@@ -164,6 +167,9 @@ resource "vsphere_virtual_machine" "win_vm" {
 
   guest_id = data.vsphere_virtual_machine.windows_template[0].guest_id
 
+  wait_for_guest_net_timeout  = 15
+  wait_for_guest_ip_timeout   = 15
+
   network_interface {
     network_id   = data.vsphere_network.network.id
     adapter_type = data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
@@ -176,11 +182,12 @@ resource "vsphere_virtual_machine" "win_vm" {
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.windows_template[0].id
+    template_uuid    = data.vsphere_virtual_machine.windows_template[0].id
+    customize_timeout = 30
 
     customize {
       windows_options {
-        computer_name  = each.value.name
+        computer_name  = each.value.computer_name
         admin_password = var.win_admin_password
       }
 
