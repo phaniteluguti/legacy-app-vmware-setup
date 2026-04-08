@@ -66,15 +66,45 @@
         state: present
         package_params: "/InstallDir:C:\\PHP"
 
+    - name: Detect PHP install path
+      win_shell: |
+        $phpExe = (Get-Command php -ErrorAction SilentlyContinue).Source
+        if ($phpExe) {
+          Write-Output (Split-Path $phpExe)
+        } elseif (Test-Path "C:\PHP\php.exe") {
+          Write-Output "C:\PHP"
+        } else {
+          $found = Get-ChildItem "C:\tools" -Directory -Filter "php*" -ErrorAction SilentlyContinue | Select-Object -First 1 -ExpandProperty FullName
+          Write-Output $found
+        }
+      register: php_detect
+      changed_when: false
+
+    - name: Set PHP path fact
+      set_fact:
+        php_path: "{{ php_detect.stdout | trim }}"
+
     - name: Add PHP to PATH
       win_path:
         elements:
-          - 'C:\PHP'
+          - '{{ php_path }}'
         state: present
+
+    - name: Create php.ini from development template if missing
+      win_shell: |
+        if (!(Test-Path "{{ php_path }}\php.ini")) {
+          if (Test-Path "{{ php_path }}\php.ini-development") {
+            Copy-Item "{{ php_path }}\php.ini-development" "{{ php_path }}\php.ini"
+          } elseif (Test-Path "{{ php_path }}\php.ini-production") {
+            Copy-Item "{{ php_path }}\php.ini-production" "{{ php_path }}\php.ini"
+          }
+        }
+      args:
+        creates: '{{ php_path }}\php.ini'
 
     - name: Enable required PHP extensions
       win_lineinfile:
-        path: C:\PHP\php.ini
+        path: '{{ php_path }}\php.ini'
         regexp: "^;?extension={{ item }}"
         line: "extension={{ item }}"
       loop:
@@ -87,7 +117,7 @@
 
     - name: Set PHP cgi.fix_pathinfo
       win_lineinfile:
-        path: C:\PHP\php.ini
+        path: '{{ php_path }}\php.ini'
         regexp: "^;?cgi\\.fix_pathinfo"
         line: "cgi.fix_pathinfo=0"
 
@@ -99,11 +129,11 @@
         Import-Module WebAdministration
         $handler = Get-WebHandler -Name "PHP_via_FastCGI" -ErrorAction SilentlyContinue
         if (!$handler) {
-          New-WebHandler -Name "PHP_via_FastCGI" -Path "*.php" -Verb "*" -Modules "FastCgiModule" -ScriptProcessor "C:\PHP\php-cgi.exe" -ResourceType File
+          New-WebHandler -Name "PHP_via_FastCGI" -Path "*.php" -Verb "*" -Modules "FastCgiModule" -ScriptProcessor "{{ php_path }}\php-cgi.exe" -ResourceType File
         }
-        $existing = Get-WebConfiguration "/system.webServer/fastCgi/application[@fullPath='C:\PHP\php-cgi.exe']" -ErrorAction SilentlyContinue
+        $existing = Get-WebConfiguration "/system.webServer/fastCgi/application[@fullPath='{{ php_path }}\php-cgi.exe']" -ErrorAction SilentlyContinue
         if (!$existing) {
-          Add-WebConfiguration "/system.webServer/fastCgi" -Value @{fullPath='C:\PHP\php-cgi.exe'}
+          Add-WebConfiguration "/system.webServer/fastCgi" -Value @{fullPath='{{ php_path }}\php-cgi.exe'}
         }
       changed_when: false
 
