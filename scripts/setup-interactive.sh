@@ -692,7 +692,19 @@ main() {
             DEPLOY_MODE="linux"
         fi
 
-        JAVA_IP="$PREV_JAVA_IP"; DOTNET_IP="$PREV_DOTNET_IP"; PHP_IP="$PREV_PHP_IP"
+        # Get actual VM IPs from the Terraform workspace state
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+            warn "Terraform workspace '$DEPLOY_MODE' not found. Run the full wizard first."
+            exit 1
+        }
+        JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
+        DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
+        PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
+        popd > /dev/null
+        step "Using IPs from Terraform state: Java=$JAVA_IP, .NET=$DOTNET_IP, PHP=$PHP_IP"
+
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
