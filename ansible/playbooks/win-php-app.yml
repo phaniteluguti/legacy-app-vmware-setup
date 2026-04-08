@@ -63,7 +63,6 @@
     - name: Install PHP via Chocolatey
       win_chocolatey:
         name: php
-        version: "{{ php_version }}"
         state: present
         package_params: "/InstallDir:C:\\PHP"
 
