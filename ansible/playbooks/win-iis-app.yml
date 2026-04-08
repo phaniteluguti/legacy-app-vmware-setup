@@ -64,20 +64,21 @@
 
     - name: Extract SQL Server media
       win_command: >
-        C:\SQLInstall\SQLEXPR_x64_ENU.exe /x:C:\SQLInstall\extracted /QS
+        C:\SQLInstall\SQLEXPR_x64_ENU.exe /x:C:\SQLInstall\extracted /Q
       args:
         creates: C:\SQLInstall\extracted\setup.exe
       when: mssql_svc.state is not defined or mssql_svc.state != 'running'
 
     - name: Install SQL Server 2019 Express
       win_command: >
-        C:\SQLInstall\extracted\setup.exe /QS /IACCEPTSQLSERVERLICENSETERMS
+        C:\SQLInstall\extracted\setup.exe /Q /IACCEPTSQLSERVERLICENSETERMS
         /ACTION=Install /FEATURES=SQLENGINE
         /INSTANCENAME=MSSQLSERVER
         /SECURITYMODE=SQL
         /SAPWD="{{ mssql_sa_password }}"
         /SQLSVCACCOUNT="NT AUTHORITY\SYSTEM"
         /TCPENABLED=1
+        /UpdateEnabled=False
       args:
         creates: C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER
       when: mssql_svc.state is not defined or mssql_svc.state != 'running'
