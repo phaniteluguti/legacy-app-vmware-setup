@@ -176,12 +176,6 @@
           spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
-          spring.datasource.driver-class-name=org.postgresql.Driver
-          spring.jpa.hibernate.ddl-auto=create-drop
-          spring.jpa.properties.hibernate.dialect=org.hibernate.dialect.PostgreSQLDialect
-          spring.sql.init.mode=always
-          spring.sql.init.schema-locations=classpath:db/postgres/schema.sql
-          spring.sql.init.data-locations=classpath:db/postgres/data.sql
         owner: "{{ ansible_user }}"
 
     - name: Build PetClinic with Maven (skip tests for speed)
@@ -190,7 +184,6 @@
         sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests'
       args:
         executable: /bin/bash
-        creates: /opt/petclinic/repo/spring-petclinic/target/*.jar
 
     - name: Find built JAR
       find:
