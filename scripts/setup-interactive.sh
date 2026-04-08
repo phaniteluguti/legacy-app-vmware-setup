@@ -97,6 +97,8 @@ load_previous() {
     PREV_JAVA_IP="192.168.1.101"; PREV_JAVA_CPU="2"; PREV_JAVA_MEM="4096"; PREV_JAVA_DISK="40"
     PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"; PREV_DOTNET_DISK="40"
     PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"; PREV_PHP_DISK="30"
+    PREV_WIN_ENABLED="false"; PREV_WIN_TEMPLATE="windows-2019-template"
+    PREV_WIN_IP="192.168.1.104"; PREV_WIN_CPU="2"; PREV_WIN_MEM="4096"; PREV_WIN_DISK="60"
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="17"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
@@ -134,6 +136,12 @@ load_previous() {
         PREV_PHP_CPU="$(tfval php_vm_cpus "2")"
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
         PREV_PHP_DISK="$(tfval php_vm_disk "30")"
+        PREV_WIN_ENABLED="$(tfval win_vm_enabled "false")"
+        PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
+        PREV_WIN_IP="$(tfval win_vm_ip "192.168.1.104")"
+        PREV_WIN_CPU="$(tfval win_vm_cpus "2")"
+        PREV_WIN_MEM="$(tfval win_vm_memory "4096")"
+        PREV_WIN_DISK="$(tfval win_vm_disk "60")"
     fi
 
     if [[ -f "$ALLVARS_FILE" ]]; then
@@ -243,6 +251,21 @@ collect_vms() {
     prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
     prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
     prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+
+    echo ""
+    local default_win_yn; [[ "$PREV_WIN_ENABLED" == "true" ]] && default_win_yn="y" || default_win_yn="n"
+    prompt_yn "Add a Windows Server VM (IIS + SQL Server)?" "$default_win_yn" && WIN_ENABLED="true" || WIN_ENABLED="false"
+    if [[ "$WIN_ENABLED" == "true" ]]; then
+        echo -e "\n  ${Y}--- Windows VM (IIS + ASP.NET + SQL Server) ---${NC}"
+        prompt "  Windows template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
+        prompt_ip "  IP" "$PREV_WIN_IP"; WIN_IP="$REPLY"
+        prompt "  CPUs" "$PREV_WIN_CPU"; WIN_CPU="$REPLY"
+        prompt "  Memory MB" "$PREV_WIN_MEM"; WIN_MEM="$REPLY"
+        prompt "  Disk GB" "$PREV_WIN_DISK"; WIN_DISK="$REPLY"
+        prompt_secret "  Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+    else
+        WIN_TEMPLATE="$PREV_WIN_TEMPLATE"; WIN_IP=""; WIN_CPU="2"; WIN_MEM="4096"; WIN_DISK="60"; WIN_ADMIN_PASS=""
+    fi
 }
 
 collect_apps() {
@@ -266,6 +289,13 @@ collect_apps() {
     prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
     prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
     prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+
+    if [[ "$WIN_ENABLED" == "true" ]]; then
+        echo -e "\n  ${Y}--- Windows / IIS + SQL Server ---${NC}"
+        prompt_secret "  Windows SQL Server SA password (8+ chars, complexity)"; WIN_MSSQL_PASS="$REPLY"
+    else
+        WIN_MSSQL_PASS=""
+    fi
 }
 
 collect_migrate() {
@@ -284,7 +314,11 @@ show_summary() {
     echo -e "  VMs:"
     echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
     echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
-    echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB\n"
+    echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
+    if [[ "$WIN_ENABLED" == "true" ]]; then
+        echo -e "    Win   $WIN_IP    ${WIN_CPU}CPU / ${WIN_MEM}MB / ${WIN_DISK}GB"
+    fi
+    echo ""
     echo -e "  Apps:"
     echo -e "    Java:  $PETCLINIC_REPO"
     echo -e "    .NET:  $DOTNET_REPO"
@@ -335,6 +369,14 @@ php_vm_ip     = "$PHP_IP"
 php_vm_cpus   = $PHP_CPU
 php_vm_memory = $PHP_MEM
 php_vm_disk   = $PHP_DISK
+
+win_vm_enabled     = $WIN_ENABLED
+win_template_name  = "$WIN_TEMPLATE"
+win_vm_ip          = "$WIN_IP"
+win_vm_cpus        = $WIN_CPU
+win_vm_memory      = $WIN_MEM
+win_vm_disk        = $WIN_DISK
+win_admin_password = "$WIN_ADMIN_PASS"
 EOF
     step "Created: terraform/terraform.tfvars"
 }
@@ -379,6 +421,9 @@ mysql_db_user: "laravel"
 mysql_db_password: "$MYSQL_APP"
 
 install_azure_migrate_agent: $AZ_AGENT
+
+win_mssql_sa_password: "$WIN_MSSQL_PASS"
+win_mssql_db_name: "LegacyAppDb"
 EOF
     step "Created: ansible/group_vars/all.yml"
 }
@@ -410,6 +455,23 @@ java_servers
 dotnet_servers
 php_servers
 EOF
+
+    if [[ "$WIN_ENABLED" == "true" ]]; then
+        cat >> "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+
+[win_servers]
+$WIN_IP
+
+[win_servers:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_server_cert_validation=ignore
+ansible_user=Administrator
+ansible_password=$WIN_ADMIN_PASS
+ansible_port=5986
+EOF
+    fi
+
     step "Created: ansible/inventory/hosts.ini"
 }
 
@@ -442,7 +504,7 @@ run_ansible() {
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
     step "Installing Ansible Galaxy collections..."
-    ansible-galaxy collection install community.postgresql community.mysql community.general --force
+    ansible-galaxy collection install community.postgresql community.mysql community.general ansible.windows --force
 
     local max_retries=3
     local attempt=1
@@ -488,7 +550,11 @@ run_ansible() {
 run_verify() {
     header "Phase 3 — Verification"
     echo ""
-    for pair in "Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80"; do
+    local checks=("Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80")
+    if [[ "$WIN_ENABLED" == "true" && -n "$WIN_IP" ]]; then
+        checks+=("Windows IIS App|$WIN_IP|80")
+    fi
+    for pair in "${checks[@]}"; do
         IFS='|' read -r name ip port <<< "$pair"
         if timeout 3 bash -c "echo >/dev/tcp/$ip/$port" 2>/dev/null; then
             echo -e "    ${G}[OK]${NC}   $name  http://$ip:$port"
@@ -502,6 +568,9 @@ run_verify() {
     echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
     echo -e "    ${C}.NET MVC App:${NC}    http://$DOTNET_IP"
     echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+    if [[ "$WIN_ENABLED" == "true" && -n "$WIN_IP" ]]; then
+        echo -e "    ${C}Windows IIS:${NC}     http://$WIN_IP"
+    fi
     echo ""
     echo -e "  ${G}All VMs ready for Azure Migrate discovery.${NC}"
     echo -e "  ${G}Point appliance at vCenter: $VSPHERE_SERVER${NC}"
@@ -572,6 +641,7 @@ main() {
         check_prerequisites
         load_previous
         JAVA_IP="$PREV_JAVA_IP"; DOTNET_IP="$PREV_DOTNET_IP"; PHP_IP="$PREV_PHP_IP"
+        WIN_ENABLED="$PREV_WIN_ENABLED"; WIN_IP="$PREV_WIN_IP"
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         run_ansible_resume
         run_verify

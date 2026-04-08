@@ -11,3 +11,16 @@ ${php_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 java_servers
 dotnet_servers
 php_servers
+
+%{ if win_ip != "" }
+[win_servers]
+${win_ip}
+
+[win_servers:vars]
+ansible_connection=winrm
+ansible_winrm_transport=ntlm
+ansible_winrm_server_cert_validation=ignore
+ansible_user=Administrator
+ansible_password=${win_password}
+ansible_port=5986
+%{ endif }

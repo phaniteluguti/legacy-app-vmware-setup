@@ -17,6 +17,10 @@ output "php_vm_ip" {
   value = vsphere_virtual_machine.vm["php-vm"].default_ip_address
 }
 
+output "win_vm_ip" {
+  value = var.win_vm_enabled ? vsphere_virtual_machine.win_vm[0].default_ip_address : ""
+}
+
 output "ansible_inventory_path" {
   value = local_file.ansible_inventory.filename
 }

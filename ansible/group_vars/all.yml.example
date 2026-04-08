@@ -44,3 +44,7 @@ mysql_db_password: "L@r@vel2024!"     # CHANGE THIS
 # --- Azure Migrate Discovery ---
 # Set to true to install Azure Migrate dependencies agent
 install_azure_migrate_agent: false
+
+# --- Windows IIS / ASP.NET Framework ---
+win_mssql_sa_password: "W1nStr0ng!2024"  # CHANGE THIS
+win_mssql_db_name: "LegacyAppDb"

@@ -41,6 +41,12 @@ data "vsphere_virtual_machine" "template" {
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
+data "vsphere_virtual_machine" "windows_template" {
+  count         = var.win_vm_enabled ? 1 : 0
+  name          = var.win_template_name
+  datacenter_id = data.vsphere_datacenter.dc.id
+}
+
 # --- Local variables ---
 locals {
   vms = {
@@ -68,7 +74,7 @@ locals {
   }
 }
 
-# --- Virtual Machines ---
+# --- Linux Virtual Machines ---
 resource "vsphere_virtual_machine" "vm" {
   for_each = local.vms
 
@@ -119,6 +125,57 @@ resource "vsphere_virtual_machine" "vm" {
   }
 }
 
+# --- Windows Virtual Machine ---
+resource "vsphere_virtual_machine" "win_vm" {
+  count = var.win_vm_enabled ? 1 : 0
+
+  name             = "legacy-win-iis-vm"
+  resource_pool_id = data.vsphere_compute_cluster.cluster.resource_pool_id
+  datastore_id     = data.vsphere_datastore.datastore.id
+  folder           = var.vsphere_folder
+
+  num_cpus = var.win_vm_cpus
+  memory   = var.win_vm_memory
+
+  guest_id = data.vsphere_virtual_machine.windows_template[0].guest_id
+
+  network_interface {
+    network_id   = data.vsphere_network.network.id
+    adapter_type = data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
+  }
+
+  disk {
+    label            = "disk0"
+    size             = var.win_vm_disk
+    thin_provisioned = true
+  }
+
+  clone {
+    template_uuid = data.vsphere_virtual_machine.windows_template[0].id
+
+    customize {
+      windows_options {
+        computer_name  = "legacy-win-iis"
+        admin_password = var.win_admin_password
+      }
+
+      network_interface {
+        ipv4_address = var.win_vm_ip
+        ipv4_netmask = var.vm_netmask
+      }
+
+      ipv4_gateway    = var.vm_gateway
+      dns_server_list = var.vm_dns_servers
+    }
+  }
+
+  lifecycle {
+    ignore_changes = [
+      annotation,
+    ]
+  }
+}
+
 # --- Generate Ansible inventory ---
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/hosts.ini.tftpl", {
@@ -127,6 +184,8 @@ resource "local_file" "ansible_inventory" {
     php_ip        = vsphere_virtual_machine.vm["php-vm"].default_ip_address
     ssh_user      = var.vm_ssh_user
     ssh_auth_line = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
+    win_ip        = var.win_vm_enabled ? vsphere_virtual_machine.win_vm[0].default_ip_address : ""
+    win_password  = var.win_admin_password
   })
   filename = "${path.module}/../ansible/inventory/hosts.ini"
 }

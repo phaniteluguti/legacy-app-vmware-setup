@@ -166,3 +166,46 @@ variable "php_vm_disk" {
   type    = number
   default = 30
 }
+
+# --- Windows IIS VM ---
+variable "win_vm_enabled" {
+  description = "Set to true to provision the Windows VM"
+  type        = bool
+  default     = false
+}
+
+variable "win_template_name" {
+  description = "Name of the Windows Server 2019 VM template in vSphere"
+  type        = string
+  default     = "windows-2019-template"
+}
+
+variable "win_vm_ip" {
+  description = "Static IP for the Windows VM"
+  type        = string
+  default     = ""
+}
+
+variable "win_vm_cpus" {
+  type    = number
+  default = 2
+}
+
+variable "win_vm_memory" {
+  description = "Memory in MB"
+  type        = number
+  default     = 4096
+}
+
+variable "win_vm_disk" {
+  description = "Disk size in GB"
+  type        = number
+  default     = 60
+}
+
+variable "win_admin_password" {
+  description = "Windows local Administrator password"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
