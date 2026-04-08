@@ -58,6 +58,12 @@ provision_vms() {
   log "Initializing Terraform..."
   terraform init -input=false
 
+  # Select workspace based on deploy_mode from tfvars
+  local mode
+  mode=$(grep 'deploy_mode' terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\(.*\)"/\1/' || echo "linux")
+  log "Selecting workspace: $mode"
+  terraform workspace select -or-create "$mode"
+
   log "Planning infrastructure..."
   terraform plan -out=tfplan
 

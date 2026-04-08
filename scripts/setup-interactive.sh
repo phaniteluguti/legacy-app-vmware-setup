@@ -501,6 +501,9 @@ run_terraform() {
     step "terraform init ..."
     terraform init -input=false
 
+    step "Selecting workspace: $DEPLOY_MODE ..."
+    terraform workspace select -or-create "$DEPLOY_MODE"
+
     step "terraform plan ..."
     terraform plan -out=tfplan
 
@@ -609,17 +612,24 @@ run_destroy() {
     header "Destroying VMs (Terraform Destroy)"
     pushd "$TF_DIR" > /dev/null
 
-    if [[ ! -f "terraform.tfstate" ]] && [[ ! -f ".terraform/terraform.tfstate" ]]; then
-        warn "No Terraform state found. Nothing to destroy."
-        warn "If VMs were created, delete them manually in vCenter."
-        popd > /dev/null
-        return
+    # Determine which workspace to destroy
+    local ws="${DEPLOY_MODE:-}"
+    if [[ -z "$ws" ]]; then
+        load_previous
+        ws="${PREV_DEPLOY_MODE:-linux}"
     fi
 
     step "terraform init ..."
     terraform init -input=false
 
-    step "terraform destroy ..."
+    # Select the workspace; if it doesn't exist, nothing to destroy
+    if ! terraform workspace select "$ws" 2>/dev/null; then
+        warn "Workspace '$ws' not found. Nothing to destroy."
+        popd > /dev/null
+        return
+    fi
+
+    step "terraform destroy (workspace: $ws) ..."
     terraform destroy -auto-approve
 
     step "VMs destroyed successfully."
@@ -749,7 +759,7 @@ main() {
     case "$choice" in
         1) run_terraform; run_ansible; run_verify ;;
         2) step "Config files saved. Run manually when ready:"
-           echo -e "    ${GR}cd terraform && terraform init && terraform apply${NC}"
+           echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $DEPLOY_MODE && terraform apply${NC}"
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
         3) run_terraform ;;
         4) run_ansible; run_verify ;;

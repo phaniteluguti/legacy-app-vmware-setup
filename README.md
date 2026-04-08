@@ -450,9 +450,10 @@ cp ansible/group_vars/all.yml.example ansible/group_vars/all.yml
 # 2. Edit terraform.tfvars — fill in vCenter creds, IPs, template name
 #    Edit ansible/group_vars/all.yml — set database passwords
 
-# 3. Provision VMs
+# 3. Provision VMs (select workspace matching your deploy_mode)
 cd terraform
 terraform init
+terraform workspace select -or-create linux   # or: windows
 terraform plan        # review what will be created
 terraform apply       # type "yes" to confirm
 
@@ -725,8 +726,9 @@ Or re-run the wizard and pick **option 6** at the end.
 ### Destroy manually (keep config)
 ```bash
 cd terraform
-terraform init       # needed if .terraform/ is missing
-terraform destroy    # type "yes" to confirm
+terraform init
+terraform workspace select linux    # or: windows
+terraform destroy    # type "yes" to confirm — only destroys VMs in this workspace
 ```
 
 ### Remove all generated files
