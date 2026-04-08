@@ -1,24 +1,21 @@
 output "vm_ips" {
   description = "IP addresses of all provisioned VMs"
-  value = {
-    for k, vm in vsphere_virtual_machine.vm : k => vm.default_ip_address
-  }
+  value = merge(
+    { for k, vm in vsphere_virtual_machine.vm : k => vm.default_ip_address },
+    { for k, vm in vsphere_virtual_machine.win_vm : k => vm.default_ip_address }
+  )
 }
 
 output "java_vm_ip" {
-  value = vsphere_virtual_machine.vm["java-vm"].default_ip_address
+  value = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address
 }
 
 output "dotnet_vm_ip" {
-  value = vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address
+  value = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address
 }
 
 output "php_vm_ip" {
-  value = vsphere_virtual_machine.vm["php-vm"].default_ip_address
-}
-
-output "win_vm_ip" {
-  value = var.win_vm_enabled ? vsphere_virtual_machine.win_vm[0].default_ip_address : ""
+  value = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address
 }
 
 output "ansible_inventory_path" {

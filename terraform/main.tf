@@ -37,19 +37,20 @@ data "vsphere_network" "network" {
 }
 
 data "vsphere_virtual_machine" "template" {
+  count         = var.deploy_mode == "linux" ? 1 : 0
   name          = var.vm_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "windows_template" {
-  count         = var.win_vm_enabled ? 1 : 0
+  count         = var.deploy_mode == "windows" ? 1 : 0
   name          = var.win_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 # --- Local variables ---
 locals {
-  vms = {
+  vms = var.deploy_mode == "linux" ? {
     java-vm = {
       name   = "legacy-java-vm"
       cpus   = var.java_vm_cpus
@@ -71,7 +72,31 @@ locals {
       disk   = var.php_vm_disk
       ip     = var.php_vm_ip
     }
-  }
+  } : {}
+
+  win_vms = var.deploy_mode == "windows" ? {
+    win-java-vm = {
+      name   = "legacy-win-java-vm"
+      cpus   = var.java_vm_cpus
+      memory = var.java_vm_memory
+      disk   = var.java_vm_disk
+      ip     = var.java_vm_ip
+    }
+    win-dotnet-vm = {
+      name   = "legacy-win-dotnet-vm"
+      cpus   = var.dotnet_vm_cpus
+      memory = var.dotnet_vm_memory
+      disk   = var.dotnet_vm_disk
+      ip     = var.dotnet_vm_ip
+    }
+    win-php-vm = {
+      name   = "legacy-win-php-vm"
+      cpus   = var.php_vm_cpus
+      memory = var.php_vm_memory
+      disk   = var.php_vm_disk
+      ip     = var.php_vm_ip
+    }
+  } : {}
 }
 
 # --- Linux Virtual Machines ---
@@ -86,11 +111,11 @@ resource "vsphere_virtual_machine" "vm" {
   num_cpus = each.value.cpus
   memory   = each.value.memory
 
-  guest_id = data.vsphere_virtual_machine.template.guest_id
+  guest_id = data.vsphere_virtual_machine.template[0].guest_id
 
   network_interface {
     network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.template.network_interface_types[0]
+    adapter_type = data.vsphere_virtual_machine.template[0].network_interface_types[0]
   }
 
   disk {
@@ -100,7 +125,7 @@ resource "vsphere_virtual_machine" "vm" {
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.template.id
+    template_uuid = data.vsphere_virtual_machine.template[0].id
 
     customize {
       linux_options {
@@ -125,17 +150,17 @@ resource "vsphere_virtual_machine" "vm" {
   }
 }
 
-# --- Windows Virtual Machine ---
+# --- Windows Virtual Machines ---
 resource "vsphere_virtual_machine" "win_vm" {
-  count = var.win_vm_enabled ? 1 : 0
+  for_each = local.win_vms
 
-  name             = "legacy-win-iis-vm"
+  name             = each.value.name
   resource_pool_id = data.vsphere_compute_cluster.cluster.resource_pool_id
   datastore_id     = data.vsphere_datastore.datastore.id
   folder           = var.vsphere_folder
 
-  num_cpus = var.win_vm_cpus
-  memory   = var.win_vm_memory
+  num_cpus = each.value.cpus
+  memory   = each.value.memory
 
   guest_id = data.vsphere_virtual_machine.windows_template[0].guest_id
 
@@ -146,7 +171,7 @@ resource "vsphere_virtual_machine" "win_vm" {
 
   disk {
     label            = "disk0"
-    size             = var.win_vm_disk
+    size             = each.value.disk
     thin_provisioned = true
   }
 
@@ -155,12 +180,12 @@ resource "vsphere_virtual_machine" "win_vm" {
 
     customize {
       windows_options {
-        computer_name  = "legacy-win-iis"
+        computer_name  = each.value.name
         admin_password = var.win_admin_password
       }
 
       network_interface {
-        ipv4_address = var.win_vm_ip
+        ipv4_address = each.value.ip
         ipv4_netmask = var.vm_netmask
       }
 
@@ -179,12 +204,15 @@ resource "vsphere_virtual_machine" "win_vm" {
 # --- Generate Ansible inventory ---
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/hosts.ini.tftpl", {
-    java_ip       = vsphere_virtual_machine.vm["java-vm"].default_ip_address
-    dotnet_ip     = vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address
-    php_ip        = vsphere_virtual_machine.vm["php-vm"].default_ip_address
+    deploy_mode   = var.deploy_mode
+    java_ip       = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : ""
+    dotnet_ip     = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : ""
+    php_ip        = var.deploy_mode == "linux" ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : ""
     ssh_user      = var.vm_ssh_user
     ssh_auth_line = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
-    win_ip        = var.win_vm_enabled ? vsphere_virtual_machine.win_vm[0].default_ip_address : ""
+    win_java_ip   = var.deploy_mode == "windows" ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
+    win_dotnet_ip = var.deploy_mode == "windows" ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
+    win_php_ip    = var.deploy_mode == "windows" ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
     win_password  = var.win_admin_password
   })
   filename = "${path.module}/../ansible/inventory/hosts.ini"

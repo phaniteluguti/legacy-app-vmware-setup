@@ -1,0 +1,302 @@
+---
+# =============================================================================
+# Windows PHP VM — PHP on IIS + MySQL
+# Installs IIS with PHP (CGI), MySQL, and deploys a Laravel application
+# Requires WinRM configured in the Windows template
+# =============================================================================
+- name: Deploy PHP Laravel + MySQL on Windows
+  hosts: win_php_servers
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    # ---------------------------------------------------------------
+    # Chocolatey (package manager)
+    # ---------------------------------------------------------------
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    # ---------------------------------------------------------------
+    # IIS with CGI (for PHP)
+    # ---------------------------------------------------------------
+    - name: Install IIS with CGI support
+      win_feature:
+        name:
+          - Web-Server
+          - Web-CGI
+          - Web-ISAPI-Ext
+          - Web-ISAPI-Filter
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    # ---------------------------------------------------------------
+    # Git & Composer
+    # ---------------------------------------------------------------
+    - name: Install Git via Chocolatey
+      win_chocolatey:
+        name: git
+        state: present
+
+    - name: Install Composer via Chocolatey
+      win_chocolatey:
+        name: composer
+        state: present
+
+    # ---------------------------------------------------------------
+    # PHP
+    # ---------------------------------------------------------------
+    - name: Install PHP via Chocolatey
+      win_chocolatey:
+        name: php
+        version: "{{ php_version }}"
+        state: present
+        package_params: "/InstallDir:C:\\PHP"
+
+    - name: Add PHP to PATH
+      win_path:
+        elements:
+          - 'C:\PHP'
+        state: present
+
+    - name: Enable required PHP extensions
+      win_lineinfile:
+        path: C:\PHP\php.ini
+        regexp: "^;?extension={{ item }}"
+        line: "extension={{ item }}"
+      loop:
+        - curl
+        - fileinfo
+        - mbstring
+        - openssl
+        - pdo_mysql
+        - mysqli
+
+    - name: Set PHP cgi.fix_pathinfo
+      win_lineinfile:
+        path: C:\PHP\php.ini
+        regexp: "^;?cgi\\.fix_pathinfo"
+        line: "cgi.fix_pathinfo=0"
+
+    # ---------------------------------------------------------------
+    # Configure IIS FastCGI for PHP
+    # ---------------------------------------------------------------
+    - name: Configure FastCGI handler for PHP
+      win_shell: |
+        Import-Module WebAdministration
+        $handler = Get-WebHandler -Name "PHP_via_FastCGI" -ErrorAction SilentlyContinue
+        if (!$handler) {
+          New-WebHandler -Name "PHP_via_FastCGI" -Path "*.php" -Verb "*" -Modules "FastCgiModule" -ScriptProcessor "C:\PHP\php-cgi.exe" -ResourceType File
+        }
+        $existing = Get-WebConfiguration "/system.webServer/fastCgi/application[@fullPath='C:\PHP\php-cgi.exe']" -ErrorAction SilentlyContinue
+        if (!$existing) {
+          Add-WebConfiguration "/system.webServer/fastCgi" -Value @{fullPath='C:\PHP\php-cgi.exe'}
+        }
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # MySQL
+    # ---------------------------------------------------------------
+    - name: Install MySQL via Chocolatey
+      win_chocolatey:
+        name: mysql
+        state: present
+
+    - name: Ensure MySQL service is running
+      win_service:
+        name: MySQL
+        start_mode: auto
+        state: started
+
+    - name: Wait for MySQL to be ready
+      win_wait_for:
+        port: 3306
+        timeout: 60
+
+    - name: Set MySQL root password and create app database
+      win_shell: |
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        # Try setting root password (may already be set)
+        & $mysqlBin -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';" 2>$null
+        # Create database and user
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE DATABASE IF NOT EXISTS {{ mysql_db_name }};"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'localhost' IDENTIFIED BY '{{ mysql_db_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'localhost'; FLUSH PRIVILEGES;"
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Clone & Setup Laravel
+    # ---------------------------------------------------------------
+    - name: Clone Laravel repository
+      win_shell: |
+        if (!(Test-Path "C:\inetpub\LaravelApp\.git")) {
+          & "C:\Program Files\Git\bin\git.exe" clone --branch {{ php_app_branch }} {{ php_app_repo }} C:\inetpub\LaravelApp
+        }
+      args:
+        creates: C:\inetpub\LaravelApp\composer.json
+
+    - name: Install Composer dependencies
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        composer install --no-interaction --no-dev --optimize-autoloader
+      args:
+        creates: C:\inetpub\LaravelApp\vendor\autoload.php
+      environment:
+        COMPOSER_HOME: C:\ProgramData\ComposerData
+      timeout: 300
+
+    - name: Copy .env file
+      win_shell: |
+        if (!(Test-Path "C:\inetpub\LaravelApp\.env")) {
+          Copy-Item "C:\inetpub\LaravelApp\.env.example" "C:\inetpub\LaravelApp\.env"
+        }
+      args:
+        creates: C:\inetpub\LaravelApp\.env
+
+    - name: Configure Laravel .env for MySQL
+      win_lineinfile:
+        path: C:\inetpub\LaravelApp\.env
+        regexp: "^{{ item.key }}="
+        line: "{{ item.key }}={{ item.value }}"
+      loop:
+        - { key: "DB_CONNECTION", value: "mysql" }
+        - { key: "DB_HOST", value: "127.0.0.1" }
+        - { key: "DB_PORT", value: "3306" }
+        - { key: "DB_DATABASE", value: "{{ mysql_db_name }}" }
+        - { key: "DB_USERNAME", value: "{{ mysql_db_user }}" }
+        - { key: "DB_PASSWORD", value: "{{ mysql_db_password }}" }
+
+    - name: Generate Laravel app key
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        php artisan key:generate --force
+      changed_when: false
+
+    - name: Run Laravel migrations
+      win_shell: |
+        Set-Location C:\inetpub\LaravelApp
+        php artisan migrate --force
+      changed_when: false
+      ignore_errors: true
+
+    - name: Set permissions on storage and bootstrap/cache
+      win_shell: |
+        icacls "C:\inetpub\LaravelApp\storage" /grant "IIS_IUSRS:(OI)(CI)F" /T
+        icacls "C:\inetpub\LaravelApp\bootstrap\cache" /grant "IIS_IUSRS:(OI)(CI)F" /T
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Configure IIS site for Laravel
+    # ---------------------------------------------------------------
+    - name: Create web.config for Laravel URL rewriting
+      win_copy:
+        dest: C:\inetpub\LaravelApp\public\web.config
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <rewrite>
+                <rules>
+                  <rule name="Laravel" stopProcessing="true">
+                    <match url="^" ignoreCase="false" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="index.php" appendQueryString="true" />
+                  </rule>
+                </rules>
+              </rewrite>
+              <defaultDocument>
+                <files>
+                  <add value="index.php" />
+                </files>
+              </defaultDocument>
+            </system.webServer>
+          </configuration>
+
+    - name: Install IIS URL Rewrite module
+      win_chocolatey:
+        name: urlrewrite
+        state: present
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool for Laravel
+      win_iis_webapppool:
+        name: LaravelPool
+        state: started
+
+    - name: Create IIS website for Laravel
+      win_iis_website:
+        name: LaravelApp
+        state: started
+        port: 80
+        physical_path: C:\inetpub\LaravelApp\public
+        application_pool: LaravelPool
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow HTTP (port 80) through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Allow MySQL (port 3306) through Windows Firewall
+      win_firewall_rule:
+        name: "MySQL Inbound"
+        localport: 3306
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    # ---------------------------------------------------------------
+    # WinRM + RDP — keep available for Azure Migrate
+    # ---------------------------------------------------------------
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

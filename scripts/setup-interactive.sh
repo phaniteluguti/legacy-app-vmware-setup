@@ -88,6 +88,7 @@ ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed "s/^${1}: *\"\{0,
 
 load_previous() {
     # Initialize all defaults to hard-coded values
+    PREV_DEPLOY_MODE="linux"
     PREV_VSPHERE_SERVER=""; PREV_VSPHERE_USER="administrator@vsphere.local"; PREV_VSPHERE_SSL="true"
     PREV_VSPHERE_DC="Datacenter1"; PREV_VSPHERE_CLUSTER="Cluster1"; PREV_VSPHERE_DS="datastore1"
     PREV_VSPHERE_NET="VM Network"; PREV_VSPHERE_FOLDER=""; PREV_VM_TEMPLATE="ubuntu-2204-template"
@@ -97,8 +98,7 @@ load_previous() {
     PREV_JAVA_IP="192.168.1.101"; PREV_JAVA_CPU="2"; PREV_JAVA_MEM="4096"; PREV_JAVA_DISK="40"
     PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"; PREV_DOTNET_DISK="40"
     PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"; PREV_PHP_DISK="30"
-    PREV_WIN_ENABLED="false"; PREV_WIN_TEMPLATE="windows-2019-template"
-    PREV_WIN_IP="192.168.1.104"; PREV_WIN_CPU="2"; PREV_WIN_MEM="4096"; PREV_WIN_DISK="60"
+    PREV_WIN_TEMPLATE="windows-2019-template"
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="17"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
@@ -107,6 +107,7 @@ load_previous() {
 
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
+        PREV_DEPLOY_MODE="$(tfval deploy_mode "linux")"
         PREV_VSPHERE_SERVER="$(tfval vsphere_server "")"
         PREV_VSPHERE_USER="$(tfval vsphere_user "administrator@vsphere.local")"
         PREV_VSPHERE_SSL="$(tfval vsphere_allow_unverified_ssl "true")"
@@ -136,12 +137,7 @@ load_previous() {
         PREV_PHP_CPU="$(tfval php_vm_cpus "2")"
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
         PREV_PHP_DISK="$(tfval php_vm_disk "30")"
-        PREV_WIN_ENABLED="$(tfval win_vm_enabled "false")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
-        PREV_WIN_IP="$(tfval win_vm_ip "192.168.1.104")"
-        PREV_WIN_CPU="$(tfval win_vm_cpus "2")"
-        PREV_WIN_MEM="$(tfval win_vm_memory "4096")"
-        PREV_WIN_DISK="$(tfval win_vm_disk "60")"
     fi
 
     if [[ -f "$ALLVARS_FILE" ]]; then
@@ -196,7 +192,12 @@ collect_infra() {
     prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
     prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
     prompt_optional "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
-    prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
+    else
+        prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
+        VM_TEMPLATE="$PREV_VM_TEMPLATE"
+    fi
 }
 
 collect_network() {
@@ -205,28 +206,35 @@ collect_network() {
     prompt "Subnet mask (CIDR bits)" "$PREV_VM_MASK"; VM_MASK="$REPLY"
     prompt "Domain suffix" "$PREV_VM_DOMAIN"; VM_DOMAIN="$REPLY"
     prompt "DNS Servers (comma-sep)" "$PREV_VM_DNS"; VM_DNS="$REPLY"
-    prompt "SSH username in template" "$PREV_SSH_USER"; SSH_USER="$REPLY"
 
-    echo ""
-    echo -e "  ${Y}How will Ansible connect to the VMs?${NC}"
-    echo -e "    ${G}1)${NC} SSH key (public key baked into template)"
-    echo -e "    ${G}2)${NC} SSH password (simpler — no key needed in template)"
-    local default_auth; [[ "$PREV_SSH_AUTH_METHOD" == "key" ]] && default_auth="1" || default_auth="2"
-    read -rp "  Choose [1/2] (default: $default_auth): " AUTH_CHOICE
-    AUTH_CHOICE="${AUTH_CHOICE:-$default_auth}"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        prompt "SSH username in template" "$PREV_SSH_USER"; SSH_USER="$REPLY"
 
-    if [[ "$AUTH_CHOICE" == "1" ]]; then
-        SSH_AUTH_METHOD="key"
-        prompt "SSH private key path" "$PREV_SSH_KEY"; SSH_KEY="$REPLY"
-        if [[ ! -f "$SSH_KEY" ]]; then
-            warn "Key not found: $SSH_KEY"
-            prompt_yn "Continue anyway?" || exit 1
+        echo ""
+        echo -e "  ${Y}How will Ansible connect to the VMs?${NC}"
+        echo -e "    ${G}1)${NC} SSH key (public key baked into template)"
+        echo -e "    ${G}2)${NC} SSH password (simpler — no key needed in template)"
+        local default_auth; [[ "$PREV_SSH_AUTH_METHOD" == "key" ]] && default_auth="1" || default_auth="2"
+        read -rp "  Choose [1/2] (default: $default_auth): " AUTH_CHOICE
+        AUTH_CHOICE="${AUTH_CHOICE:-$default_auth}"
+
+        if [[ "$AUTH_CHOICE" == "1" ]]; then
+            SSH_AUTH_METHOD="key"
+            prompt "SSH private key path" "$PREV_SSH_KEY"; SSH_KEY="$REPLY"
+            if [[ ! -f "$SSH_KEY" ]]; then
+                warn "Key not found: $SSH_KEY"
+                prompt_yn "Continue anyway?" || exit 1
+            fi
+            SSH_PASSWORD=""
+        else
+            SSH_AUTH_METHOD="password"
+            prompt_secret "SSH password for user '$SSH_USER'"; SSH_PASSWORD="$REPLY"
+            SSH_KEY=""
         fi
-        SSH_PASSWORD=""
     else
-        SSH_AUTH_METHOD="password"
-        prompt_secret "SSH password for user '$SSH_USER'"; SSH_PASSWORD="$REPLY"
-        SSH_KEY=""
+        # Windows mode — no SSH needed
+        SSH_USER="$PREV_SSH_USER"; SSH_AUTH_METHOD="password"; SSH_PASSWORD=""; SSH_KEY=""
+        prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
     fi
 }
 
@@ -234,37 +242,39 @@ collect_vms() {
     header "Step 4/6 — VM Sizing & IP Addresses"
     echo -e "  ${GR}Static IPs on the same subnet as gateway $VM_GW${NC}\n"
 
-    echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
+    else
+        echo -e "  ${Y}--- Windows Java VM (PetClinic + PostgreSQL) ---${NC}"
+    fi
     prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
     prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
     prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
     prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
 
-    echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
+    else
+        echo -e "\n  ${Y}--- Windows .NET VM (IIS + ASP.NET + SQL Server) ---${NC}"
+    fi
     prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
     prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
     prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
     prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
 
-    echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
+    else
+        echo -e "\n  ${Y}--- Windows PHP VM (IIS + Laravel + MySQL) ---${NC}"
+    fi
     prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
     prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
     prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
     prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
 
-    echo ""
-    local default_win_yn; [[ "$PREV_WIN_ENABLED" == "true" ]] && default_win_yn="y" || default_win_yn="n"
-    prompt_yn "Add a Windows Server VM (IIS + SQL Server)?" "$default_win_yn" && WIN_ENABLED="true" || WIN_ENABLED="false"
-    if [[ "$WIN_ENABLED" == "true" ]]; then
-        echo -e "\n  ${Y}--- Windows VM (IIS + ASP.NET + SQL Server) ---${NC}"
-        prompt "  Windows template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
-        prompt_ip "  IP" "$PREV_WIN_IP"; WIN_IP="$REPLY"
-        prompt "  CPUs" "$PREV_WIN_CPU"; WIN_CPU="$REPLY"
-        prompt "  Memory MB" "$PREV_WIN_MEM"; WIN_MEM="$REPLY"
-        prompt "  Disk GB" "$PREV_WIN_DISK"; WIN_DISK="$REPLY"
-        prompt_secret "  Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
-    else
-        WIN_TEMPLATE="$PREV_WIN_TEMPLATE"; WIN_IP=""; WIN_CPU="2"; WIN_MEM="4096"; WIN_DISK="60"; WIN_ADMIN_PASS=""
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
+        WIN_ADMIN_PASS="${WIN_ADMIN_PASS:-}"
     fi
 }
 
@@ -277,10 +287,14 @@ collect_apps() {
     prompt "  JDK version" "$PREV_JAVA_VER"; JAVA_VER="$REPLY"
     prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"
 
-    echo -e "\n  ${Y}--- .NET / ASP.NET Core ---${NC}"
-    prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
-    prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
-    prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
+    echo -e "\n  ${Y}--- .NET / ASP.NET ---${NC}"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
+        prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
+        prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
+    else
+        DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
+    fi
     prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"
 
     echo -e "\n  ${Y}--- PHP / Laravel ---${NC}"
@@ -289,13 +303,6 @@ collect_apps() {
     prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
     prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
     prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
-
-    if [[ "$WIN_ENABLED" == "true" ]]; then
-        echo -e "\n  ${Y}--- Windows / IIS + SQL Server ---${NC}"
-        prompt_secret "  Windows SQL Server SA password (8+ chars, complexity)"; WIN_MSSQL_PASS="$REPLY"
-    else
-        WIN_MSSQL_PASS=""
-    fi
 }
 
 collect_migrate() {
@@ -307,21 +314,27 @@ collect_migrate() {
 # ---------------------------------------------------------------------------
 show_summary() {
     header "Configuration Summary"
+    echo -e "  Deploy Mode: ${Y}${DEPLOY_MODE^^}${NC}"
     echo -e "  vCenter:    $VSPHERE_SERVER"
     echo -e "  Datacenter: $VSPHERE_DC   Cluster: $VSPHERE_CLUSTER"
-    echo -e "  Template:   $VM_TEMPLATE"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "  Template:   $VM_TEMPLATE"
+    else
+        echo -e "  Template:   $WIN_TEMPLATE"
+    fi
     echo -e "  Network:    $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
     echo -e "  VMs:"
     echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
     echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
     echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
-    if [[ "$WIN_ENABLED" == "true" ]]; then
-        echo -e "    Win   $WIN_IP    ${WIN_CPU}CPU / ${WIN_MEM}MB / ${WIN_DISK}GB"
-    fi
     echo ""
     echo -e "  Apps:"
     echo -e "    Java:  $PETCLINIC_REPO"
-    echo -e "    .NET:  $DOTNET_REPO"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "    .NET:  $DOTNET_REPO"
+    else
+        echo -e "    .NET:  IIS + ASP.NET Framework + SQL Server"
+    fi
     echo -e "    PHP:   $PHP_REPO"
 }
 
@@ -333,6 +346,8 @@ write_tfvars() {
 
     cat > "$TF_DIR/terraform.tfvars" <<EOF
 # Auto-generated by setup-interactive.sh on $(date '+%Y-%m-%d %H:%M:%S')
+
+deploy_mode = "$DEPLOY_MODE"
 
 vsphere_server               = "$VSPHERE_SERVER"
 vsphere_user                 = "$VSPHERE_USER"
@@ -370,12 +385,7 @@ php_vm_cpus   = $PHP_CPU
 php_vm_memory = $PHP_MEM
 php_vm_disk   = $PHP_DISK
 
-win_vm_enabled     = $WIN_ENABLED
 win_template_name  = "$WIN_TEMPLATE"
-win_vm_ip          = "$WIN_IP"
-win_vm_cpus        = $WIN_CPU
-win_vm_memory      = $WIN_MEM
-win_vm_disk        = $WIN_DISK
 win_admin_password = "$WIN_ADMIN_PASS"
 EOF
     step "Created: terraform/terraform.tfvars"
@@ -421,9 +431,6 @@ mysql_db_user: "laravel"
 mysql_db_password: "$MYSQL_APP"
 
 install_azure_migrate_agent: $AZ_AGENT
-
-win_mssql_sa_password: "$WIN_MSSQL_PASS"
-win_mssql_db_name: "LegacyAppDb"
 EOF
     step "Created: ansible/group_vars/all.yml"
 }
@@ -432,14 +439,15 @@ write_inventory() {
     step "Generating ansible/inventory/hosts.ini ..."
     mkdir -p "$ANSIBLE_DIR/inventory"
 
-    # Build the auth portion of each inventory line
-    if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
-        AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
-    else
-        AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
-    fi
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        # Build the auth portion of each inventory line
+        if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+        else
+            AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
+        fi
 
-    cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
 # Auto-generated by setup-interactive.sh
 [java_servers]
 $JAVA_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -455,12 +463,22 @@ java_servers
 dotnet_servers
 php_servers
 EOF
+    else
+        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+# Auto-generated by setup-interactive.sh
+[win_java_servers]
+$JAVA_IP
 
-    if [[ "$WIN_ENABLED" == "true" ]]; then
-        cat >> "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
+[win_dotnet_servers]
+$DOTNET_IP
 
-[win_servers]
-$WIN_IP
+[win_php_servers]
+$PHP_IP
+
+[win_servers:children]
+win_java_servers
+win_dotnet_servers
+win_php_servers
 
 [win_servers:vars]
 ansible_connection=winrm
@@ -504,7 +522,11 @@ run_ansible() {
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
     step "Installing Ansible Galaxy collections..."
-    ansible-galaxy collection install community.postgresql community.mysql community.general ansible.windows --force
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        ansible-galaxy collection install community.postgresql community.mysql community.general --force
+    else
+        ansible-galaxy collection install ansible.windows community.general --force
+    fi
 
     local max_retries=3
     local attempt=1
@@ -550,9 +572,11 @@ run_ansible() {
 run_verify() {
     header "Phase 3 — Verification"
     echo ""
-    local checks=("Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80")
-    if [[ "$WIN_ENABLED" == "true" && -n "$WIN_IP" ]]; then
-        checks+=("Windows IIS App|$WIN_IP|80")
+    local checks=()
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        checks=("Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80")
+    else
+        checks=("Win Java PetClinic|$JAVA_IP|8080" "Win .NET IIS App|$DOTNET_IP|80" "Win PHP Laravel|$PHP_IP|80")
     fi
     for pair in "${checks[@]}"; do
         IFS='|' read -r name ip port <<< "$pair"
@@ -565,11 +589,14 @@ run_verify() {
 
     header "Deployment Complete!"
     echo -e "  Access your apps:"
-    echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
-    echo -e "    ${C}.NET MVC App:${NC}    http://$DOTNET_IP"
-    echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
-    if [[ "$WIN_ENABLED" == "true" && -n "$WIN_IP" ]]; then
-        echo -e "    ${C}Windows IIS:${NC}     http://$WIN_IP"
+    if [[ "$DEPLOY_MODE" == "linux" ]]; then
+        echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
+        echo -e "    ${C}.NET MVC App:${NC}    http://$DOTNET_IP"
+        echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+    else
+        echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
+        echo -e "    ${C}.NET IIS App:${NC}    http://$DOTNET_IP"
+        echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
     fi
     echo ""
     echo -e "  ${G}All VMs ready for Azure Migrate discovery.${NC}"
@@ -640,8 +667,8 @@ main() {
         echo ""
         check_prerequisites
         load_previous
+        DEPLOY_MODE="$PREV_DEPLOY_MODE"
         JAVA_IP="$PREV_JAVA_IP"; DOTNET_IP="$PREV_DOTNET_IP"; PHP_IP="$PREV_PHP_IP"
-        WIN_ENABLED="$PREV_WIN_ENABLED"; WIN_IP="$PREV_WIN_IP"
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         run_ansible_resume
         run_verify
@@ -658,6 +685,23 @@ main() {
 
     check_prerequisites
     load_previous
+
+    # --- Deployment Mode Selection ---
+    header "Deployment Mode"
+    echo -e "  ${Y}Choose your deployment type:${NC}"
+    echo -e "    ${G}1)${NC} Linux apps  — 3 Ubuntu VMs: Java (PetClinic), .NET (ASP.NET Core), PHP (Laravel)"
+    echo -e "    ${G}2)${NC} Windows apps — 3 Windows VMs: Java (PetClinic), .NET (IIS + ASP.NET), PHP (IIS + Laravel)"
+    local default_mode_num; [[ "$PREV_DEPLOY_MODE" == "windows" ]] && default_mode_num="2" || default_mode_num="1"
+    read -rp "  Choice [1/2] (default: $default_mode_num): " MODE_CHOICE
+    MODE_CHOICE="${MODE_CHOICE:-$default_mode_num}"
+    if [[ "$MODE_CHOICE" == "2" ]]; then
+        DEPLOY_MODE="windows"
+        step "Mode: Windows (3 Windows Server VMs — Java, .NET, PHP)"
+    else
+        DEPLOY_MODE="linux"
+        step "Mode: Linux (3 VMs — Java, .NET, PHP)"
+    fi
+    echo ""
 
     collect_vcenter
     collect_infra

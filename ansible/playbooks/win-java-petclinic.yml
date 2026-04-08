@@ -1,0 +1,221 @@
+---
+# =============================================================================
+# Windows Java VM — Spring PetClinic + PostgreSQL
+# Installs JDK, PostgreSQL, builds and runs PetClinic as a Windows service
+# Requires WinRM configured in the Windows template
+# =============================================================================
+- name: Deploy Java PetClinic + PostgreSQL on Windows
+  hosts: win_java_servers
+  gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    # ---------------------------------------------------------------
+    # Chocolatey (package manager)
+    # ---------------------------------------------------------------
+    - name: Install Chocolatey
+      win_shell: |
+        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
+          Set-ExecutionPolicy Bypass -Scope Process -Force
+          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+        }
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    # ---------------------------------------------------------------
+    # Java JDK
+    # ---------------------------------------------------------------
+    - name: Install OpenJDK {{ java_version }} via Chocolatey
+      win_chocolatey:
+        name: "openjdk{{ java_version }}"
+        state: present
+
+    - name: Set JAVA_HOME environment variable
+      win_environment:
+        name: JAVA_HOME
+        value: 'C:\Program Files\OpenJDK\jdk-{{ java_version }}'
+        level: machine
+        state: present
+
+    - name: Add Java to PATH
+      win_path:
+        elements:
+          - 'C:\Program Files\OpenJDK\jdk-{{ java_version }}\bin'
+        state: present
+
+    # ---------------------------------------------------------------
+    # Git
+    # ---------------------------------------------------------------
+    - name: Install Git via Chocolatey
+      win_chocolatey:
+        name: git
+        state: present
+
+    # ---------------------------------------------------------------
+    # PostgreSQL
+    # ---------------------------------------------------------------
+    - name: Install PostgreSQL {{ postgres_version }} via Chocolatey
+      win_chocolatey:
+        name: postgresql{{ postgres_version }}
+        state: present
+        package_params: "/Password:{{ postgres_password }}"
+
+    - name: Ensure PostgreSQL service is running
+      win_service:
+        name: "postgresql-x64-{{ postgres_version }}"
+        start_mode: auto
+        state: started
+
+    - name: Wait for PostgreSQL to be ready
+      win_wait_for:
+        port: 5432
+        timeout: 60
+
+    - name: Add PostgreSQL bin to PATH for psql
+      win_path:
+        elements:
+          - 'C:\Program Files\PostgreSQL\{{ postgres_version }}\bin'
+        state: present
+
+    - name: Create petclinic database
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        $result = & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "SELECT 1 FROM pg_database WHERE datname='{{ postgres_db }}'"
+        if ($result -ne '1') {
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "CREATE DATABASE {{ postgres_db }}"
+        }
+      changed_when: false
+
+    - name: Create petclinic database user
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        $result = & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'"
+        if ($result -ne '1') {
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}'"
+          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }}"
+        }
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Clone & Build PetClinic
+    # ---------------------------------------------------------------
+    - name: Clone PetClinic repository
+      win_shell: |
+        if (!(Test-Path "C:\Apps\petclinic\.git")) {
+          & "C:\Program Files\Git\bin\git.exe" clone --branch {{ petclinic_branch }} {{ petclinic_repo }} C:\Apps\petclinic
+        } else {
+          Set-Location C:\Apps\petclinic
+          & "C:\Program Files\Git\bin\git.exe" pull
+        }
+      args:
+        creates: C:\Apps\petclinic\pom.xml
+
+    - name: Create PostgreSQL application properties
+      win_copy:
+        dest: C:\Apps\petclinic\src\main\resources\application-postgres.properties
+        content: |
+          spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
+          spring.datasource.username={{ postgres_user }}
+          spring.datasource.password={{ postgres_password }}
+
+    - name: Build PetClinic with Maven wrapper
+      win_shell: |
+        Set-Location C:\Apps\petclinic
+        $env:JAVA_HOME = "C:\Program Files\OpenJDK\jdk-{{ java_version }}"
+        .\mvnw.cmd package -DskipTests -Ppostgres
+      args:
+        creates: C:\Apps\petclinic\target\*.jar
+      register: mvn_build
+      timeout: 600
+
+    - name: Find the built JAR file
+      win_find:
+        paths: C:\Apps\petclinic\target
+        patterns: "*.jar"
+        file_type: file
+      register: jar_files
+
+    - name: Set JAR path fact
+      set_fact:
+        petclinic_jar: "{{ jar_files.files[0].path }}"
+      when: jar_files.files | length > 0
+
+    # ---------------------------------------------------------------
+    # Run PetClinic as a Windows Service (using NSSM)
+    # ---------------------------------------------------------------
+    - name: Install NSSM (Non-Sucking Service Manager)
+      win_chocolatey:
+        name: nssm
+        state: present
+
+    - name: Check if PetClinic service exists
+      win_service:
+        name: PetClinic
+      register: petclinic_svc
+      ignore_errors: true
+
+    - name: Install PetClinic as a Windows service
+      win_shell: |
+        nssm install PetClinic "C:\Program Files\OpenJDK\jdk-{{ java_version }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgres --server.port={{ petclinic_app_port }}"
+        nssm set PetClinic AppDirectory "C:\Apps\petclinic"
+        nssm set PetClinic DisplayName "Spring PetClinic"
+        nssm set PetClinic Description "Spring PetClinic on PostgreSQL"
+        nssm set PetClinic Start SERVICE_AUTO_START
+      when: petclinic_svc.state is not defined
+
+    - name: Ensure PetClinic service is running
+      win_service:
+        name: PetClinic
+        start_mode: auto
+        state: started
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow PetClinic port through Windows Firewall
+      win_firewall_rule:
+        name: "PetClinic Inbound"
+        localport: "{{ petclinic_app_port }}"
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Allow PostgreSQL port through Windows Firewall
+      win_firewall_rule:
+        name: "PostgreSQL Inbound"
+        localport: 5432
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    # ---------------------------------------------------------------
+    # WinRM + RDP — keep available for Azure Migrate
+    # ---------------------------------------------------------------
+    - name: Ensure WinRM service is running
+      win_service:
+        name: WinRM
+        start_mode: auto
+        state: started
+
+    - name: Enable RDP
+      win_regedit:
+        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
+        name: fDenyTSConnections
+        data: 0
+        type: dword
+
+    - name: Allow RDP through firewall
+      win_firewall_rule:
+        name: "Remote Desktop"
+        localport: 3389
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

@@ -1,8 +1,8 @@
 # VMware Legacy App Lab — Azure Migrate Assessment Setup
 
-Automated deployment of legacy applications (.NET, Java, PHP on Linux + ASP.NET Framework on Windows) on VMware VMs to simulate a real-world on-premises environment for **Azure Migrate discovery and assessment**.
+Automated deployment of legacy applications (Java, .NET, PHP) on VMware VMs to simulate a real-world on-premises environment for **Azure Migrate discovery and assessment**.
 
-This repo provisions 3 Linux VMs and an optional Windows Server VM, installs a full web + database stack on each, and configures them for Azure Migrate agentless discovery — all from a single interactive wizard or script.
+This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Server VMs** (Java, .NET, PHP), installs a full web + database stack on each, and configures them for Azure Migrate agentless discovery — all from a single interactive wizard.
 
 ---
 
@@ -33,7 +33,7 @@ This repo provisions 3 Linux VMs and an optional Windows Server VM, installs a f
 | Phase | Tool | Action |
 |-------|------|--------|
 | **Provision** | Terraform | Clones Ubuntu 22.04 and Windows Server 2019 templates in vSphere into VMs with static IPs |
-| **Deploy** | Ansible | Installs Java/PetClinic + PostgreSQL, .NET Core/MVC + SQL Server, PHP/Laravel + MySQL (Linux); IIS + ASP.NET Framework + SQL Server Express (Windows) |
+| **Deploy** | Ansible | Installs Java/PetClinic + PostgreSQL, .NET/MVC + SQL Server, PHP/Laravel + MySQL on each VM (Linux via systemd, Windows via IIS/NSSM) |
 | **Prepare** | Ansible | Enables SSH/WinRM, sysstat, firewall rules, and optional Azure Migrate Dependency Agent |
 | **Assess** | Azure Migrate | You point the Azure Migrate appliance at your vCenter and discover all VMs |
 
@@ -45,19 +45,29 @@ This repo provisions 3 Linux VMs and an optional Windows Server VM, installs a f
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              VMware vSphere                                  │
 │                                                                              │
-│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐  ┌──────────────────┐ │
-│  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │  │  VM: win-iis-vm  │ │
-│  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│  │  Win Server 2019 │ │
-│  │               │  │               │  │              │  │                  │ │
-│  │  Spring       │  │  ASP.NET Core │  │  Laravel     │  │  ASP.NET         │ │
-│  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │  │  Framework (IIS) │ │
-│  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │  │  (.NET 4.5)      │ │
-│  │               │  │               │  │              │  │                  │ │
-│  │  PostgreSQL   │  │  SQL Server   │  │  MySQL 8.0   │  │  SQL Server      │ │
-│  │  15           │  │  2022 Express │  │              │  │  2019 Express    │ │
-│  └──────────────┘  └──────────────┘  └──────────────┘  └──────────────────┘ │
+│  Linux Mode (deploy_mode = linux)                                            │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
+│  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │                      │
+│  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
+│  │  Spring       │  │  ASP.NET Core │  │  Laravel     │                      │
+│  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │                      │
+│  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │                      │
+│  │  PostgreSQL 15│  │  SQL Server   │  │  MySQL 8.0   │                      │
+│  │               │  │  2022 Express │  │              │                      │
+│  └──────────────┘  └──────────────┘  └──────────────┘                       │
+│                                       ── OR ──                               │
+│  Windows Mode (deploy_mode = windows)                                        │
+│  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
+│  │ VM: win-java  │  │ VM: win-dotnet│  │ VM: win-php  │                      │
+│  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
+│  │ Spring        │  │ ASP.NET       │  │ Laravel      │                      │
+│  │ PetClinic     │  │ Framework     │  │ + IIS        │                      │
+│  │ (Java 17)     │  │ IIS (.NET 4.5)│  │ (PHP + CGI)  │                      │
+│  │ PostgreSQL 15 │  │ SQL Server    │  │ MySQL        │                      │
+│  │               │  │ 2019 Express  │  │              │                      │
+│  └──────────────┘  └──────────────┘  └──────────────┘                       │
 │                                                                              │
-│                         (Windows VM is optional)                             │
+│                    Choose ONE mode — 3 VMs per mode                          │
 └──────────────────────────────────────────────────────────────────────────────┘
          │
          ▼  Azure Migrate Appliance discovers these VMs
@@ -96,8 +106,8 @@ This repo provisions 3 Linux VMs and an optional Windows Server VM, installs a f
 | **vCenter Server** | 6.7 or later — Terraform talks to the vCenter API |
 | **vSphere credentials** | A user with permission to create VMs (e.g., `administrator@vsphere.local`) |
 | **Ubuntu 22.04 VM template** | A template in your vCenter inventory (see [Step 3](#step-3-prepare-a-vm-template-in-vsphere)) |
-| **Windows Server 2019 template** | *(Optional)* A template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
-| **Network** | A port group with DHCP or a static IP range you can assign to 3–4 VMs |
+| **Windows Server 2019 template** | Required for Windows mode — a template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
+| **Network** | A port group with DHCP or a static IP range you can assign to 3 VMs |
 | **SSH access** | Either password auth enabled in template, or SSH key pair (public key in template, private key on your machine) |
 
 ### Information You'll Need to Gather
@@ -112,9 +122,9 @@ Cluster name                  → the compute cluster under the datacenter
 Datastore name                → where VM disks will be stored
 Network/Port Group name       → the network VMs will connect to
 Linux VM Template name        → the Ubuntu 22.04 template you created
-Windows VM Template name      → (optional) your Windows Server 2019 template
+Windows VM Template name      → (Windows mode) your Windows Server 2019 template
 Gateway IP                    → your lab network gateway
-3-4 available static IPs      → one per VM (e.g., 192.168.1.101-104)
+3 available static IPs        → one per VM (e.g., 192.168.1.101-103)
 ```
 
 > **Tip:** Open your vSphere Web Client and note down these names — they must match exactly.
@@ -378,7 +388,7 @@ The wizard walks through 6 sections:
 | 1. vCenter Connection | Server, username, password | `vcenter.lab.local` |
 | 2. vSphere Infrastructure | Datacenter, cluster, datastore, template name | `Datacenter1`, `ubuntu-2204-template` |
 | 3. Network Settings | Gateway, DNS, SSH user, key path | `192.168.1.1`, `ubuntu` |
-| 4. VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM; optional Windows VM | `192.168.1.101`, 2 CPU, 4096 MB |
+| 4. VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM (3 Linux or 3 Windows) | `192.168.1.101`, 2 CPU, 4096 MB |
 | 5. App & DB Config | Git repos, versions, database passwords | JDK 17, PostgreSQL password |
 | 6. Azure Migrate | Install dependency agent? | Yes/No |
 
@@ -395,10 +405,10 @@ After confirming the summary, choose a run mode:
 > **Re-running the wizard:** On subsequent runs, all prompts pre-fill with your previously saved values. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
 
 **Option 1** runs everything end-to-end. Expect **~20-35 minutes** total:
-- ~5 min for Terraform to create VMs (3 Linux + optional Windows)
+- ~5 min for Terraform to create 3 VMs
 - ~1 min waiting for VMs to boot
 - ~15-25 min for Ansible to install all apps and databases
-- ~5-10 min extra if Windows VM is included (SQL Server download + install)
+- ~5-10 min extra for Windows mode (SQL Server + Chocolatey downloads)
 
 ### Step 5: Verify Deployment
 
@@ -407,17 +417,16 @@ After the wizard finishes, it runs health checks automatically. You can also ver
 ```bash
 # From your machine (replace IPs with your actual IPs)
 curl http://192.168.1.101:8080     # Java PetClinic — should return HTML
-curl http://192.168.1.102          # .NET MVC App — should return HTML
+curl http://192.168.1.102          # .NET App — should return HTML
 curl http://192.168.1.103          # PHP Laravel — should return HTML
-curl http://192.168.1.104          # Windows IIS App (if deployed) — should return HTML
 
-# SSH into any Linux VM
+# Linux mode: SSH into any VM
 ssh ubuntu@192.168.1.101
 
-# RDP into the Windows VM (if deployed)
-# Use Remote Desktop to connect to 192.168.1.104
+# Windows mode: RDP into any VM
+# Use Remote Desktop to connect to 192.168.1.101, .102, or .103
 
-# Check service status on Linux VMs
+# Check service status (Linux mode)
 systemctl status petclinic         # on java-vm
 systemctl status dotnet-app        # on dotnet-vm
 systemctl status apache2           # on php-vm
@@ -455,19 +464,28 @@ bash scripts/deploy-all.sh all
 
 ## What Gets Deployed
 
+### Linux Mode (deploy_mode = linux)
+
 | VM | Hostname | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
 | **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 6) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
-| **Windows VM** *(optional)* | legacy-win-iis | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<win-ip>` |
+
+### Windows Mode (deploy_mode = windows)
+
+| VM | Hostname | OS | Application | Web Server | Database | Access URL |
+|----|----------|-----|------------|------------|----------|------------|
+| **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | NSSM service | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
+| **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
 Each app:
-- Runs as a **systemd service** (Linux) or **IIS/Windows service** (Windows) — auto-starts on boot
+- Runs as a **systemd service** (Linux) or **Windows service / IIS site** (Windows) — auto-starts on boot
 - Has its database installed **locally on the same VM** (simulates typical legacy architecture)
 - Has **firewall rules** configured for its ports
 - Has **sysstat** enabled for performance data collection (Linux VMs)
-- Has **RDP** and **WinRM** enabled for Azure Migrate discovery (Windows VM)
+- Has **RDP** and **WinRM** enabled for Azure Migrate discovery (Windows VMs)
 
 ---
 
@@ -500,7 +518,9 @@ legacy-app-vmware-setup/
 │       ├── java-petclinic.yml         # Java 17 + Spring PetClinic + PostgreSQL 15
 │       ├── dotnet-app.yml             # .NET 6 + ASP.NET MVC + SQL Server 2022
 │       ├── php-app.yml                # PHP 8.1 + Laravel + MySQL 8.0 + Apache2
+│       ├── win-java-petclinic.yml     # Windows: Java PetClinic + PostgreSQL
 │       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server 2019
+│       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
 │       └── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
 │
 ├── .gitignore                         # Excludes secrets (tfvars, all.yml, keys)
@@ -524,12 +544,11 @@ legacy-app-vmware-setup/
 | `vsphere_network` | Port group / network name | `VM Network` |
 | `vm_template_name` | Ubuntu template name in vCenter | `ubuntu-2204-template` |
 | `vm_gateway` | Network gateway | `192.168.1.1` |
-| `java_vm_ip` | Static IP for Java VM | `192.168.1.101` |
-| `dotnet_vm_ip` | Static IP for .NET VM | `192.168.1.102` |
-| `php_vm_ip` | Static IP for PHP VM | `192.168.1.103` |
-| `win_vm_enabled` | Deploy Windows VM? | `true` or `false` |
+| `java_vm_ip` | Static IP for Java VM (both modes) | `192.168.1.101` |
+| `dotnet_vm_ip` | Static IP for .NET VM (both modes) | `192.168.1.102` |
+| `php_vm_ip` | Static IP for PHP VM (both modes) | `192.168.1.103` |
+| `deploy_mode` | Deployment mode: `linux` or `windows` | `linux` |
 | `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
-| `win_vm_ip` | Static IP for Windows VM | `192.168.1.104` |
 | `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
 
 ### ansible/group_vars/all.yml
@@ -543,8 +562,6 @@ legacy-app-vmware-setup/
 | `php_version` | PHP version | `8.1` |
 | `mysql_root_password` | MySQL root password | *(you set this)* |
 | `install_azure_migrate_agent` | Install dependency agent on VMs | `false` |
-| `win_mssql_sa_password` | SQL Server SA password for Windows VM | *(you set this)* |
-| `win_mssql_db_name` | Database name for Windows app | `LegacyAppDb` |
 
 ---
 
@@ -574,12 +591,21 @@ Azure Portal → Azure Migrate → Create project
 
 ### What Azure Migrate Will Find
 
+**Linux Mode:**
+
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
 | legacy-java-vm | Java 17, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-dotnet-vm | .NET 6, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
 | legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
-| legacy-win-iis *(if deployed)* | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
+
+**Windows Mode:**
+
+| VM | Discovered Apps | Discovered DBs | Dependencies |
+|----|----------------|----------------|-------------|
+| legacy-win-java-vm | Java 17, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
+| legacy-win-dotnet-vm | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
+| legacy-win-php-vm | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
 
 ---
 

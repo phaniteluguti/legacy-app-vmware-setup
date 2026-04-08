@@ -1,3 +1,4 @@
+%{ if deploy_mode == "linux" }
 [java_servers]
 ${java_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 
@@ -11,10 +12,21 @@ ${php_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 java_servers
 dotnet_servers
 php_servers
+%{ endif }
+%{ if deploy_mode == "windows" }
+[win_java_servers]
+${win_java_ip}
 
-%{ if win_ip != "" }
-[win_servers]
-${win_ip}
+[win_dotnet_servers]
+${win_dotnet_ip}
+
+[win_php_servers]
+${win_php_ip}
+
+[win_servers:children]
+win_java_servers
+win_dotnet_servers
+win_php_servers
 
 [win_servers:vars]
 ansible_connection=winrm

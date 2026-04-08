@@ -1,11 +1,13 @@
 ---
 # =============================================================================
-# Windows VM — ASP.NET Framework MVC on IIS + SQL Server 2019 Express
+# Windows .NET VM — ASP.NET Framework MVC on IIS + SQL Server 2019 Express
 # Requires WinRM configured in the Windows template
 # =============================================================================
 - name: Deploy ASP.NET Framework App + SQL Server on Windows
-  hosts: win_servers
+  hosts: win_dotnet_servers
   gather_facts: true
+  vars_files:
+    - ../group_vars/all.yml
 
   tasks:
     # ---------------------------------------------------------------
@@ -65,7 +67,7 @@
         /ACTION=Install /FEATURES=SQLENGINE
         /INSTANCENAME=MSSQLSERVER
         /SECURITYMODE=SQL
-        /SAPWD="{{ win_mssql_sa_password }}"
+        /SAPWD="{{ mssql_sa_password }}"
         /SQLSVCACCOUNT="NT AUTHORITY\SYSTEM"
         /TCPENABLED=1
       args:
@@ -94,8 +96,8 @@
     # ---------------------------------------------------------------
     - name: Create application database
       win_command: >
-        sqlcmd -S localhost -U SA -P "{{ win_mssql_sa_password }}"
-        -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name='{{ win_mssql_db_name }}') CREATE DATABASE [{{ win_mssql_db_name }}]"
+        sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}"
+        -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name='{{ mssql_db_name }}') CREATE DATABASE [{{ mssql_db_name }}]"
       changed_when: false
 
     # ---------------------------------------------------------------
@@ -153,7 +155,7 @@
                       <h2>Database Connectivity</h2>
                       <%
                           try {
-                              var connStr = "Server=localhost;Database={{ win_mssql_db_name }};User Id=SA;Password={{ win_mssql_sa_password }};";
+                              var connStr = "Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};";
                               using (var conn = new System.Data.SqlClient.SqlConnection(connStr)) {
                                   conn.Open();
                                   Response.Write("<p><span class='badge badge-green'>Connected</span> to database <strong>" +
@@ -185,7 +187,7 @@
             </system.web>
             <connectionStrings>
               <add name="DefaultConnection"
-                   connectionString="Server=localhost;Database={{ win_mssql_db_name }};User Id=SA;Password={{ win_mssql_sa_password }};"
+                   connectionString="Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};"
                    providerName="System.Data.SqlClient" />
             </connectionStrings>
           </configuration>

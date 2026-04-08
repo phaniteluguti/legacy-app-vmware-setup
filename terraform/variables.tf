@@ -1,3 +1,14 @@
+# --- Deployment Mode ---
+variable "deploy_mode" {
+  description = "Deployment mode: 'linux' for 3 Linux VMs or 'windows' for 3 Windows VMs"
+  type        = string
+  default     = "linux"
+  validation {
+    condition     = contains(["linux", "windows"], var.deploy_mode)
+    error_message = "deploy_mode must be 'linux' or 'windows'."
+  }
+}
+
 # --- vSphere Connection ---
 variable "vsphere_server" {
   description = "vCenter Server FQDN or IP"
@@ -106,6 +117,7 @@ variable "vm_ssh_password" {
 variable "java_vm_ip" {
   description = "Static IP for the Java VM"
   type        = string
+  default     = ""
 }
 
 variable "java_vm_cpus" {
@@ -129,6 +141,7 @@ variable "java_vm_disk" {
 variable "dotnet_vm_ip" {
   description = "Static IP for the .NET VM"
   type        = string
+  default     = ""
 }
 
 variable "dotnet_vm_cpus" {
@@ -150,6 +163,7 @@ variable "dotnet_vm_disk" {
 variable "php_vm_ip" {
   description = "Static IP for the PHP VM"
   type        = string
+  default     = ""
 }
 
 variable "php_vm_cpus" {
@@ -167,40 +181,11 @@ variable "php_vm_disk" {
   default = 30
 }
 
-# --- Windows IIS VM ---
-variable "win_vm_enabled" {
-  description = "Set to true to provision the Windows VM"
-  type        = bool
-  default     = false
-}
-
+# --- Windows VM Settings ---
 variable "win_template_name" {
   description = "Name of the Windows Server 2019 VM template in vSphere"
   type        = string
   default     = "windows-2019-template"
-}
-
-variable "win_vm_ip" {
-  description = "Static IP for the Windows VM"
-  type        = string
-  default     = ""
-}
-
-variable "win_vm_cpus" {
-  type    = number
-  default = 2
-}
-
-variable "win_vm_memory" {
-  description = "Memory in MB"
-  type        = number
-  default     = 4096
-}
-
-variable "win_vm_disk" {
-  description = "Disk size in GB"
-  type        = number
-  default     = 60
 }
 
 variable "win_admin_password" {
