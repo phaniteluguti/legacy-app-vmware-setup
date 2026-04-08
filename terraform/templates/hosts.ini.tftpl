@@ -31,9 +31,9 @@ win_php_servers
 [win_servers:vars]
 ansible_connection=winrm
 ansible_winrm_transport=ntlm
-ansible_winrm_server_cert_validation=ignore
+ansible_winrm_scheme=http
 ansible_user=Administrator
 ansible_password=${win_password}
-ansible_port=5986
+ansible_port=5985
 ansible_become=false
 %{ endif }

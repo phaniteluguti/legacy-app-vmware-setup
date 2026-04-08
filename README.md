@@ -337,22 +337,14 @@ If you want to deploy Windows legacy apps, you need a Windows Server template wi
 
 3. **Inside the VM, open PowerShell as Administrator and run:**
    ```powershell
-   # Enable WinRM for Ansible connectivity
+   # Enable WinRM HTTP listener for Ansible connectivity
    winrm quickconfig -force
    winrm set winrm/config/service '@{AllowUnencrypted="true"}'
    winrm set winrm/config/service/auth '@{Basic="true"}'
    Enable-PSRemoting -Force
 
-   # Configure WinRM for HTTPS (self-signed cert)
-   $cert = New-SelfSignedCertificate -DnsName $env:COMPUTERNAME -CertStoreLocation Cert:\LocalMachine\My
-
-   # Create the HTTPS listener using the cert thumbprint (run this SEPARATELY after the line above)
-   $hostname = $env:COMPUTERNAME
-   $thumbprint = $cert.Thumbprint
-   winrm create winrm/config/Listener?Address=*+Transport=HTTPS "@{Hostname=`"$hostname`";CertificateThumbprint=`"$thumbprint`"}"
-
-   # Open firewall for WinRM HTTPS
-   New-NetFirewallRule -Name "WinRM-HTTPS" -DisplayName "WinRM HTTPS" -Protocol TCP -LocalPort 5986 -Action Allow
+   # Open firewall for WinRM HTTP (port 5985)
+   New-NetFirewallRule -Name "WinRM-HTTP" -DisplayName "WinRM HTTP" -Protocol TCP -LocalPort 5985 -Action Allow
 
    # Install VMware Tools (required for guest customization)
    # Mount the VMware Tools ISO from vCenter and run setup.exe, or:
