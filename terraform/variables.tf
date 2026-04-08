@@ -9,6 +9,25 @@ variable "deploy_mode" {
   }
 }
 
+# --- Per-App Deployment Toggle ---
+variable "deploy_java" {
+  description = "Deploy Java application VMs (PetClinic + PostgreSQL)"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_dotnet" {
+  description = "Deploy .NET application VMs (ASP.NET + SQL Server)"
+  type        = bool
+  default     = true
+}
+
+variable "deploy_php" {
+  description = "Deploy PHP application VMs (Laravel + MySQL)"
+  type        = bool
+  default     = true
+}
+
 # --- vSphere Connection ---
 variable "vsphere_server" {
   description = "vCenter Server FQDN or IP"

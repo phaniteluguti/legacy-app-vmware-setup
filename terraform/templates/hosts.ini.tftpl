@@ -1,32 +1,56 @@
 %{ if deploy_mode == "linux" }
+%{ if deploy_java }
 [java_servers]
 ${java_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
+%{ if deploy_dotnet }
 [dotnet_servers]
 ${dotnet_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
+%{ if deploy_php }
 [php_servers]
 ${php_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
 [legacy_apps:children]
+%{ if deploy_java }
 java_servers
+%{ endif }
+%{ if deploy_dotnet }
 dotnet_servers
+%{ endif }
+%{ if deploy_php }
 php_servers
 %{ endif }
+%{ endif }
 %{ if deploy_mode == "windows" }
+%{ if deploy_java }
 [win_java_servers]
 ${win_java_ip}
+%{ endif }
 
+%{ if deploy_dotnet }
 [win_dotnet_servers]
 ${win_dotnet_ip}
+%{ endif }
 
+%{ if deploy_php }
 [win_php_servers]
 ${win_php_ip}
+%{ endif }
 
 [win_servers:children]
+%{ if deploy_java }
 win_java_servers
+%{ endif }
+%{ if deploy_dotnet }
 win_dotnet_servers
+%{ endif }
+%{ if deploy_php }
 win_php_servers
+%{ endif }
 
 [win_servers:vars]
 ansible_connection=winrm
@@ -38,6 +62,7 @@ ansible_port=5985
 ansible_become=false
 %{ endif }
 %{ if deploy_mode == "linux-3tier" }
+%{ if deploy_java }
 # --- Java 3-Tier ---
 [java_frontend]
 ${java_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
@@ -47,7 +72,9 @@ ${java_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 
 [java_database]
 ${java_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
+%{ if deploy_dotnet }
 # --- .NET 3-Tier ---
 [dotnet_frontend]
 ${dotnet_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
@@ -57,7 +84,9 @@ ${dotnet_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 
 [dotnet_database]
 ${dotnet_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
+%{ if deploy_php }
 # --- PHP 3-Tier ---
 [php_frontend]
 ${php_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
@@ -67,22 +96,41 @@ ${php_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 
 [php_database]
 ${php_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
 
 # --- Aggregate groups ---
 [frontends:children]
+%{ if deploy_java }
 java_frontend
+%{ endif }
+%{ if deploy_dotnet }
 dotnet_frontend
+%{ endif }
+%{ if deploy_php }
 php_frontend
+%{ endif }
 
 [appservers:children]
+%{ if deploy_java }
 java_appserver
+%{ endif }
+%{ if deploy_dotnet }
 dotnet_appserver
+%{ endif }
+%{ if deploy_php }
 php_appserver
+%{ endif }
 
 [databases:children]
+%{ if deploy_java }
 java_database
+%{ endif }
+%{ if deploy_dotnet }
 dotnet_database
+%{ endif }
+%{ if deploy_php }
 php_database
+%{ endif }
 
 [legacy_apps_3tier:children]
 frontends
@@ -90,6 +138,7 @@ appservers
 databases
 %{ endif }
 %{ if deploy_mode == "windows-3tier" }
+%{ if deploy_java }
 # --- Java 3-Tier ---
 [win_java_frontend]
 ${win_java_fe_ip}
@@ -99,7 +148,9 @@ ${win_java_app_ip}
 
 [win_java_database]
 ${win_java_db_ip}
+%{ endif }
 
+%{ if deploy_dotnet }
 # --- .NET 3-Tier ---
 [win_dotnet_frontend]
 ${win_dotnet_fe_ip}
@@ -109,7 +160,9 @@ ${win_dotnet_app_ip}
 
 [win_dotnet_database]
 ${win_dotnet_db_ip}
+%{ endif }
 
+%{ if deploy_php }
 # --- PHP 3-Tier ---
 [win_php_frontend]
 ${win_php_fe_ip}
@@ -119,22 +172,41 @@ ${win_php_app_ip}
 
 [win_php_database]
 ${win_php_db_ip}
+%{ endif }
 
 # --- Aggregate groups ---
 [win_frontends:children]
+%{ if deploy_java }
 win_java_frontend
+%{ endif }
+%{ if deploy_dotnet }
 win_dotnet_frontend
+%{ endif }
+%{ if deploy_php }
 win_php_frontend
+%{ endif }
 
 [win_appservers:children]
+%{ if deploy_java }
 win_java_appserver
+%{ endif }
+%{ if deploy_dotnet }
 win_dotnet_appserver
+%{ endif }
+%{ if deploy_php }
 win_php_appserver
+%{ endif }
 
 [win_databases:children]
+%{ if deploy_java }
 win_java_database
+%{ endif }
+%{ if deploy_dotnet }
 win_dotnet_database
+%{ endif }
+%{ if deploy_php }
 win_php_database
+%{ endif }
 
 [win_servers_3tier:children]
 win_frontends

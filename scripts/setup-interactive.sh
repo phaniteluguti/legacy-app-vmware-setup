@@ -12,6 +12,12 @@ ANSIBLE_DIR="$PROJECT_ROOT/ansible"
 TFVARS_FILE="$TF_DIR/terraform.tfvars"
 ALLVARS_FILE="$ANSIBLE_DIR/group_vars/all.yml"
 
+# Global deploy state
+DEPLOY_MODES=()
+DEPLOY_JAVA="true"
+DEPLOY_DOTNET="true"
+DEPLOY_PHP="true"
+
 # Colors
 C='\033[0;36m'; G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; GR='\033[0;90m'; NC='\033[0m'
 
@@ -89,6 +95,8 @@ ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed "s/^${1}: *\"\{0,
 load_previous() {
     # Initialize all defaults to hard-coded values
     PREV_DEPLOY_MODE="linux"
+    PREV_APP_SELECTION="all"; PREV_OS_CHOICE="linux"; PREV_ARCH_CHOICE="single"
+    PREV_DEPLOY_JAVA="true"; PREV_DEPLOY_DOTNET="true"; PREV_DEPLOY_PHP="true"
     PREV_VSPHERE_SERVER=""; PREV_VSPHERE_USER="administrator@vsphere.local"; PREV_VSPHERE_SSL="true"
     PREV_VSPHERE_DC="Datacenter1"; PREV_VSPHERE_CLUSTER="Cluster1"; PREV_VSPHERE_DS="datastore1"
     PREV_VSPHERE_NET="VM Network"; PREV_VSPHERE_FOLDER=""; PREV_VM_TEMPLATE="ubuntu-2204-template"
@@ -108,6 +116,33 @@ load_previous() {
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
         PREV_DEPLOY_MODE="$(tfval deploy_mode "linux")"
+        PREV_DEPLOY_JAVA="$(tfval deploy_java "true")"
+        PREV_DEPLOY_DOTNET="$(tfval deploy_dotnet "true")"
+        PREV_DEPLOY_PHP="$(tfval deploy_php "true")"
+        # Parse wizard choices from comment header
+        local wiz_line; wiz_line=$(grep -m1 "^# wizard_choices:" "$TFVARS_FILE" 2>/dev/null || echo "")
+        if [[ -n "$wiz_line" ]]; then
+            PREV_APP_SELECTION=$(echo "$wiz_line" | sed 's/.*app=\([^ ]*\).*/\1/')
+            PREV_OS_CHOICE=$(echo "$wiz_line" | sed 's/.*os=\([^ ]*\).*/\1/')
+            PREV_ARCH_CHOICE=$(echo "$wiz_line" | sed 's/.*arch=\([^ ]*\).*/\1/')
+        else
+            # Derive from deploy_mode for backward compatibility
+            case "$PREV_DEPLOY_MODE" in
+                linux)          PREV_OS_CHOICE="linux";   PREV_ARCH_CHOICE="single" ;;
+                windows)        PREV_OS_CHOICE="windows"; PREV_ARCH_CHOICE="single" ;;
+                linux-3tier)    PREV_OS_CHOICE="linux";   PREV_ARCH_CHOICE="3tier" ;;
+                windows-3tier)  PREV_OS_CHOICE="windows"; PREV_ARCH_CHOICE="3tier" ;;
+            esac
+            if [[ "$PREV_DEPLOY_JAVA" == "true" && "$PREV_DEPLOY_DOTNET" == "true" && "$PREV_DEPLOY_PHP" == "true" ]]; then
+                PREV_APP_SELECTION="all"
+            elif [[ "$PREV_DEPLOY_JAVA" == "true" ]]; then
+                PREV_APP_SELECTION="java"
+            elif [[ "$PREV_DEPLOY_DOTNET" == "true" ]]; then
+                PREV_APP_SELECTION="dotnet"
+            elif [[ "$PREV_DEPLOY_PHP" == "true" ]]; then
+                PREV_APP_SELECTION="php"
+            fi
+        fi
         PREV_VSPHERE_SERVER="$(tfval vsphere_server "")"
         PREV_VSPHERE_USER="$(tfval vsphere_user "administrator@vsphere.local")"
         PREV_VSPHERE_SSL="$(tfval vsphere_allow_unverified_ssl "true")"
@@ -192,11 +227,16 @@ collect_infra() {
     prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
     prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
     prompt_optional "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
-    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
+    if [[ "$OS_CHOICE" == "linux" ]]; then
         prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
-    else
+        WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
+    elif [[ "$OS_CHOICE" == "windows" ]]; then
         prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
         VM_TEMPLATE="$PREV_VM_TEMPLATE"
+    else
+        # Both
+        prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
+        prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
     fi
 }
 
@@ -207,11 +247,11 @@ collect_network() {
     prompt "Domain suffix" "$PREV_VM_DOMAIN"; VM_DOMAIN="$REPLY"
     prompt "DNS Servers (comma-sep)" "$PREV_VM_DNS"; VM_DNS="$REPLY"
 
-    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
+    if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
         prompt "SSH username in template" "$PREV_SSH_USER"; SSH_USER="$REPLY"
 
         echo ""
-        echo -e "  ${Y}How will Ansible connect to the VMs?${NC}"
+        echo -e "  ${Y}How will Ansible connect to the Linux VMs?${NC}"
         echo -e "    ${G}1)${NC} SSH key (public key baked into template)"
         echo -e "    ${G}2)${NC} SSH password (simpler — no key needed in template)"
         local default_auth; [[ "$PREV_SSH_AUTH_METHOD" == "key" ]] && default_auth="1" || default_auth="2"
@@ -232,9 +272,13 @@ collect_network() {
             SSH_KEY=""
         fi
     else
-        # Windows mode — no SSH needed
         SSH_USER="$PREV_SSH_USER"; SSH_AUTH_METHOD="password"; SSH_PASSWORD=""; SSH_KEY=""
+    fi
+
+    if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
         prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+    else
+        WIN_ADMIN_PASS="${WIN_ADMIN_PASS:-}"
     fi
 }
 
@@ -242,98 +286,117 @@ collect_vms() {
     header "Step 4/6 — VM Sizing & IP Addresses"
     echo -e "  ${GR}Static IPs on the same subnet as gateway $VM_GW${NC}\n"
 
-    if [[ "$DEPLOY_MODE" == "linux-3tier" || "$DEPLOY_MODE" == "windows-3tier" ]]; then
-        echo -e "  ${Y}--- 3-Tier Architecture: 9 VMs (3 apps × Frontend + App Server + Database) ---${NC}"
+    # Initialize all IPs to defaults (single-VM)
+    JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
+    DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
+    PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
+    # Initialize 3-tier IPs to empty
+    JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
+    DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
+    PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
+
+    if [[ "$ARCH_CHOICE" == "3tier" ]]; then
+        echo -e "  ${Y}--- 3-Tier Architecture ---${NC}"
         echo -e "  ${GR}Sizes: Frontend=1CPU/2GB/20GB, App=2CPU/4GB/40GB, DB=2CPU/4GB/60GB${NC}\n"
 
-        echo -e "  ${Y}--- Java Stack ---${NC}"
-        prompt_ip "  Java Frontend IP" "${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_FE_IP="$REPLY"
-        prompt_ip "  Java App Server IP" "${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_APP_IP="$REPLY"
-        prompt_ip "  Java Database IP" "${PREV_JAVA_DB_IP:-10.1.2.22}"; JAVA_DB_IP="$REPLY"
+        if [[ "$DEPLOY_JAVA" == "true" ]]; then
+            echo -e "  ${Y}--- Java Stack ---${NC}"
+            prompt_ip "  Java Frontend IP" "${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_FE_IP="$REPLY"
+            prompt_ip "  Java App Server IP" "${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_APP_IP="$REPLY"
+            prompt_ip "  Java Database IP" "${PREV_JAVA_DB_IP:-10.1.2.22}"; JAVA_DB_IP="$REPLY"
+            echo ""
+        fi
 
-        echo -e "\n  ${Y}--- .NET Stack ---${NC}"
-        prompt_ip "  .NET Frontend IP" "${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_FE_IP="$REPLY"
-        prompt_ip "  .NET App Server IP" "${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_APP_IP="$REPLY"
-        prompt_ip "  .NET Database IP" "${PREV_DOTNET_DB_IP:-10.1.2.25}"; DOTNET_DB_IP="$REPLY"
+        if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+            echo -e "  ${Y}--- .NET Stack ---${NC}"
+            prompt_ip "  .NET Frontend IP" "${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_FE_IP="$REPLY"
+            prompt_ip "  .NET App Server IP" "${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_APP_IP="$REPLY"
+            prompt_ip "  .NET Database IP" "${PREV_DOTNET_DB_IP:-10.1.2.25}"; DOTNET_DB_IP="$REPLY"
+            echo ""
+        fi
 
-        echo -e "\n  ${Y}--- PHP Stack ---${NC}"
-        prompt_ip "  PHP Frontend IP" "${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_FE_IP="$REPLY"
-        prompt_ip "  PHP App Server IP" "${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_APP_IP="$REPLY"
-        prompt_ip "  PHP Database IP" "${PREV_PHP_DB_IP:-10.1.2.28}"; PHP_DB_IP="$REPLY"
-
-        # Set dummy values for single-VM vars (not used in 3-tier but needed for tfvars)
-        JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU=2; JAVA_MEM=4096; JAVA_DISK=40
-        DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU=2; DOTNET_MEM=4096; DOTNET_DISK=40
-        PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU=2; PHP_MEM=2048; PHP_DISK=30
+        if [[ "$DEPLOY_PHP" == "true" ]]; then
+            echo -e "  ${Y}--- PHP Stack ---${NC}"
+            prompt_ip "  PHP Frontend IP" "${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_FE_IP="$REPLY"
+            prompt_ip "  PHP App Server IP" "${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_APP_IP="$REPLY"
+            prompt_ip "  PHP Database IP" "${PREV_PHP_DB_IP:-10.1.2.28}"; PHP_DB_IP="$REPLY"
+        fi
 
     else
-        if [[ "$DEPLOY_MODE" == "linux" ]]; then
-            echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) ---${NC}"
-        else
-            echo -e "  ${Y}--- Windows Java VM (PetClinic + PostgreSQL) ---${NC}"
+        # Single-VM mode: prompt only for selected apps
+        if [[ "$DEPLOY_JAVA" == "true" ]]; then
+            local jlabel="Java VM (PetClinic + PostgreSQL)"
+            [[ "$OS_CHOICE" != "linux" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows"
+            echo -e "  ${Y}--- $jlabel ---${NC}"
+            prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+            prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
+            prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
+            prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
+            echo ""
         fi
-        prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
-        prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
-        prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
-        prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
 
-        if [[ "$DEPLOY_MODE" == "linux" ]]; then
-            echo -e "\n  ${Y}--- .NET VM (ASP.NET + SQL Server) ---${NC}"
-        else
-            echo -e "\n  ${Y}--- Windows .NET VM (IIS + ASP.NET + SQL Server) ---${NC}"
+        if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+            local dlabel=".NET VM (ASP.NET + SQL Server)"
+            [[ "$OS_CHOICE" != "linux" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows"
+            echo -e "  ${Y}--- $dlabel ---${NC}"
+            prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+            prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
+            prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
+            prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
+            echo ""
         fi
-        prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
-        prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
-        prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
-        prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
 
-        if [[ "$DEPLOY_MODE" == "linux" ]]; then
-            echo -e "\n  ${Y}--- PHP VM (Laravel + MySQL) ---${NC}"
-        else
-            echo -e "\n  ${Y}--- Windows PHP VM (IIS + Laravel + MySQL) ---${NC}"
+        if [[ "$DEPLOY_PHP" == "true" ]]; then
+            local plabel="PHP VM (Laravel + MySQL)"
+            [[ "$OS_CHOICE" != "linux" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows"
+            echo -e "  ${Y}--- $plabel ---${NC}"
+            prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+            prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
+            prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
+            prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
         fi
-        prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
-        prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
-        prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
-        prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
-
-        # Initialize 3-tier IPs to empty
-        JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
-        DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
-        PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
-    fi
-
-    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
-        WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
-        WIN_ADMIN_PASS="${WIN_ADMIN_PASS:-}"
     fi
 }
 
 collect_apps() {
     header "Step 5/6 — Application & Database Configuration"
 
-    echo -e "  ${Y}--- Java / PetClinic ---${NC}"
-    prompt "  Git repo" "$PREV_PETCLINIC_REPO"; PETCLINIC_REPO="$REPLY"
-    prompt "  Branch" "$PREV_PETCLINIC_BRANCH"; PETCLINIC_BRANCH="$REPLY"
-    prompt "  JDK version" "$PREV_JAVA_VER"; JAVA_VER="$REPLY"
-    prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"
+    # Initialize all defaults (for unused apps in tfvars)
+    PETCLINIC_REPO="$PREV_PETCLINIC_REPO"; PETCLINIC_BRANCH="$PREV_PETCLINIC_BRANCH"; JAVA_VER="$PREV_JAVA_VER"
+    PG_PASS="placeholder"
+    DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
+    MSSQL_PASS="Placeholder1!"
+    PHP_VER="$PREV_PHP_VER"; PHP_REPO="$PREV_PHP_REPO"; PHP_BRANCH="$PREV_PHP_BRANCH"
+    MYSQL_ROOT="placeholder"; MYSQL_APP="placeholder"
 
-    echo -e "\n  ${Y}--- .NET / ASP.NET ---${NC}"
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
-        prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
-        prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
-    else
-        DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
+    if [[ "$DEPLOY_JAVA" == "true" ]]; then
+        echo -e "  ${Y}--- Java / PetClinic ---${NC}"
+        prompt "  Git repo" "$PREV_PETCLINIC_REPO"; PETCLINIC_REPO="$REPLY"
+        prompt "  Branch" "$PREV_PETCLINIC_BRANCH"; PETCLINIC_BRANCH="$REPLY"
+        prompt "  JDK version" "$PREV_JAVA_VER"; JAVA_VER="$REPLY"
+        prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"
+        echo ""
     fi
-    prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"
 
-    echo -e "\n  ${Y}--- PHP / Laravel ---${NC}"
-    prompt "  PHP version" "$PREV_PHP_VER"; PHP_VER="$REPLY"
-    prompt "  Git repo" "$PREV_PHP_REPO"; PHP_REPO="$REPLY"
-    prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
-    prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
-    prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+    if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+        echo -e "  ${Y}--- .NET / ASP.NET ---${NC}"
+        if [[ "$OS_CHOICE" == "linux" ]]; then
+            prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
+            prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
+            prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
+        fi
+        prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"
+        echo ""
+    fi
+
+    if [[ "$DEPLOY_PHP" == "true" ]]; then
+        echo -e "  ${Y}--- PHP / Laravel ---${NC}"
+        prompt "  PHP version" "$PREV_PHP_VER"; PHP_VER="$REPLY"
+        prompt "  Git repo" "$PREV_PHP_REPO"; PHP_REPO="$REPLY"
+        prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
+        prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
+        prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+    fi
 }
 
 collect_migrate() {
@@ -345,68 +408,74 @@ collect_migrate() {
 # ---------------------------------------------------------------------------
 show_summary() {
     header "Configuration Summary"
-    echo -e "  Deploy Mode: ${Y}${DEPLOY_MODE^^}${NC}"
-    echo -e "  vCenter:    $VSPHERE_SERVER"
-    echo -e "  Datacenter: $VSPHERE_DC   Cluster: $VSPHERE_CLUSTER"
-    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
-        echo -e "  Template:   $VM_TEMPLATE"
+    echo -e "  App Selection:  ${Y}${APP_SELECTION^^}${NC}"
+    echo -e "  OS:             ${Y}${OS_CHOICE^^}${NC}"
+    echo -e "  Architecture:   ${Y}${ARCH_CHOICE^^}${NC}"
+    echo -e "  vCenter:        $VSPHERE_SERVER"
+    echo -e "  Datacenter:     $VSPHERE_DC   Cluster: $VSPHERE_CLUSTER"
+    if [[ "$OS_CHOICE" == "linux" ]]; then
+        echo -e "  Template:       $VM_TEMPLATE (Linux)"
+    elif [[ "$OS_CHOICE" == "windows" ]]; then
+        echo -e "  Template:       $WIN_TEMPLATE (Windows)"
     else
-        echo -e "  Template:   $WIN_TEMPLATE"
+        echo -e "  Templates:      $VM_TEMPLATE (Linux) / $WIN_TEMPLATE (Windows)"
     fi
-    echo -e "  Network:    $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
+    echo -e "  Network:        $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
 
-    if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-        echo -e "  VMs (3-Tier Architecture):"
-        echo -e "    ${Y}Java Stack:${NC}"
-        echo -e "      Frontend    $JAVA_FE_IP   1CPU / 2048MB / 20GB"
-        echo -e "      App Server  $JAVA_APP_IP  2CPU / 4096MB / 40GB"
-        echo -e "      Database    $JAVA_DB_IP   2CPU / 4096MB / 60GB"
-        echo -e "    ${Y}.NET Stack:${NC}"
-        echo -e "      Frontend    $DOTNET_FE_IP   1CPU / 2048MB / 20GB"
-        echo -e "      App Server  $DOTNET_APP_IP  2CPU / 4096MB / 40GB"
-        echo -e "      Database    $DOTNET_DB_IP   2CPU / 4096MB / 60GB"
-        echo -e "    ${Y}PHP Stack:${NC}"
-        echo -e "      Frontend    $PHP_FE_IP   1CPU / 2048MB / 20GB"
-        echo -e "      App Server  $PHP_APP_IP  2CPU / 4096MB / 40GB"
-        echo -e "      Database    $PHP_DB_IP   2CPU / 4096MB / 60GB"
-        echo ""
-        echo -e "  Apps:"
-        if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
-            echo -e "    Java:  Angular → spring-petclinic-rest → PostgreSQL"
-            echo -e "    .NET:  Nginx → eShopOnWeb ASP.NET Core → SQL Server"
-            echo -e "    PHP:   Nginx → Laravel → MySQL"
+    for mode in "${DEPLOY_MODES[@]}"; do
+        local os_label="Linux"
+        [[ "$mode" == windows* ]] && os_label="Windows"
+        echo -e "  ${C}--- $os_label Deployment ---${NC}"
+
+        if [[ "$ARCH_CHOICE" == "3tier" ]]; then
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                echo -e "    ${Y}Java Stack:${NC}"
+                echo -e "      Frontend    $JAVA_FE_IP   1CPU / 2048MB / 20GB"
+                echo -e "      App Server  $JAVA_APP_IP  2CPU / 4096MB / 40GB"
+                echo -e "      Database    $JAVA_DB_IP   2CPU / 4096MB / 60GB"
+            fi
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                echo -e "    ${Y}.NET Stack:${NC}"
+                echo -e "      Frontend    $DOTNET_FE_IP   1CPU / 2048MB / 20GB"
+                echo -e "      App Server  $DOTNET_APP_IP  2CPU / 4096MB / 40GB"
+                echo -e "      Database    $DOTNET_DB_IP   2CPU / 4096MB / 60GB"
+            fi
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                echo -e "    ${Y}PHP Stack:${NC}"
+                echo -e "      Frontend    $PHP_FE_IP   1CPU / 2048MB / 20GB"
+                echo -e "      App Server  $PHP_APP_IP  2CPU / 4096MB / 40GB"
+                echo -e "      Database    $PHP_DB_IP   2CPU / 4096MB / 60GB"
+            fi
         else
-            echo -e "    Java:  IIS+ARR → spring-petclinic-rest → PostgreSQL"
-            echo -e "    .NET:  IIS+ARR → ASP.NET Core → SQL Server"
-            echo -e "    PHP:   IIS+ARR → Laravel → MySQL"
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
+            fi
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
+            fi
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
+            fi
         fi
-    else
-        echo -e "  VMs:"
-        echo -e "    Java  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
-        echo -e "    .NET  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
-        echo -e "    PHP   $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
         echo ""
-        echo -e "  Apps:"
-        echo -e "    Java:  $PETCLINIC_REPO"
-        if [[ "$DEPLOY_MODE" == "linux" ]]; then
-            echo -e "    .NET:  $DOTNET_REPO"
-        else
-            echo -e "    .NET:  IIS + ASP.NET Framework + SQL Server"
-        fi
-        echo -e "    PHP:   $PHP_REPO"
-    fi
+    done
 }
 
 # ---------------------------------------------------------------------------
 write_tfvars() {
-    step "Generating terraform/terraform.tfvars ..."
+    step "Generating terraform/terraform.tfvars for mode: $DEPLOY_MODE ..."
     local dns_arr
     dns_arr=$(echo "$VM_DNS" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | awk '{printf "\"%s\", ", $0}' | sed 's/, $//')
 
     cat > "$TF_DIR/terraform.tfvars" <<EOF
 # Auto-generated by setup-interactive.sh on $(date '+%Y-%m-%d %H:%M:%S')
+# wizard_choices: app=$APP_SELECTION os=$OS_CHOICE arch=$ARCH_CHOICE
 
 deploy_mode = "$DEPLOY_MODE"
+
+deploy_java   = $DEPLOY_JAVA
+deploy_dotnet = $DEPLOY_DOTNET
+deploy_php    = $DEPLOY_PHP
 
 vsphere_server               = "$VSPHERE_SERVER"
 vsphere_user                 = "$VSPHERE_USER"
@@ -516,59 +585,75 @@ EOF
 }
 
 write_inventory() {
-    step "Generating ansible/inventory/hosts.ini ..."
+    step "Generating ansible/inventory/hosts.ini for mode: $DEPLOY_MODE ..."
     mkdir -p "$ANSIBLE_DIR/inventory"
+    local inv_file="$ANSIBLE_DIR/inventory/hosts.ini"
 
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        # Build the auth portion of each inventory line
         if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
         else
             AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
         fi
 
-        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
-# Auto-generated by setup-interactive.sh
+        echo "# Auto-generated by setup-interactive.sh" > "$inv_file"
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+
 [java_servers]
 $JAVA_IP ansible_user=$SSH_USER $AUTH_LINE
+EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [dotnet_servers]
 $DOTNET_IP ansible_user=$SSH_USER $AUTH_LINE
+EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [php_servers]
 $PHP_IP ansible_user=$SSH_USER $AUTH_LINE
-
-[legacy_apps:children]
-java_servers
-dotnet_servers
-php_servers
 EOF
+        {
+            echo ""
+            echo "[legacy_apps:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_servers"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_servers"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_servers"
+        } >> "$inv_file"
+
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
-        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
-# Auto-generated by setup-interactive.sh
+        echo "# Auto-generated by setup-interactive.sh" > "$inv_file"
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+
 [win_java_servers]
 $JAVA_IP
+EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_dotnet_servers]
 $DOTNET_IP
+EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_php_servers]
 $PHP_IP
-
-[win_servers:children]
-win_java_servers
-win_dotnet_servers
-win_php_servers
-
-[win_servers:vars]
-ansible_connection=winrm
-ansible_winrm_transport=ntlm
-ansible_winrm_scheme=http
-ansible_user=Administrator
-ansible_password=$WIN_ADMIN_PASS
-ansible_port=5985
-ansible_become=false
 EOF
+        {
+            echo ""
+            echo "[win_servers:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_servers"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_servers"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_servers"
+            echo ""
+            echo "[win_servers:vars]"
+            echo "ansible_connection=winrm"
+            echo "ansible_winrm_transport=ntlm"
+            echo "ansible_winrm_scheme=http"
+            echo "ansible_user=Administrator"
+            echo "ansible_password=$WIN_ADMIN_PASS"
+            echo "ansible_port=5985"
+            echo "ansible_become=false"
+        } >> "$inv_file"
+
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
@@ -576,8 +661,9 @@ EOF
             AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
         fi
 
-        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
-# Auto-generated by setup-interactive.sh (linux-3tier)
+        echo "# Auto-generated by setup-interactive.sh (linux-3tier)" > "$inv_file"
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+
 [java_frontend]
 $JAVA_FE_IP ansible_user=$SSH_USER $AUTH_LINE
 
@@ -586,6 +672,8 @@ $JAVA_APP_IP ansible_user=$SSH_USER $AUTH_LINE
 
 [java_database]
 $JAVA_DB_IP ansible_user=$SSH_USER $AUTH_LINE
+EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [dotnet_frontend]
 $DOTNET_FE_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -595,6 +683,8 @@ $DOTNET_APP_IP ansible_user=$SSH_USER $AUTH_LINE
 
 [dotnet_database]
 $DOTNET_DB_IP ansible_user=$SSH_USER $AUTH_LINE
+EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [php_frontend]
 $PHP_FE_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -604,30 +694,34 @@ $PHP_APP_IP ansible_user=$SSH_USER $AUTH_LINE
 
 [php_database]
 $PHP_DB_IP ansible_user=$SSH_USER $AUTH_LINE
-
-[frontends:children]
-java_frontend
-dotnet_frontend
-php_frontend
-
-[appservers:children]
-java_appserver
-dotnet_appserver
-php_appserver
-
-[databases:children]
-java_database
-dotnet_database
-php_database
-
-[legacy_apps_3tier:children]
-frontends
-appservers
-databases
 EOF
+        {
+            echo ""
+            echo "[frontends:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_frontend"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_frontend"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_frontend"
+            echo ""
+            echo "[appservers:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_appserver"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_appserver"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_appserver"
+            echo ""
+            echo "[databases:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_database"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_database"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_database"
+            echo ""
+            echo "[legacy_apps_3tier:children]"
+            echo "frontends"
+            echo "appservers"
+            echo "databases"
+        } >> "$inv_file"
+
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
-        cat > "$ANSIBLE_DIR/inventory/hosts.ini" <<EOF
-# Auto-generated by setup-interactive.sh (windows-3tier)
+        echo "# Auto-generated by setup-interactive.sh (windows-3tier)" > "$inv_file"
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+
 [win_java_frontend]
 $JAVA_FE_IP
 
@@ -636,6 +730,8 @@ $JAVA_APP_IP
 
 [win_java_database]
 $JAVA_DB_IP
+EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_dotnet_frontend]
 $DOTNET_FE_IP
@@ -645,6 +741,8 @@ $DOTNET_APP_IP
 
 [win_dotnet_database]
 $DOTNET_DB_IP
+EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_php_frontend]
 $PHP_FE_IP
@@ -654,36 +752,38 @@ $PHP_APP_IP
 
 [win_php_database]
 $PHP_DB_IP
-
-[win_frontends:children]
-win_java_frontend
-win_dotnet_frontend
-win_php_frontend
-
-[win_appservers:children]
-win_java_appserver
-win_dotnet_appserver
-win_php_appserver
-
-[win_databases:children]
-win_java_database
-win_dotnet_database
-win_php_database
-
-[win_servers_3tier:children]
-win_frontends
-win_appservers
-win_databases
-
-[win_servers_3tier:vars]
-ansible_connection=winrm
-ansible_winrm_transport=ntlm
-ansible_winrm_scheme=http
-ansible_user=Administrator
-ansible_password=$WIN_ADMIN_PASS
-ansible_port=5985
-ansible_become=false
 EOF
+        {
+            echo ""
+            echo "[win_frontends:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_frontend"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_frontend"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_frontend"
+            echo ""
+            echo "[win_appservers:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_appserver"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_appserver"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_appserver"
+            echo ""
+            echo "[win_databases:children]"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_database"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_database"
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_database"
+            echo ""
+            echo "[win_servers_3tier:children]"
+            echo "win_frontends"
+            echo "win_appservers"
+            echo "win_databases"
+            echo ""
+            echo "[win_servers_3tier:vars]"
+            echo "ansible_connection=winrm"
+            echo "ansible_winrm_transport=ntlm"
+            echo "ansible_winrm_scheme=http"
+            echo "ansible_user=Administrator"
+            echo "ansible_password=$WIN_ADMIN_PASS"
+            echo "ansible_port=5985"
+            echo "ansible_become=false"
+        } >> "$inv_file"
     fi
 
     step "Created: ansible/inventory/hosts.ini"
@@ -691,7 +791,7 @@ EOF
 
 # ---------------------------------------------------------------------------
 run_terraform() {
-    header "Phase 1 — Provisioning VMs on vSphere (Terraform)"
+    header "Phase 1 — Provisioning VMs on vSphere (Terraform) [$DEPLOY_MODE]"
     pushd "$TF_DIR" > /dev/null
 
     step "terraform init ..."
@@ -713,7 +813,7 @@ run_terraform() {
 }
 
 run_ansible() {
-    header "Phase 2 — Deploying Applications (Ansible)"
+    header "Phase 2 — Deploying Applications (Ansible) [$DEPLOY_MODE]"
     pushd "$ANSIBLE_DIR" > /dev/null
 
     # Fix directory permissions so ansible.cfg is loaded
@@ -769,33 +869,45 @@ run_ansible() {
 }
 
 run_verify() {
-    header "Phase 3 — Verification"
+    header "Phase 3 — Verification ($DEPLOY_MODE)"
     echo ""
     local checks=()
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        checks=("Java PetClinic|$JAVA_IP|8080" ".NET MVC App|$DOTNET_IP|80" "PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Java PetClinic|$JAVA_IP|8080")
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(".NET MVC App|$DOTNET_IP|80")
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80")
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
-        checks=("Win Java PetClinic|$JAVA_IP|8080" "Win .NET IIS App|$DOTNET_IP|80" "Win PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080")
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET IIS App|$DOTNET_IP|80")
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80")
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
-        checks=(
+        [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
             "Java Frontend (Angular)|$JAVA_FE_IP|80"
             "Java App Server (REST)|$JAVA_APP_IP|9966"
             "Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
+        )
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(
             ".NET Frontend (Nginx)|$DOTNET_FE_IP|80"
             ".NET App Server (ASP.NET)|$DOTNET_APP_IP|5000"
             ".NET Database (SQL Server)|$DOTNET_DB_IP|1433"
+        )
+        [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "PHP Frontend (Nginx)|$PHP_FE_IP|80"
             "PHP App Server (Laravel)|$PHP_APP_IP|8000"
             "PHP Database (MySQL)|$PHP_DB_IP|3306"
         )
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
-        checks=(
+        [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
             "Win Java Frontend (IIS+ARR)|$JAVA_FE_IP|80"
             "Win Java App Server (NSSM)|$JAVA_APP_IP|9966"
             "Win Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
+        )
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(
             "Win .NET Frontend (IIS+ARR)|$DOTNET_FE_IP|80"
             "Win .NET App Server (IIS)|$DOTNET_APP_IP|80"
             "Win .NET Database (SQL Server)|$DOTNET_DB_IP|1433"
+        )
+        [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "Win PHP Frontend (IIS+ARR)|$PHP_FE_IP|80"
             "Win PHP App Server (IIS+PHP)|$PHP_APP_IP|80"
             "Win PHP Database (MySQL)|$PHP_DB_IP|3306"
@@ -810,20 +922,16 @@ run_verify() {
         fi
     done
 
-    header "Deployment Complete!"
+    header "Deployment Complete ($DEPLOY_MODE)!"
     echo -e "  Access your apps:"
-    if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
-        echo -e "    ${C}.NET MVC App:${NC}    http://$DOTNET_IP"
-        echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
-    elif [[ "$DEPLOY_MODE" == "windows" ]]; then
-        echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
-        echo -e "    ${C}.NET IIS App:${NC}    http://$DOTNET_IP"
-        echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+    if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "windows" ]]; then
+        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET App:${NC}        http://$DOTNET_IP"
+        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
     elif [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-        echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP"
-        echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP"
-        echo -e "    ${C}PHP Frontend:${NC}    http://$PHP_FE_IP"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP"
+        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Frontend:${NC}    http://$PHP_FE_IP"
     fi
     echo ""
     echo -e "  ${G}All VMs ready for Azure Migrate discovery.${NC}"
@@ -836,27 +944,37 @@ run_destroy() {
     header "Destroying VMs (Terraform Destroy)"
     pushd "$TF_DIR" > /dev/null
 
-    # Determine which workspace to destroy
-    local ws="${DEPLOY_MODE:-}"
-    if [[ -z "$ws" ]]; then
+    # Determine which workspaces to destroy
+    local modes=()
+    if [[ ${#DEPLOY_MODES[@]} -gt 0 ]]; then
+        modes=("${DEPLOY_MODES[@]}")
+    else
         load_previous
-        ws="${PREV_DEPLOY_MODE:-linux}"
+        if [[ "$PREV_OS_CHOICE" == "both" ]]; then
+            if [[ "$PREV_ARCH_CHOICE" == "3tier" ]]; then
+                modes=("linux-3tier" "windows-3tier")
+            else
+                modes=("linux" "windows")
+            fi
+        else
+            modes=("${PREV_DEPLOY_MODE:-linux}")
+        fi
     fi
 
     step "terraform init ..."
     terraform init -input=false
 
-    # Select the workspace; if it doesn't exist, nothing to destroy
-    if ! terraform workspace select "$ws" 2>/dev/null; then
-        warn "Workspace '$ws' not found. Nothing to destroy."
-        popd > /dev/null
-        return
-    fi
+    for ws in "${modes[@]}"; do
+        if ! terraform workspace select "$ws" 2>/dev/null; then
+            warn "Workspace '$ws' not found. Skipping."
+            continue
+        fi
 
-    step "terraform destroy (workspace: $ws) ..."
-    terraform destroy -auto-approve
+        step "terraform destroy (workspace: $ws) ..."
+        terraform destroy -auto-approve
+        step "VMs destroyed in workspace: $ws"
+    done
 
-    step "VMs destroyed successfully."
     popd > /dev/null
 }
 
@@ -902,73 +1020,89 @@ main() {
         check_prerequisites
         load_previous
 
-        # Ask which mode to resume
-        echo -e "  ${Y}Which deployment to resume?${NC}"
-        echo -e "    ${G}1)${NC} Linux"
-        echo -e "    ${G}2)${NC} Windows"
-        echo -e "    ${G}3)${NC} Linux 3-Tier"
-        echo -e "    ${G}4)${NC} Windows 3-Tier"
-        local default_r
-        case "$PREV_DEPLOY_MODE" in
-            windows) default_r="2" ;;
-            linux-3tier) default_r="3" ;;
-            windows-3tier) default_r="4" ;;
-            *) default_r="1" ;;
-        esac
-        read -rp "  Choice [1/2/3/4] (default: $default_r): " resume_mode
-        resume_mode="${resume_mode:-$default_r}"
-        case "$resume_mode" in
-            2) DEPLOY_MODE="windows" ;;
-            3) DEPLOY_MODE="linux-3tier" ;;
-            4) DEPLOY_MODE="windows-3tier" ;;
-            *) DEPLOY_MODE="linux" ;;
-        esac
+        # Restore app deployment flags
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
 
-        # Get actual VM IPs from the Terraform workspace state
-        pushd "$TF_DIR" > /dev/null
-        terraform init -input=false > /dev/null 2>&1
-        terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-            warn "Terraform workspace '$DEPLOY_MODE' not found. Run the full wizard first."
-            exit 1
-        }
-        if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-            JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-            JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-            JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-            DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-            DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-            DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-            PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-            PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-            PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-            step "Using 3-tier IPs from Terraform state"
-        else
-            JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
-            DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
-            PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
-            step "Using IPs from Terraform state: Java=$JAVA_IP, .NET=$DOTNET_IP, PHP=$PHP_IP"
+        # Derive DEPLOY_MODES from saved wizard choices
+        DEPLOY_MODES=()
+        local r_os="${PREV_OS_CHOICE:-linux}"
+        local r_arch="${PREV_ARCH_CHOICE:-single}"
+        if [[ "$r_os" == "linux" || "$r_os" == "both" ]]; then
+            [[ "$r_arch" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
         fi
-        popd > /dev/null
+        if [[ "$r_os" == "windows" || "$r_os" == "both" ]]; then
+            [[ "$r_arch" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
+        fi
+
+        echo -e "  ${C}Resuming: app=${PREV_APP_SELECTION:-all} os=$r_os arch=$r_arch${NC}"
+        echo -e "  ${C}Modes: ${DEPLOY_MODES[*]}${NC}"
+        echo ""
 
         VSPHERE_SERVER="${PREV_VSPHERE_SERVER:-}"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        if [[ "$DEPLOY_MODE" == "windows" || "$DEPLOY_MODE" == "windows-3tier" ]]; then
+        # Prompt for credentials once
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true
+            [[ "$m" == windows* ]] && need_windows=true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
-        else
-            # Linux mode needs SSH password for inventory
-            if [[ "$SSH_AUTH_METHOD" == "password" ]]; then
-                prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
-            fi
         fi
 
-        # Regenerate inventory with current fixes
-        write_inventory
+        # Resume each mode
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            echo ""
+            header "Resuming mode: $DEPLOY_MODE"
 
-        run_ansible_resume
-        run_verify
+            # Get IPs from Terraform state
+            pushd "$TF_DIR" > /dev/null
+            terraform init -input=false > /dev/null 2>&1
+            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                popd > /dev/null
+                continue
+            }
+            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_PHP" == "true" ]]; then
+                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                step "Using 3-tier IPs from Terraform state"
+            else
+                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
+                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
+                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
+                step "Using IPs from Terraform state"
+            fi
+            popd > /dev/null
+
+            # Regenerate inventory and run ansible
+            write_tfvars
+            write_inventory
+            run_ansible_resume
+            run_verify
+        done
         exit 0
     fi
 
@@ -983,36 +1117,104 @@ main() {
     check_prerequisites
     load_previous
 
-    # --- Deployment Mode Selection ---
-    header "Deployment Mode"
-    echo -e "  ${Y}Choose your deployment type:${NC}"
-    echo -e "    ${G}1)${NC} Linux apps  — 3 Ubuntu VMs: Java (PetClinic), .NET (ASP.NET Core), PHP (Laravel)"
-    echo -e "    ${G}2)${NC} Windows apps — 3 Windows VMs: Java (PetClinic), .NET (IIS + ASP.NET), PHP (IIS + Laravel)"
-    echo -e "    ${G}3)${NC} Linux 3-Tier — 9 Ubuntu VMs: 3 apps × (Frontend + App Server + Database)"
-    echo -e "    ${G}4)${NC} Windows 3-Tier — 9 Windows VMs: 3 apps × (Frontend + App Server + Database)"
-    local default_mode_num
-    case "$PREV_DEPLOY_MODE" in
-        windows) default_mode_num="2" ;;
-        linux-3tier) default_mode_num="3" ;;
-        windows-3tier) default_mode_num="4" ;;
-        *) default_mode_num="1" ;;
+    # --- Step 1: Application Selection ---
+    header "Application Selection"
+    echo -e "  ${Y}Which application(s) do you want to deploy?${NC}"
+    echo -e "    ${G}1)${NC} Java     — Spring PetClinic + PostgreSQL"
+    echo -e "    ${G}2)${NC} .NET     — ASP.NET + SQL Server"
+    echo -e "    ${G}3)${NC} PHP      — Laravel + MySQL"
+    echo -e "    ${G}4)${NC} All      — Java + .NET + PHP (all three)"
+    local default_app_num
+    case "$PREV_APP_SELECTION" in
+        java) default_app_num="1" ;;
+        dotnet) default_app_num="2" ;;
+        php) default_app_num="3" ;;
+        *) default_app_num="4" ;;
     esac
-    read -rp "  Choice [1/2/3/4] (default: $default_mode_num): " MODE_CHOICE
-    MODE_CHOICE="${MODE_CHOICE:-$default_mode_num}"
-    case "$MODE_CHOICE" in
-        2)
-            DEPLOY_MODE="windows"
-            step "Mode: Windows (3 Windows Server VMs — Java, .NET, PHP)" ;;
-        3)
-            DEPLOY_MODE="linux-3tier"
-            step "Mode: Linux 3-Tier (9 VMs — 3 apps × Frontend + App + DB)" ;;
-        4)
-            DEPLOY_MODE="windows-3tier"
-            step "Mode: Windows 3-Tier (9 VMs — 3 apps × Frontend + App + DB)" ;;
-        *)
-            DEPLOY_MODE="linux"
-            step "Mode: Linux (3 VMs — Java, .NET, PHP)" ;;
+    read -rp "  Choice [1/2/3/4] (default: $default_app_num): " APP_CHOICE
+    APP_CHOICE="${APP_CHOICE:-$default_app_num}"
+    case "$APP_CHOICE" in
+        1) APP_SELECTION="java";   DEPLOY_JAVA=true;  DEPLOY_DOTNET=false; DEPLOY_PHP=false
+           step "App: Java (PetClinic + PostgreSQL)" ;;
+        2) APP_SELECTION="dotnet"; DEPLOY_JAVA=false; DEPLOY_DOTNET=true;  DEPLOY_PHP=false
+           step "App: .NET (ASP.NET + SQL Server)" ;;
+        3) APP_SELECTION="php";    DEPLOY_JAVA=false; DEPLOY_DOTNET=false; DEPLOY_PHP=true
+           step "App: PHP (Laravel + MySQL)" ;;
+        *) APP_SELECTION="all";    DEPLOY_JAVA=true;  DEPLOY_DOTNET=true;  DEPLOY_PHP=true
+           step "App: All (Java + .NET + PHP)" ;;
     esac
+
+    # --- Step 2: Operating System ---
+    echo ""
+    echo -e "  ${Y}Which operating system?${NC}"
+    echo -e "    ${G}1)${NC} Linux    — Ubuntu 22.04 VMs"
+    echo -e "    ${G}2)${NC} Windows  — Windows Server 2019 VMs"
+    echo -e "    ${G}3)${NC} Both     — Deploy on Linux AND Windows"
+    local default_os_num
+    case "$PREV_OS_CHOICE" in
+        windows) default_os_num="2" ;;
+        both) default_os_num="3" ;;
+        *) default_os_num="1" ;;
+    esac
+    read -rp "  Choice [1/2/3] (default: $default_os_num): " OS_NUM
+    OS_NUM="${OS_NUM:-$default_os_num}"
+    case "$OS_NUM" in
+        2) OS_CHOICE="windows"; step "OS: Windows Server 2019" ;;
+        3) OS_CHOICE="both";    step "OS: Both (Linux + Windows)" ;;
+        *) OS_CHOICE="linux";   step "OS: Linux (Ubuntu 22.04)" ;;
+    esac
+
+    # --- Step 3: Architecture ---
+    echo ""
+    echo -e "  ${Y}Which architecture?${NC}"
+    echo -e "    ${G}1)${NC} Single-VM  — All-in-one: app + database on same VM"
+    echo -e "    ${G}2)${NC} 3-Tier     — Separate Frontend, App Server, and Database VMs"
+    local default_arch_num
+    case "$PREV_ARCH_CHOICE" in
+        3tier) default_arch_num="2" ;;
+        *) default_arch_num="1" ;;
+    esac
+    read -rp "  Choice [1/2] (default: $default_arch_num): " ARCH_NUM
+    ARCH_NUM="${ARCH_NUM:-$default_arch_num}"
+    case "$ARCH_NUM" in
+        2) ARCH_CHOICE="3tier";  step "Architecture: 3-Tier (Frontend + App + DB)" ;;
+        *) ARCH_CHOICE="single"; step "Architecture: Single-VM (all-in-one)" ;;
+    esac
+
+    # --- Derive deploy modes from selections ---
+    DEPLOY_MODES=()
+    if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
+        if [[ "$ARCH_CHOICE" == "3tier" ]]; then
+            DEPLOY_MODES+=("linux-3tier")
+        else
+            DEPLOY_MODES+=("linux")
+        fi
+    fi
+    if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
+        if [[ "$ARCH_CHOICE" == "3tier" ]]; then
+            DEPLOY_MODES+=("windows-3tier")
+        else
+            DEPLOY_MODES+=("windows")
+        fi
+    fi
+    # Set DEPLOY_MODE to the first mode for collection functions
+    DEPLOY_MODE="${DEPLOY_MODES[0]}"
+
+    local vm_count=0
+    local apps_count=0
+    [[ "$DEPLOY_JAVA" == "true" ]] && ((apps_count++))
+    [[ "$DEPLOY_DOTNET" == "true" ]] && ((apps_count++))
+    [[ "$DEPLOY_PHP" == "true" ]] && ((apps_count++))
+    if [[ "$ARCH_CHOICE" == "3tier" ]]; then
+        vm_count=$((apps_count * 3))
+    else
+        vm_count=$apps_count
+    fi
+    if [[ "$OS_CHOICE" == "both" ]]; then
+        vm_count=$((vm_count * 2))
+    fi
+    echo ""
+    step "Total VMs to deploy: $vm_count"
     echo ""
 
     collect_vcenter
@@ -1059,13 +1261,31 @@ main() {
     choice="${choice:-2}"
 
     case "$choice" in
-        1) run_terraform; run_ansible; run_verify ;;
+        1) for mode in "${DEPLOY_MODES[@]}"; do
+               DEPLOY_MODE="$mode"
+               write_tfvars; write_inventory
+               run_terraform; run_ansible; run_verify
+           done ;;
         2) step "Config files saved. Run manually when ready:"
-           echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $DEPLOY_MODE && terraform apply${NC}"
+           for mode in "${DEPLOY_MODES[@]}"; do
+               echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $mode && terraform apply${NC}"
+           done
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
-        3) run_terraform ;;
-        4) run_ansible; run_verify ;;
-        5) run_ansible_resume; run_verify ;;
+        3) for mode in "${DEPLOY_MODES[@]}"; do
+               DEPLOY_MODE="$mode"
+               write_tfvars; write_inventory
+               run_terraform
+           done ;;
+        4) for mode in "${DEPLOY_MODES[@]}"; do
+               DEPLOY_MODE="$mode"
+               write_tfvars; write_inventory
+               run_ansible; run_verify
+           done ;;
+        5) for mode in "${DEPLOY_MODES[@]}"; do
+               DEPLOY_MODE="$mode"
+               write_tfvars; write_inventory
+               run_ansible_resume; run_verify
+           done ;;
         6) run_destroy ;;
         *) err "Invalid choice"; exit 1 ;;
     esac

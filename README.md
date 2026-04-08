@@ -2,7 +2,7 @@
 
 Automated deployment of legacy applications (Java, .NET, PHP) on VMware VMs to simulate a real-world on-premises environment for **Azure Migrate discovery and assessment**.
 
-This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Server VMs** (Java, .NET, PHP), installs a full web + database stack on each, and configures them for Azure Migrate agentless discovery — all from a single interactive wizard.
+Choose which **apps** to deploy (Java, .NET, PHP, or all), which **OS** (Linux, Windows, or both), and which **architecture** (Single-VM or 3-Tier) — the interactive wizard handles the rest: provisioning VMs on vSphere via Terraform, deploying full web + database stacks via Ansible, and configuring everything for Azure Migrate agentless discovery.
 
 ---
 
@@ -10,6 +10,8 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 
 1. [What This Does](#what-this-does)
 2. [Architecture](#architecture)
+   - [Single-VM Mode](#single-vm-mode)
+   - [3-Tier Mode](#3-tier-mode)
 3. [Prerequisites](#prerequisites)
 4. [Where to Start — Step by Step](#where-to-start--step-by-step)
    - [Step 1: Clone This Repo](#step-1-clone-this-repo)
@@ -32,8 +34,9 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 
 | Phase | Tool | Action |
 |-------|------|--------|
-| **Provision** | Terraform | Clones Ubuntu 22.04 and Windows Server 2019 templates in vSphere into VMs with static IPs |
-| **Deploy** | Ansible | Installs Java/PetClinic + PostgreSQL, .NET/MVC + SQL Server, PHP/Laravel + MySQL on each VM (Linux via systemd, Windows via IIS/NSSM) |
+| **Select** | Wizard | Choose apps (Java/.NET/PHP/All), OS (Linux/Windows/Both), and architecture (Single-VM/3-Tier) |
+| **Provision** | Terraform | Clones VM templates in vSphere into VMs with static IPs |
+| **Deploy** | Ansible | Installs selected app stacks on each VM |
 | **Prepare** | Ansible | Enables SSH/WinRM, sysstat, firewall rules, and optional Azure Migrate Dependency Agent |
 | **Assess** | Azure Migrate | You point the Azure Migrate appliance at your vCenter and discover all VMs |
 
@@ -41,11 +44,15 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 
 ## Architecture
 
+### Single-VM Mode
+
+Each app runs on a single VM with the application and database co-located (typical legacy monolith pattern).
+
 ```
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              VMware vSphere                                  │
 │                                                                              │
-│  Linux Mode (deploy_mode = linux)                                            │
+│  Linux Single-VM (deploy_mode = linux)                                       │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │                      │
 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
@@ -55,8 +62,8 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 │  │  PostgreSQL 15│  │  SQL Server   │  │  MySQL 8.0   │                      │
 │  │               │  │  2022 Express │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
-│                                       ── OR ──                               │
-│  Windows Mode (deploy_mode = windows)                                        │
+│                                                                              │
+│  Windows Single-VM (deploy_mode = windows)                                   │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │ VM: win-java  │  │ VM: win-dotnet│  │ VM: win-php  │                      │
 │  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
@@ -67,10 +74,50 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 │  │               │  │ 2019 Express  │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
 │                                                                              │
-│                    Choose ONE mode — 3 VMs per mode                          │
+│         Per-app selection: deploy 1, 2, or all 3 apps                        │
+│         "Both" OS: deploys Linux AND Windows VMs simultaneously              │
+└──────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 3-Tier Mode
+
+Each app is split across 3 VMs: Frontend (web server / reverse proxy), App Server, and Database — simulating enterprise multi-tier architectures for Azure Migrate to discover inter-VM dependencies.
+
+```
+┌──────────────────────────────────────────────────────────────────────────────┐
+│                              VMware vSphere                                  │
+│                                                                              │
+│  Linux 3-Tier (deploy_mode = linux-3tier)      per app: 3 VMs               │
+│                                                                              │
+│  Java Stack:                                                                 │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                       │
+│  │  Frontend    │──▶│  App Server  │──▶│  Database    │                      │
+│  │  Angular+Nginx│  │  REST API   │   │  PostgreSQL  │                      │
+│  │  :80         │   │  :9966      │   │  :5432       │                      │
+│  └─────────────┘   └─────────────┘   └─────────────┘                       │
+│                                                                              │
+│  .NET Stack:                                                                 │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                       │
+│  │  Frontend    │──▶│  App Server  │──▶│  Database    │                      │
+│  │  Nginx proxy │   │  ASP.NET    │   │  SQL Server  │                      │
+│  │  :80         │   │  :5000      │   │  :1433       │                      │
+│  └─────────────┘   └─────────────┘   └─────────────┘                       │
+│                                                                              │
+│  PHP Stack:                                                                  │
+│  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                       │
+│  │  Frontend    │──▶│  App Server  │──▶│  Database    │                      │
+│  │  Nginx proxy │   │  Laravel    │   │  MySQL       │                      │
+│  │  :80         │   │  :8000      │   │  :3306       │                      │
+│  └─────────────┘   └─────────────┘   └─────────────┘                       │
+│                                                                              │
+│  Windows 3-Tier (deploy_mode = windows-3tier)  per app: 3 VMs               │
+│  Same layout with IIS+ARR frontends, IIS/NSSM app servers, Windows DBs      │
+│                                                                              │
+│  Per-app selection: deploy 1, 2, or all 3 stacks (3 to 9 VMs per OS)        │
+│  "Both" OS: deploys Linux AND Windows 3-tier simultaneously (up to 18 VMs)  │
 └──────────────────────────────────────────────────────────────────────────────┘
          │
-         ▼  Azure Migrate Appliance discovers these VMs
+         ▼  Azure Migrate Appliance discovers all VMs and inter-VM dependencies
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │  Migration Targets:                                                          │
 │  Azure IaaS (VMs)           │  Azure PaaS                                    │
@@ -79,6 +126,15 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 │  • NSGs, VNets              │  • Azure Container Apps                        │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
+
+### VM Count Summary
+
+| App Selection | Architecture | Linux | Windows | Both |
+|--------------|-------------|-------|---------|------|
+| Single app | Single-VM | 1 VM | 1 VM | 2 VMs |
+| Single app | 3-Tier | 3 VMs | 3 VMs | 6 VMs |
+| All apps | Single-VM | 3 VMs | 3 VMs | 6 VMs |
+| All apps | 3-Tier | 9 VMs | 9 VMs | 18 VMs |
 
 ---
 
@@ -107,7 +163,7 @@ This repo provisions either **3 Linux VMs** (Java, .NET, PHP) **or 3 Windows Ser
 | **vSphere credentials** | A user with permission to create VMs (e.g., `administrator@vsphere.local`) |
 | **Ubuntu 22.04 VM template** | A template in your vCenter inventory (see [Step 3](#step-3-prepare-a-vm-template-in-vsphere)) |
 | **Windows Server 2019/2022 template** | Required for Windows mode — a template with WinRM enabled (see [Step 3b](#step-3b-prepare-a-windows-template-optional)) |
-| **Network** | A port group with DHCP or a static IP range you can assign to 3 VMs |
+| **Network** | A port group with DHCP or a static IP range you can assign to VMs (1-18 depending on selections) |
 | **SSH access** | Either password auth enabled in template, or SSH key pair (public key in template, private key on your machine) |
 
 ### Information You'll Need to Gather
@@ -124,7 +180,7 @@ Network/Port Group name       → the network VMs will connect to
 Linux VM Template name        → the Ubuntu 22.04 template you created
 Windows VM Template name      → (Windows mode) your Windows Server 2019/2022 template
 Gateway IP                    → your lab network gateway
-3 available static IPs        → one per VM (e.g., 192.168.1.101-103)
+Available static IPs          → 1-18 IPs depending on app/OS/architecture selections
 ```
 
 > **Tip:** Open your vSphere Web Client and note down these names — they must match exactly.
@@ -365,7 +421,7 @@ If you want to deploy Windows legacy apps, you need a Windows Server template wi
 
 ### Step 4: Run the Interactive Setup Wizard
 
-The wizard asks you every question, validates inputs, generates all config files, and runs the full deployment.
+The wizard walks through a **3-step selection** followed by infrastructure and app configuration. It validates inputs, generates all config files, and optionally runs the full deployment.
 
 **On PowerShell (Windows):**
 ```powershell
@@ -377,16 +433,35 @@ The wizard asks you every question, validates inputs, generates all config files
 bash scripts/setup-interactive.sh
 ```
 
-The wizard walks through 6 sections:
+#### The 3-Step Selection Flow
+
+```
+Step 1: Choose Application(s)
+  1) Java     — Spring PetClinic + PostgreSQL
+  2) .NET     — ASP.NET + SQL Server
+  3) PHP      — Laravel + MySQL
+  4) All      — Java + .NET + PHP (all three)
+
+Step 2: Choose Operating System
+  1) Linux    — Ubuntu 22.04 VMs
+  2) Windows  — Windows Server 2019 VMs
+  3) Both     — Deploy on Linux AND Windows
+
+Step 3: Choose Architecture
+  1) Single-VM  — All-in-one: app + database on same VM
+  2) 3-Tier     — Separate Frontend, App Server, and Database VMs
+```
+
+After the 3-step selection, the wizard collects:
 
 | Section | What It Asks | Example |
 |---------|-------------|---------|
-| 1. vCenter Connection | Server, username, password | `vcenter.lab.local` |
-| 2. vSphere Infrastructure | Datacenter, cluster, datastore, template name | `Datacenter1`, `ubuntu-2204-template` |
-| 3. Network Settings | Gateway, DNS, SSH user, key path | `192.168.1.1`, `ubuntu` |
-| 4. VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM (3 Linux or 3 Windows) | `192.168.1.101`, 2 CPU, 4096 MB |
-| 5. App & DB Config | Git repos, versions, database passwords | JDK 17, PostgreSQL password |
-| 6. Azure Migrate | Install dependency agent? | Yes/No |
+| vCenter Connection | Server, username, password | `vcenter.lab.local` |
+| vSphere Infrastructure | Datacenter, cluster, datastore, template name(s) | `Datacenter1`, `ubuntu-2204-template` |
+| Network Settings | Gateway, DNS, SSH user, key path, Windows password | `192.168.1.1`, `ubuntu` |
+| VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM (only for selected apps) | `192.168.1.101`, 2 CPU, 4096 MB |
+| App & DB Config | Git repos, versions, database passwords (only for selected apps) | JDK 17, PostgreSQL password |
+| Azure Migrate | Install dependency agent? | Yes/No |
 
 After confirming the summary, choose a run mode:
 
@@ -395,16 +470,19 @@ After confirming the summary, choose a run mode:
 [2] Stop here — review config files before running  ← default
 [3] Terraform only                                  ← just provision VMs
 [4] Ansible only                                    ← VMs already exist, just deploy apps
-[5] Destroy all VMs                                 ← clean up a failed or previous run
+[5] Resume Ansible                                  ← retry failed hosts on re-run
+[6] Destroy all VMs                                 ← clean up a previous run
 ```
 
-> **Re-running the wizard:** On subsequent runs, all prompts pre-fill with your previously saved values. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
+> **Re-running the wizard:** All prompts pre-fill with previously saved values — including app, OS, and architecture selections. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
 
-**Option 1** runs everything end-to-end. Expect **~20-35 minutes** total:
-- ~5 min for Terraform to create 3 VMs
-- ~1 min waiting for VMs to boot
-- ~15-25 min for Ansible to install all apps and databases
-- ~5-10 min extra for Windows mode (SQL Server + Chocolatey downloads)
+> **"Both" OS mode:** The pipeline runs Terraform + Ansible once for each OS. For example, choosing "All apps + Both + 3-Tier" provisions 9 Linux VMs then 9 Windows VMs (18 total).
+
+**Option 1** runs everything end-to-end. Expect:
+- **Single-VM, one app:** ~10-15 minutes
+- **Single-VM, all apps:** ~20-35 minutes
+- **3-Tier, all apps:** ~30-50 minutes
+- **Both OS:** Double the above (runs sequentially per OS)
 
 ### Step 5: Verify Deployment
 
@@ -461,7 +539,7 @@ bash scripts/deploy-all.sh all
 
 ## What Gets Deployed
 
-### Linux Mode (deploy_mode = linux)
+### Linux Single-VM (deploy_mode = linux)
 
 | VM | Hostname | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
@@ -469,7 +547,7 @@ bash scripts/deploy-all.sh all
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 6) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
-### Windows Mode (deploy_mode = windows)
+### Windows Single-VM (deploy_mode = windows)
 
 | VM | Hostname | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
@@ -477,9 +555,35 @@ bash scripts/deploy-all.sh all
 | **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
 | **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
+### Linux 3-Tier (deploy_mode = linux-3tier)
+
+Each app is split across 3 VMs — 9 VMs total for all apps:
+
+| Stack | Frontend VM | App Server VM | Database VM |
+|-------|------------|---------------|-------------|
+| **Java** | Angular + Nginx (:80) | REST API Spring Boot (:9966) | PostgreSQL 15 (:5432) |
+| **.NET** | Nginx reverse proxy (:80) | ASP.NET Kestrel (:5000) | SQL Server Express (:1433) |
+| **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
+
+### Windows 3-Tier (deploy_mode = windows-3tier)
+
+| Stack | Frontend VM | App Server VM | Database VM |
+|-------|------------|---------------|-------------|
+| **Java** | IIS + ARR reverse proxy (:80) | NSSM service (:9966) | PostgreSQL 15 (:5432) |
+| **.NET** | IIS + ARR reverse proxy (:80) | IIS ASP.NET (:80) | SQL Server Express (:1433) |
+| **PHP** | IIS + ARR reverse proxy (:80) | IIS + PHP FastCGI (:80) | MySQL (:3306) |
+
+### Per-App Selection
+
+You don't have to deploy all 3 apps. The wizard lets you choose:
+- **Java only** — deploys only Java/PetClinic VMs (`deploy_java = true`)
+- **.NET only** — deploys only .NET VMs (`deploy_dotnet = true`)
+- **PHP only** — deploys only PHP/Laravel VMs (`deploy_php = true`)
+- **All** — deploys all three (default)
+
 Each app:
 - Runs as a **systemd service** (Linux) or **Windows service / IIS site** (Windows) — auto-starts on boot
-- Has its database installed **locally on the same VM** (simulates typical legacy architecture)
+- Has its database either **co-located** (Single-VM) or on a **separate database VM** (3-Tier)
 - Has **firewall rules** configured for its ports
 - Has **sysstat** enabled for performance data collection (Linux VMs)
 - Has **RDP** and **WinRM** enabled for Azure Migrate discovery (Windows VMs)
@@ -497,28 +601,49 @@ legacy-app-vmware-setup/
 │   └── deploy-all.sh                  # Non-interactive orchestration script
 │
 ├── terraform/                         # VM provisioning on vSphere
-│   ├── main.tf                        # Linux + Windows VM resources + clone from template
-│   ├── variables.tf                   # All configurable parameters (incl. Windows VM)
+│   ├── main.tf                        # VM resources — per-app filtering with deploy_java/dotnet/php
+│   ├── variables.tf                   # All configurable parameters (incl. per-app booleans)
 │   ├── outputs.tf                     # VM IPs output after apply
 │   ├── terraform.tfvars.example       # Template — fill with your values
 │   └── templates/
-│       └── hosts.ini.tftpl            # Auto-generates Ansible inventory (SSH + WinRM)
+│       └── hosts.ini.tftpl            # Auto-generates Ansible inventory (all 4 modes)
 │
 ├── ansible/                           # App deployment over SSH (Linux) / WinRM (Windows)
-│   ├── site.yml                       # Master playbook (runs everything)
+│   ├── site.yml                       # Master playbook — single-VM modes
 │   ├── requirements.yml               # Ansible Galaxy dependencies
 │   ├── inventory/
 │   │   └── hosts.ini                  # VM IPs (auto-generated or manual)
 │   ├── group_vars/
 │   │   └── all.yml.example            # App config + DB passwords template
 │   └── playbooks/
-│       ├── java-petclinic.yml         # Java 17 + Spring PetClinic + PostgreSQL 15
-│       ├── dotnet-app.yml             # .NET 6 + ASP.NET MVC + SQL Server 2022
-│       ├── php-app.yml                # PHP 8.1 + Laravel + MySQL 8.0 + Apache2
+│       ├── java-petclinic.yml         # Linux: Java 17 + Spring PetClinic + PostgreSQL
+│       ├── dotnet-app.yml             # Linux: .NET 6 + ASP.NET MVC + SQL Server
+│       ├── php-app.yml                # Linux: PHP 8.1 + Laravel + MySQL + Apache2
 │       ├── win-java-petclinic.yml     # Windows: Java PetClinic + PostgreSQL
-│       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server 2019
+│       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server
 │       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
-│       └── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
+│       ├── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
+│       └── 3tier/                     # 3-Tier architecture playbooks
+│           ├── site-3tier.yml         # Master playbook — Linux 3-tier
+│           ├── site-3tier-win.yml     # Master playbook — Windows 3-tier
+│           ├── java-frontend.yml      # Linux: Angular + Nginx frontend
+│           ├── java-appserver.yml     # Linux: REST API Spring Boot
+│           ├── java-database.yml      # Linux: PostgreSQL server
+│           ├── dotnet-frontend.yml    # Linux: Nginx reverse proxy
+│           ├── dotnet-appserver.yml   # Linux: ASP.NET Kestrel
+│           ├── dotnet-database.yml    # Linux: SQL Server
+│           ├── php-frontend.yml       # Linux: Nginx reverse proxy
+│           ├── php-appserver.yml      # Linux: Laravel artisan
+│           ├── php-database.yml       # Linux: MySQL server
+│           ├── win-java-frontend.yml  # Windows: IIS + ARR
+│           ├── win-java-appserver.yml # Windows: NSSM Java service
+│           ├── win-java-database.yml  # Windows: PostgreSQL
+│           ├── win-dotnet-frontend.yml # Windows: IIS + ARR
+│           ├── win-dotnet-appserver.yml # Windows: IIS ASP.NET
+│           ├── win-dotnet-database.yml # Windows: SQL Server
+│           ├── win-php-frontend.yml   # Windows: IIS + ARR
+│           ├── win-php-appserver.yml   # Windows: IIS + PHP
+│           └── win-php-database.yml   # Windows: MySQL
 │
 ├── .gitignore                         # Excludes secrets (tfvars, all.yml, keys)
 └── README.md                          # This file
@@ -544,7 +669,10 @@ legacy-app-vmware-setup/
 | `java_vm_ip` | Static IP for Java VM (both modes) | `192.168.1.101` |
 | `dotnet_vm_ip` | Static IP for .NET VM (both modes) | `192.168.1.102` |
 | `php_vm_ip` | Static IP for PHP VM (both modes) | `192.168.1.103` |
-| `deploy_mode` | Deployment mode: `linux` or `windows` | `linux` |
+| `deploy_mode` | Deployment mode | `linux`, `windows`, `linux-3tier`, or `windows-3tier` |
+| `deploy_java` | Deploy Java app VMs | `true` |
+| `deploy_dotnet` | Deploy .NET app VMs | `true` |
+| `deploy_php` | Deploy PHP app VMs | `true` |
 | `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
 | `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
 
@@ -588,7 +716,7 @@ Azure Portal → Azure Migrate → Create project
 
 ### What Azure Migrate Will Find
 
-**Linux Mode:**
+**Single-VM Mode (Linux):**
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
@@ -596,13 +724,23 @@ Azure Portal → Azure Migrate → Create project
 | legacy-dotnet-vm | .NET 6, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
 | legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
 
-**Windows Mode:**
+**Single-VM Mode (Windows):**
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
 | legacy-win-java-vm | Java 17, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-win-dotnet-vm | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
 | legacy-win-php-vm | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
+
+**3-Tier Mode — Inter-VM Dependencies (the key value-add):**
+
+| Frontend VM | Depends On | App Server VM | Depends On | Database VM |
+|------------|-----------|---------------|-----------|-------------|
+| java-fe (Nginx :80) | → | java-app (:9966) | → | java-db (PostgreSQL :5432) |
+| dotnet-fe (Nginx :80) | → | dotnet-app (:5000) | → | dotnet-db (SQL Server :1433) |
+| php-fe (Nginx :80) | → | php-app (:8000) | → | php-db (MySQL :3306) |
+
+Azure Migrate will discover these cross-VM network connections and map them as **application dependencies** — critical for planning which VMs must migrate together.
 
 ---
 
@@ -669,7 +807,8 @@ petclinic.service: Main process exited, code=exited, status=1/FAILURE
 If Ansible fails (e.g., SSH connection timeout, missing sshpass), you can resume without re-running Terraform:
 
 ```bash
-# Resume — retries only the failed hosts
+# Resume — automatically detects previous app/OS/architecture selections
+# For "both" OS mode, resumes each OS sequentially
 bash scripts/setup-interactive.sh --resume
 ```
 
@@ -710,6 +849,7 @@ UNREACHABLE! => {"msg": "winrm connection error"}
 ### Quick destroy via wizard
 ```bash
 # Fastest way — skips the wizard, goes straight to destroy
+# Automatically destroys all workspaces from your last deployment (including "both" OS mode)
 bash scripts/setup-interactive.sh --destroy
 ```
 
@@ -719,9 +859,11 @@ Or re-run the wizard and pick **option 6** at the end.
 ```bash
 cd terraform
 terraform init
-terraform workspace select linux    # or: windows
+terraform workspace select linux    # or: windows, linux-3tier, windows-3tier
 terraform destroy    # type "yes" to confirm — only destroys VMs in this workspace
 ```
+
+> **"Both" OS cleanup:** If you deployed with "Both" OS, you need to destroy each workspace separately (e.g., `linux` and `windows`), or use `--destroy` which handles this automatically.
 
 ### Remove all generated files
 ```bash
