@@ -1059,6 +1059,31 @@ run_ansible() {
         install_galaxy_if_missing ansible.windows community.general
     fi
 
+    # Build --limit to only target the stacks the user selected (not merged ones)
+    local limit_groups=""
+    if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_frontend:java_appserver:java_database"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_frontend:dotnet_appserver:dotnet_database"
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_frontend:php_appserver:php_database"
+    elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_frontend:win_java_appserver:win_java_database"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_frontend:win_dotnet_appserver:win_dotnet_database"
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_frontend:win_php_appserver:win_php_database"
+    elif [[ "$DEPLOY_MODE" == "linux" ]]; then
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_servers"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_servers"
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_servers"
+    elif [[ "$DEPLOY_MODE" == "windows" ]]; then
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_servers"
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers"
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_servers"
+    fi
+    local limit_arg=""
+    if [[ -n "$limit_groups" ]]; then
+        limit_arg="--limit $limit_groups"
+        step "Ansible will only target selected stacks: $limit_groups"
+    fi
+
     local max_retries=3
     local attempt=1
     local retry_file=""
@@ -1066,7 +1091,7 @@ run_ansible() {
     while [[ $attempt -le $max_retries ]]; do
         if [[ $attempt -eq 1 && -z "$retry_file" ]]; then
             step "Running master playbook (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini site.yml -v && break
+            ansible-playbook -i inventory/hosts.ini site.yml -v $limit_arg && break
         else
             step "Retrying failed tasks (attempt $attempt/$max_retries)..."
             ansible-playbook -i inventory/hosts.ini site.yml -v --limit @site.retry && break
