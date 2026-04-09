@@ -71,6 +71,7 @@
           spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
+          spring.sql.init.continue-on-error=true
         owner: "{{ ansible_user }}"
 
     - name: Build PetClinic REST API with Maven (skip tests)
