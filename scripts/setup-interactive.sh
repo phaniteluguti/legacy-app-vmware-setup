@@ -948,6 +948,30 @@ run_terraform() {
     step "Selecting workspace: $DEPLOY_MODE ..."
     terraform workspace select -or-create "$DEPLOY_MODE"
 
+    # Merge deploy flags with existing state — never destroy apps from prior runs
+    local existing_resources
+    existing_resources=$(terraform state list 2>/dev/null || echo "")
+    if [[ -n "$existing_resources" ]]; then
+        step "Existing VMs detected in workspace — merging deploy flags to preserve them"
+        local tf_java="$DEPLOY_JAVA" tf_dotnet="$DEPLOY_DOTNET" tf_php="$DEPLOY_PHP"
+        if echo "$existing_resources" | grep -q "java"; then
+            tf_java="true"
+        fi
+        if echo "$existing_resources" | grep -q "dotnet"; then
+            tf_dotnet="true"
+        fi
+        if echo "$existing_resources" | grep -q "php"; then
+            tf_php="true"
+        fi
+        if [[ "$tf_java" != "$DEPLOY_JAVA" || "$tf_dotnet" != "$DEPLOY_DOTNET" || "$tf_php" != "$DEPLOY_PHP" ]]; then
+            step "Adjusted: deploy_java=$tf_java deploy_dotnet=$tf_dotnet deploy_php=$tf_php"
+            # Rewrite tfvars with merged flags
+            sed -i "s/^deploy_java   = .*/deploy_java   = $tf_java/" terraform.tfvars
+            sed -i "s/^deploy_dotnet = .*/deploy_dotnet = $tf_dotnet/" terraform.tfvars
+            sed -i "s/^deploy_php    = .*/deploy_php    = $tf_php/" terraform.tfvars
+        fi
+    fi
+
     step "terraform plan ..."
     terraform plan -out=tfplan
 
