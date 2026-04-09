@@ -327,13 +327,23 @@ collect_vms() {
         echo -e "  ${Y}--- 3-Tier Architecture ---${NC}"
         echo ""
         echo -e "  ${Y}How would you like to configure VM hardware?${NC}"
-        echo -e "    ${G}1)${NC} Same config for all VMs     — one set of CPU/RAM/Disk per tier"
-        echo -e "    ${G}2)${NC} Use recommended defaults    — Frontend: 1CPU/2GB/20GB, App: 2CPU/4GB/40GB, DB: 2CPU/4GB/60GB"
-        local default_hw_choice="2"
-        read -rp "  Choice [1/2] (default: $default_hw_choice): " HW_CHOICE
+        echo -e "    ${G}1)${NC} Same config for all VMs     — one set of CPU/RAM/Disk applied to every VM"
+        echo -e "    ${G}2)${NC} Custom config per tier       — separate CPU/RAM/Disk for Frontend, App, Database"
+        echo -e "    ${G}3)${NC} Use recommended defaults    — Frontend: 1CPU/2GB/20GB, App: 2CPU/4GB/40GB, DB: 2CPU/4GB/60GB"
+        local default_hw_choice="3"
+        read -rp "  Choice [1/2/3] (default: $default_hw_choice): " HW_CHOICE
         HW_CHOICE="${HW_CHOICE:-$default_hw_choice}"
 
         if [[ "$HW_CHOICE" == "1" ]]; then
+            echo ""
+            echo -e "  ${Y}--- All VMs (Frontend + App Server + Database) ---${NC}"
+            prompt "  CPUs" "${PREV_APP_CPU:-2}"; local ALL_CPU="$REPLY"
+            prompt "  Memory MB" "${PREV_APP_MEM:-4096}"; local ALL_MEM="$REPLY"
+            prompt "  Disk GB" "${PREV_APP_DISK:-40}"; local ALL_DISK="$REPLY"
+            FE_CPU="$ALL_CPU"; FE_MEM="$ALL_MEM"; FE_DISK="$ALL_DISK"
+            APP_CPU="$ALL_CPU"; APP_MEM="$ALL_MEM"; APP_DISK="$ALL_DISK"
+            DB_CPU="$ALL_CPU"; DB_MEM="$ALL_MEM"; DB_DISK="$ALL_DISK"
+        elif [[ "$HW_CHOICE" == "2" ]]; then
             echo ""
             echo -e "  ${Y}--- Frontend VMs (Nginx / IIS+ARR) ---${NC}"
             prompt "  Frontend CPUs" "${PREV_FE_CPU:-1}"; FE_CPU="$REPLY"
