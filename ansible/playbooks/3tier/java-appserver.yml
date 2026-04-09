@@ -108,7 +108,7 @@
           Type=simple
           User={{ ansible_user }}
           WorkingDirectory=/opt/petclinic-rest
-          ExecStart=/usr/bin/java -jar /opt/petclinic-rest/petclinic-rest.jar --spring.profiles.active=postgresql --server.port={{ petclinic_rest_port }}
+          ExecStart=/usr/bin/java -jar /opt/petclinic-rest/petclinic-rest.jar --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}
           Restart=on-failure
           RestartSec=10
           StandardOutput=journal
