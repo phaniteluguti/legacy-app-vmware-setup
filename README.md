@@ -547,7 +547,7 @@ bash scripts/deploy-all.sh all
 
 ### Linux Single-VM (deploy_mode = linux)
 
-| VM | Hostname | OS | Application | Web Server | Database | Access URL |
+| VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
 | **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
@@ -555,7 +555,7 @@ bash scripts/deploy-all.sh all
 
 ### Windows Single-VM (deploy_mode = windows)
 
-| VM | Hostname | OS | Application | Web Server | Database | Access URL |
+| VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
 | **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | NSSM service | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
@@ -673,14 +673,26 @@ legacy-app-vmware-setup/
 | `vm_template_name` | Ubuntu template name in vCenter | `ubuntu-2204-template` |
 | `vm_gateway` | Network gateway | `192.168.1.1` |
 | `java_vm_ip` | Static IP for Java VM (both modes) | `192.168.1.101` |
+| `java_vm_hostname` | Hostname for the Java VM | `legacy-java-vm` |
 | `dotnet_vm_ip` | Static IP for .NET VM (both modes) | `192.168.1.102` |
+| `dotnet_vm_hostname` | Hostname for the .NET VM | `legacy-dotnet-vm` |
 | `php_vm_ip` | Static IP for PHP VM (both modes) | `192.168.1.103` |
+| `php_vm_hostname` | Hostname for the PHP VM | `legacy-php-vm` |
 | `deploy_mode` | Deployment mode | `linux`, `windows`, `linux-3tier`, or `windows-3tier` |
 | `deploy_java` | Deploy Java app VMs | `true` |
 | `deploy_dotnet` | Deploy .NET app VMs | `true` |
 | `deploy_php` | Deploy PHP app VMs | `true` |
 | `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
 | `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
+| `java_fe_hostname` | Hostname for Java frontend VM (3-tier) | `3t-java-fe` |
+| `java_app_hostname` | Hostname for Java app server VM (3-tier) | `3t-java-app` |
+| `java_db_hostname` | Hostname for Java database VM (3-tier) | `3t-java-db` |
+| `dotnet_fe_hostname` | Hostname for .NET frontend VM (3-tier) | `3t-dotnet-fe` |
+| `dotnet_app_hostname` | Hostname for .NET app server VM (3-tier) | `3t-dotnet-app` |
+| `dotnet_db_hostname` | Hostname for .NET database VM (3-tier) | `3t-dotnet-db` |
+| `php_fe_hostname` | Hostname for PHP frontend VM (3-tier) | `3t-php-fe` |
+| `php_app_hostname` | Hostname for PHP app server VM (3-tier) | `3t-php-app` |
+| `php_db_hostname` | Hostname for PHP database VM (3-tier) | `3t-php-db` |
 
 ### ansible/group_vars/all.yml
 
@@ -752,9 +764,9 @@ Azure Migrate will discover these cross-VM network connections and map them as *
 
 | Stack | Application | Source | Notes |
 |-------|-------------|--------|-------|
-| **Java** | Spring PetClinic (Angular frontend + REST API) | `github.com/spring-petclinic` | Frontend: Angular SPA via Nginx; API: Spring Boot :9966 |
-| **.NET** | eShopOnWeb (ASP.NET Core 8.0) | `github.com/dotnet-architecture/eShopOnWeb` (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
-| **PHP** | Laravel sample app | `github.com/laravel/laravel` | PHP-FPM behind Nginx; MySQL remote DB |
+| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: Spring Boot :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
+| **.NET** | eShopOnWeb (ASP.NET Core 8.0) | [`eShopOnWeb`](https://github.com/dotnet-architecture/eShopOnWeb) (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
+| **PHP** | Laravel sample app | [`laravel`](https://github.com/laravel/laravel) | PHP-FPM behind Nginx; MySQL remote DB |
 
 ---
 
@@ -810,6 +822,28 @@ petclinic.service: Main process exited, code=exited, status=1/FAILURE
 - Check logs: `journalctl -u petclinic -f`
 - Common cause: PostgreSQL not running — `systemctl status postgresql`
 - Common cause: Port 8080 in use — `ss -tlnp | grep 8080`
+
+### Java 3-tier: REST API won't start (PetRepository bean not found)
+```
+No qualifying bean of type 'PetRepository'
+```
+- Spring PetClinic REST requires **both** `postgresql` AND `spring-data-jpa` profiles
+- Verify the systemd unit has: `--spring.profiles.active=postgresql,spring-data-jpa`
+
+### Java 3-tier: "relation already exists" on re-deploy
+```
+org.postgresql.util.PSQLException: ERROR: relation "idx_vets_last_name" already exists
+```
+- Spring's SQL init scripts don't use `IF NOT EXISTS` for indexes
+- The playbook sets `spring.sql.init.continue-on-error=true` to handle this — safe to ignore
+
+### Java 3-tier: PostgreSQL password authentication failed
+```
+FATAL: password authentication failed for user "petclinic"
+```
+- If the database VM was previously deployed with a different password, the user already exists with the old password
+- The playbook runs `ALTER USER` to sync the password on every run — re-run the database playbook
+- For PostgreSQL 15+, the `public` schema requires explicit `GRANT ALL ON SCHEMA public` for non-superusers
 
 ### Re-running safely
 - **Terraform:** `terraform apply` is idempotent — safe to re-run

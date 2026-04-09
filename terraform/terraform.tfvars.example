@@ -32,19 +32,22 @@ vm_ssh_private_key_path = "~/.ssh/id_rsa"      # used when auth_method = "key"
 # Per-VM Settings
 # =============================================================================
 # Java VM — Spring PetClinic + PostgreSQL
-java_vm_ip     = "192.168.1.101"
-java_vm_cpus   = 2
-java_vm_memory = 4096
-java_vm_disk   = 40
+java_vm_ip       = "192.168.1.101"
+java_vm_hostname = "legacy-java-vm"
+java_vm_cpus     = 2
+java_vm_memory   = 4096
+java_vm_disk     = 40
 
 # .NET VM — ASP.NET Core + SQL Server
-dotnet_vm_ip     = "192.168.1.102"
-dotnet_vm_cpus   = 2
-dotnet_vm_memory = 4096
-dotnet_vm_disk   = 40
+dotnet_vm_ip       = "192.168.1.102"
+dotnet_vm_hostname = "legacy-dotnet-vm"
+dotnet_vm_cpus     = 2
+dotnet_vm_memory   = 4096
+dotnet_vm_disk     = 40
 
 # PHP VM — Laravel + MySQL
-php_vm_ip     = "192.168.1.103"
-php_vm_cpus   = 2
-php_vm_memory = 2048
-php_vm_disk   = 30
+php_vm_ip       = "192.168.1.103"
+php_vm_hostname = "legacy-php-vm"
+php_vm_cpus     = 2
+php_vm_memory   = 2048
+php_vm_disk     = 30

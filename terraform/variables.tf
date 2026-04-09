@@ -139,6 +139,12 @@ variable "java_vm_ip" {
   default     = ""
 }
 
+variable "java_vm_hostname" {
+  description = "Hostname for the Java VM"
+  type        = string
+  default     = "legacy-java-vm"
+}
+
 variable "java_vm_cpus" {
   type    = number
   default = 2
@@ -163,6 +169,12 @@ variable "dotnet_vm_ip" {
   default     = ""
 }
 
+variable "dotnet_vm_hostname" {
+  description = "Hostname for the .NET VM"
+  type        = string
+  default     = "legacy-dotnet-vm"
+}
+
 variable "dotnet_vm_cpus" {
   type    = number
   default = 2
@@ -183,6 +195,12 @@ variable "php_vm_ip" {
   description = "Static IP for the PHP VM"
   type        = string
   default     = ""
+}
+
+variable "php_vm_hostname" {
+  description = "Hostname for the PHP VM"
+  type        = string
+  default     = "legacy-php-vm"
 }
 
 variable "php_vm_cpus" {
@@ -222,45 +240,90 @@ variable "java_fe_ip" {
   type        = string
   default     = "10.1.2.20"
 }
+variable "java_fe_hostname" {
+  description = "Hostname for Java frontend VM"
+  type        = string
+  default     = "3t-java-fe"
+}
 variable "java_app_ip" {
   description = "Static IP for Java app server VM (Spring Boot REST)"
   type        = string
   default     = "10.1.2.21"
+}
+variable "java_app_hostname" {
+  description = "Hostname for Java app server VM"
+  type        = string
+  default     = "3t-java-app"
 }
 variable "java_db_ip" {
   description = "Static IP for Java database VM (PostgreSQL)"
   type        = string
   default     = "10.1.2.22"
 }
+variable "java_db_hostname" {
+  description = "Hostname for Java database VM"
+  type        = string
+  default     = "3t-java-db"
+}
 variable "dotnet_fe_ip" {
   description = "Static IP for .NET frontend VM (Nginx + Blazor)"
   type        = string
   default     = "10.1.2.23"
+}
+variable "dotnet_fe_hostname" {
+  description = "Hostname for .NET frontend VM"
+  type        = string
+  default     = "3t-dotnet-fe"
 }
 variable "dotnet_app_ip" {
   description = "Static IP for .NET app server VM (ASP.NET Core)"
   type        = string
   default     = "10.1.2.24"
 }
+variable "dotnet_app_hostname" {
+  description = "Hostname for .NET app server VM"
+  type        = string
+  default     = "3t-dotnet-app"
+}
 variable "dotnet_db_ip" {
   description = "Static IP for .NET database VM (SQL Server)"
   type        = string
   default     = "10.1.2.25"
+}
+variable "dotnet_db_hostname" {
+  description = "Hostname for .NET database VM"
+  type        = string
+  default     = "3t-dotnet-db"
 }
 variable "php_fe_ip" {
   description = "Static IP for PHP frontend VM (Nginx + Vue.js)"
   type        = string
   default     = "10.1.2.26"
 }
+variable "php_fe_hostname" {
+  description = "Hostname for PHP frontend VM"
+  type        = string
+  default     = "3t-php-fe"
+}
 variable "php_app_ip" {
   description = "Static IP for PHP app server VM (Laravel API)"
   type        = string
   default     = "10.1.2.27"
 }
+variable "php_app_hostname" {
+  description = "Hostname for PHP app server VM"
+  type        = string
+  default     = "3t-php-app"
+}
 variable "php_db_ip" {
   description = "Static IP for PHP database VM (MySQL)"
   type        = string
   default     = "10.1.2.28"
+}
+variable "php_db_hostname" {
+  description = "Hostname for PHP database VM"
+  type        = string
+  default     = "3t-php-db"
 }
 
 # =============================================================================
@@ -271,45 +334,90 @@ variable "win_java_fe_ip" {
   type        = string
   default     = "10.1.2.30"
 }
+variable "win_java_fe_hostname" {
+  description = "Hostname for Windows Java frontend VM"
+  type        = string
+  default     = "3t-win-java-fe"
+}
 variable "win_java_app_ip" {
   description = "Static IP for Windows Java app server VM"
   type        = string
   default     = "10.1.2.31"
+}
+variable "win_java_app_hostname" {
+  description = "Hostname for Windows Java app server VM"
+  type        = string
+  default     = "3t-win-java-app"
 }
 variable "win_java_db_ip" {
   description = "Static IP for Windows Java database VM"
   type        = string
   default     = "10.1.2.32"
 }
+variable "win_java_db_hostname" {
+  description = "Hostname for Windows Java database VM"
+  type        = string
+  default     = "3t-win-java-db"
+}
 variable "win_dotnet_fe_ip" {
   description = "Static IP for Windows .NET frontend VM"
   type        = string
   default     = "10.1.2.33"
+}
+variable "win_dotnet_fe_hostname" {
+  description = "Hostname for Windows .NET frontend VM"
+  type        = string
+  default     = "3t-win-dotnet-fe"
 }
 variable "win_dotnet_app_ip" {
   description = "Static IP for Windows .NET app server VM"
   type        = string
   default     = "10.1.2.34"
 }
+variable "win_dotnet_app_hostname" {
+  description = "Hostname for Windows .NET app server VM"
+  type        = string
+  default     = "3t-win-dotnet-app"
+}
 variable "win_dotnet_db_ip" {
   description = "Static IP for Windows .NET database VM"
   type        = string
   default     = "10.1.2.35"
+}
+variable "win_dotnet_db_hostname" {
+  description = "Hostname for Windows .NET database VM"
+  type        = string
+  default     = "3t-win-dotnet-db"
 }
 variable "win_php_fe_ip" {
   description = "Static IP for Windows PHP frontend VM"
   type        = string
   default     = "10.1.2.36"
 }
+variable "win_php_fe_hostname" {
+  description = "Hostname for Windows PHP frontend VM"
+  type        = string
+  default     = "3t-win-php-fe"
+}
 variable "win_php_app_ip" {
   description = "Static IP for Windows PHP app server VM"
   type        = string
   default     = "10.1.2.37"
 }
+variable "win_php_app_hostname" {
+  description = "Hostname for Windows PHP app server VM"
+  type        = string
+  default     = "3t-win-php-app"
+}
 variable "win_php_db_ip" {
   description = "Static IP for Windows PHP database VM"
   type        = string
   default     = "10.1.2.38"
+}
+variable "win_php_db_hostname" {
+  description = "Hostname for Windows PHP database VM"
+  type        = string
+  default     = "3t-win-php-db"
 }
 
 # =============================================================================

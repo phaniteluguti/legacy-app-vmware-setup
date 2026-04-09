@@ -53,7 +53,7 @@ locals {
   vms = var.deploy_mode == "linux" ? merge(
     var.deploy_java ? {
       java-vm = {
-        name   = "legacy-java-vm"
+        name   = var.java_vm_hostname
         cpus   = var.java_vm_cpus
         memory = var.java_vm_memory
         disk   = var.java_vm_disk
@@ -62,7 +62,7 @@ locals {
     } : {},
     var.deploy_dotnet ? {
       dotnet-vm = {
-        name   = "legacy-dotnet-vm"
+        name   = var.dotnet_vm_hostname
         cpus   = var.dotnet_vm_cpus
         memory = var.dotnet_vm_memory
         disk   = var.dotnet_vm_disk
@@ -71,7 +71,7 @@ locals {
     } : {},
     var.deploy_php ? {
       php-vm = {
-        name   = "legacy-php-vm"
+        name   = var.php_vm_hostname
         cpus   = var.php_vm_cpus
         memory = var.php_vm_memory
         disk   = var.php_vm_disk
@@ -83,8 +83,8 @@ locals {
   win_vms = var.deploy_mode == "windows" ? merge(
     var.deploy_java ? {
       win-java-vm = {
-        name          = "legacy-win-java-vm"
-        computer_name = "WIN-JAVA"
+        name          = var.java_vm_hostname
+        computer_name = substr(upper(replace(var.java_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.java_vm_cpus
         memory = var.java_vm_memory
         disk   = var.java_vm_disk
@@ -93,8 +93,8 @@ locals {
     } : {},
     var.deploy_dotnet ? {
       win-dotnet-vm = {
-        name          = "legacy-win-dotnet-vm"
-        computer_name = "WIN-DOTNET"
+        name          = var.dotnet_vm_hostname
+        computer_name = substr(upper(replace(var.dotnet_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.dotnet_vm_cpus
         memory = var.dotnet_vm_memory
         disk   = var.dotnet_vm_disk
@@ -103,8 +103,8 @@ locals {
     } : {},
     var.deploy_php ? {
       win-php-vm = {
-        name          = "legacy-win-php-vm"
-        computer_name = "WIN-PHP"
+        name          = var.php_vm_hostname
+        computer_name = substr(upper(replace(var.php_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.php_vm_cpus
         memory = var.php_vm_memory
         disk   = var.php_vm_disk
@@ -117,21 +117,21 @@ locals {
   vms_3tier = var.deploy_mode == "linux-3tier" ? merge(
     var.deploy_java ? {
       java-fe = {
-        name   = "3t-java-fe"
+        name   = var.java_fe_hostname
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.java_fe_ip
       }
       java-app = {
-        name   = "3t-java-app"
+        name   = var.java_app_hostname
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.java_app_ip
       }
       java-db = {
-        name   = "3t-java-db"
+        name   = var.java_db_hostname
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
@@ -140,21 +140,21 @@ locals {
     } : {},
     var.deploy_dotnet ? {
       dotnet-fe = {
-        name   = "3t-dotnet-fe"
+        name   = var.dotnet_fe_hostname
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.dotnet_fe_ip
       }
       dotnet-app = {
-        name   = "3t-dotnet-app"
+        name   = var.dotnet_app_hostname
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.dotnet_app_ip
       }
       dotnet-db = {
-        name   = "3t-dotnet-db"
+        name   = var.dotnet_db_hostname
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
@@ -163,21 +163,21 @@ locals {
     } : {},
     var.deploy_php ? {
       php-fe = {
-        name   = "3t-php-fe"
+        name   = var.php_fe_hostname
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.php_fe_ip
       }
       php-app = {
-        name   = "3t-php-app"
+        name   = var.php_app_hostname
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.php_app_ip
       }
       php-db = {
-        name   = "3t-php-db"
+        name   = var.php_db_hostname
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
@@ -190,24 +190,24 @@ locals {
   win_vms_3tier = var.deploy_mode == "windows-3tier" ? merge(
     var.deploy_java ? {
       win-java-fe = {
-        name          = "3t-win-java-fe"
-        computer_name = "WIN-JAVA-FE"
+        name          = var.win_java_fe_hostname
+        computer_name = substr(upper(replace(var.win_java_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.win_java_fe_ip
       }
       win-java-app = {
-        name          = "3t-win-java-app"
-        computer_name = "WIN-JAVA-APP"
+        name          = var.win_java_app_hostname
+        computer_name = substr(upper(replace(var.win_java_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.win_java_app_ip
       }
       win-java-db = {
-        name          = "3t-win-java-db"
-        computer_name = "WIN-JAVA-DB"
+        name          = var.win_java_db_hostname
+        computer_name = substr(upper(replace(var.win_java_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
@@ -216,24 +216,24 @@ locals {
     } : {},
     var.deploy_dotnet ? {
       win-dotnet-fe = {
-        name          = "3t-win-dotnet-fe"
-        computer_name = "WIN-NET-FE"
+        name          = var.win_dotnet_fe_hostname
+        computer_name = substr(upper(replace(var.win_dotnet_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.win_dotnet_fe_ip
       }
       win-dotnet-app = {
-        name          = "3t-win-dotnet-app"
-        computer_name = "WIN-NET-APP"
+        name          = var.win_dotnet_app_hostname
+        computer_name = substr(upper(replace(var.win_dotnet_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.win_dotnet_app_ip
       }
       win-dotnet-db = {
-        name          = "3t-win-dotnet-db"
-        computer_name = "WIN-NET-DB"
+        name          = var.win_dotnet_db_hostname
+        computer_name = substr(upper(replace(var.win_dotnet_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
@@ -242,24 +242,24 @@ locals {
     } : {},
     var.deploy_php ? {
       win-php-fe = {
-        name          = "3t-win-php-fe"
-        computer_name = "WIN-PHP-FE"
+        name          = var.win_php_fe_hostname
+        computer_name = substr(upper(replace(var.win_php_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.fe_cpus
         memory = var.fe_memory
         disk   = var.fe_disk
         ip     = var.win_php_fe_ip
       }
       win-php-app = {
-        name          = "3t-win-php-app"
-        computer_name = "WIN-PHP-APP"
+        name          = var.win_php_app_hostname
+        computer_name = substr(upper(replace(var.win_php_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.app_cpus
         memory = var.app_memory
         disk   = var.app_disk
         ip     = var.win_php_app_ip
       }
       win-php-db = {
-        name          = "3t-win-php-db"
-        computer_name = "WIN-PHP-DB"
+        name          = var.win_php_db_hostname
+        computer_name = substr(upper(replace(var.win_php_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.db_cpus
         memory = var.db_memory
         disk   = var.db_disk
