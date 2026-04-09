@@ -63,6 +63,11 @@
       args:
         creates: /opt/eshop/repo/eShopOnWeb.sln
 
+    - name: Remove global.json to use installed SDK version
+      file:
+        path: /opt/eshop/repo/global.json
+        state: absent
+
     - name: Fix repo ownership
       file:
         path: /opt/eshop/repo
