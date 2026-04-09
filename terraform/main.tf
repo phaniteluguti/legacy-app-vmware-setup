@@ -118,69 +118,69 @@ locals {
     var.deploy_java ? {
       java-fe = {
         name   = "3t-java-fe"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.java_fe_ip
       }
       java-app = {
         name   = "3t-java-app"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.java_app_ip
       }
       java-db = {
         name   = "3t-java-db"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.java_db_ip
       }
     } : {},
     var.deploy_dotnet ? {
       dotnet-fe = {
         name   = "3t-dotnet-fe"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.dotnet_fe_ip
       }
       dotnet-app = {
         name   = "3t-dotnet-app"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.dotnet_app_ip
       }
       dotnet-db = {
         name   = "3t-dotnet-db"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.dotnet_db_ip
       }
     } : {},
     var.deploy_php ? {
       php-fe = {
         name   = "3t-php-fe"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.php_fe_ip
       }
       php-app = {
         name   = "3t-php-app"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.php_app_ip
       }
       php-db = {
         name   = "3t-php-db"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.php_db_ip
       }
     } : {}
@@ -192,25 +192,25 @@ locals {
       win-java-fe = {
         name          = "3t-win-java-fe"
         computer_name = "WIN-JAVA-FE"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.win_java_fe_ip
       }
       win-java-app = {
         name          = "3t-win-java-app"
         computer_name = "WIN-JAVA-APP"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.win_java_app_ip
       }
       win-java-db = {
         name          = "3t-win-java-db"
         computer_name = "WIN-JAVA-DB"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.win_java_db_ip
       }
     } : {},
@@ -218,25 +218,25 @@ locals {
       win-dotnet-fe = {
         name          = "3t-win-dotnet-fe"
         computer_name = "WIN-NET-FE"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.win_dotnet_fe_ip
       }
       win-dotnet-app = {
         name          = "3t-win-dotnet-app"
         computer_name = "WIN-NET-APP"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.win_dotnet_app_ip
       }
       win-dotnet-db = {
         name          = "3t-win-dotnet-db"
         computer_name = "WIN-NET-DB"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.win_dotnet_db_ip
       }
     } : {},
@@ -244,25 +244,25 @@ locals {
       win-php-fe = {
         name          = "3t-win-php-fe"
         computer_name = "WIN-PHP-FE"
-        cpus   = 1
-        memory = 2048
-        disk   = 20
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
         ip     = var.win_php_fe_ip
       }
       win-php-app = {
         name          = "3t-win-php-app"
         computer_name = "WIN-PHP-APP"
-        cpus   = 2
-        memory = 4096
-        disk   = 40
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
         ip     = var.win_php_app_ip
       }
       win-php-db = {
         name          = "3t-win-php-db"
         computer_name = "WIN-PHP-DB"
-        cpus   = 2
-        memory = 4096
-        disk   = 60
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
         ip     = var.win_php_db_ip
       }
     } : {}

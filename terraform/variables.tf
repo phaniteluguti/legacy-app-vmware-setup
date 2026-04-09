@@ -311,3 +311,52 @@ variable "win_php_db_ip" {
   type        = string
   default     = "10.1.2.38"
 }
+
+# =============================================================================
+# 3-Tier Mode — VM Hardware Sizing (shared across Linux & Windows)
+# =============================================================================
+variable "fe_cpus" {
+  description = "CPUs for frontend VMs"
+  type        = number
+  default     = 1
+}
+variable "fe_memory" {
+  description = "Memory (MB) for frontend VMs"
+  type        = number
+  default     = 2048
+}
+variable "fe_disk" {
+  description = "Disk (GB) for frontend VMs"
+  type        = number
+  default     = 20
+}
+variable "app_cpus" {
+  description = "CPUs for app server VMs"
+  type        = number
+  default     = 2
+}
+variable "app_memory" {
+  description = "Memory (MB) for app server VMs"
+  type        = number
+  default     = 4096
+}
+variable "app_disk" {
+  description = "Disk (GB) for app server VMs"
+  type        = number
+  default     = 40
+}
+variable "db_cpus" {
+  description = "CPUs for database VMs"
+  type        = number
+  default     = 2
+}
+variable "db_memory" {
+  description = "Memory (MB) for database VMs"
+  type        = number
+  default     = 4096
+}
+variable "db_disk" {
+  description = "Disk (GB) for database VMs"
+  type        = number
+  default     = 60
+}

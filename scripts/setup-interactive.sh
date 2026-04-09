@@ -112,6 +112,14 @@ load_previous() {
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
     PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
     PREV_AZ_AGENT="false"
+    # 3-Tier sizing defaults
+    PREV_FE_CPU="1"; PREV_FE_MEM="2048"; PREV_FE_DISK="20"
+    PREV_APP_CPU="2"; PREV_APP_MEM="4096"; PREV_APP_DISK="40"
+    PREV_DB_CPU="2"; PREV_DB_MEM="4096"; PREV_DB_DISK="60"
+    # 3-Tier IP defaults
+    PREV_JAVA_FE_IP="10.1.2.20"; PREV_JAVA_APP_IP="10.1.2.21"; PREV_JAVA_DB_IP="10.1.2.22"
+    PREV_DOTNET_FE_IP="10.1.2.23"; PREV_DOTNET_APP_IP="10.1.2.24"; PREV_DOTNET_DB_IP="10.1.2.25"
+    PREV_PHP_FE_IP="10.1.2.26"; PREV_PHP_APP_IP="10.1.2.27"; PREV_PHP_DB_IP="10.1.2.28"
 
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
@@ -173,6 +181,26 @@ load_previous() {
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
         PREV_PHP_DISK="$(tfval php_vm_disk "30")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
+        # 3-Tier VM sizing
+        PREV_FE_CPU="$(tfval fe_cpus "1")"
+        PREV_FE_MEM="$(tfval fe_memory "2048")"
+        PREV_FE_DISK="$(tfval fe_disk "20")"
+        PREV_APP_CPU="$(tfval app_cpus "2")"
+        PREV_APP_MEM="$(tfval app_memory "4096")"
+        PREV_APP_DISK="$(tfval app_disk "40")"
+        PREV_DB_CPU="$(tfval db_cpus "2")"
+        PREV_DB_MEM="$(tfval db_memory "4096")"
+        PREV_DB_DISK="$(tfval db_disk "60")"
+        # 3-Tier IPs (Linux)
+        PREV_JAVA_FE_IP="$(tfval java_fe_ip "10.1.2.20")"
+        PREV_JAVA_APP_IP="$(tfval java_app_ip "10.1.2.21")"
+        PREV_JAVA_DB_IP="$(tfval java_db_ip "10.1.2.22")"
+        PREV_DOTNET_FE_IP="$(tfval dotnet_fe_ip "10.1.2.23")"
+        PREV_DOTNET_APP_IP="$(tfval dotnet_app_ip "10.1.2.24")"
+        PREV_DOTNET_DB_IP="$(tfval dotnet_db_ip "10.1.2.25")"
+        PREV_PHP_FE_IP="$(tfval php_fe_ip "10.1.2.26")"
+        PREV_PHP_APP_IP="$(tfval php_app_ip "10.1.2.27")"
+        PREV_PHP_DB_IP="$(tfval php_db_ip "10.1.2.28")"
     fi
 
     if [[ -f "$ALLVARS_FILE" ]]; then
@@ -297,7 +325,39 @@ collect_vms() {
 
     if [[ "$ARCH_CHOICE" == "3tier" ]]; then
         echo -e "  ${Y}--- 3-Tier Architecture ---${NC}"
-        echo -e "  ${GR}Sizes: Frontend=1CPU/2GB/20GB, App=2CPU/4GB/40GB, DB=2CPU/4GB/60GB${NC}\n"
+        echo ""
+        echo -e "  ${Y}How would you like to configure VM hardware?${NC}"
+        echo -e "    ${G}1)${NC} Same config for all VMs     — one set of CPU/RAM/Disk per tier"
+        echo -e "    ${G}2)${NC} Use recommended defaults    — Frontend: 1CPU/2GB/20GB, App: 2CPU/4GB/40GB, DB: 2CPU/4GB/60GB"
+        local default_hw_choice="2"
+        read -rp "  Choice [1/2] (default: $default_hw_choice): " HW_CHOICE
+        HW_CHOICE="${HW_CHOICE:-$default_hw_choice}"
+
+        if [[ "$HW_CHOICE" == "1" ]]; then
+            echo ""
+            echo -e "  ${Y}--- Frontend VMs (Nginx / IIS+ARR) ---${NC}"
+            prompt "  Frontend CPUs" "${PREV_FE_CPU:-1}"; FE_CPU="$REPLY"
+            prompt "  Frontend Memory MB" "${PREV_FE_MEM:-2048}"; FE_MEM="$REPLY"
+            prompt "  Frontend Disk GB" "${PREV_FE_DISK:-20}"; FE_DISK="$REPLY"
+            echo ""
+            echo -e "  ${Y}--- App Server VMs (Spring Boot / ASP.NET / Laravel) ---${NC}"
+            prompt "  App Server CPUs" "${PREV_APP_CPU:-2}"; APP_CPU="$REPLY"
+            prompt "  App Server Memory MB" "${PREV_APP_MEM:-4096}"; APP_MEM="$REPLY"
+            prompt "  App Server Disk GB" "${PREV_APP_DISK:-40}"; APP_DISK="$REPLY"
+            echo ""
+            echo -e "  ${Y}--- Database VMs (PostgreSQL / SQL Server / MySQL) ---${NC}"
+            prompt "  Database CPUs" "${PREV_DB_CPU:-2}"; DB_CPU="$REPLY"
+            prompt "  Database Memory MB" "${PREV_DB_MEM:-4096}"; DB_MEM="$REPLY"
+            prompt "  Database Disk GB" "${PREV_DB_DISK:-60}"; DB_DISK="$REPLY"
+        else
+            FE_CPU=1; FE_MEM=2048; FE_DISK=20
+            APP_CPU=2; APP_MEM=4096; APP_DISK=40
+            DB_CPU=2; DB_MEM=4096; DB_DISK=60
+            step "Using recommended defaults: FE=${FE_CPU}CPU/${FE_MEM}MB/${FE_DISK}GB, App=${APP_CPU}CPU/${APP_MEM}MB/${APP_DISK}GB, DB=${DB_CPU}CPU/${DB_MEM}MB/${DB_DISK}GB"
+        fi
+
+        echo ""
+        echo -e "  ${Y}--- VM IP Addresses ---${NC}\n"
 
         if [[ "$DEPLOY_JAVA" == "true" ]]; then
             echo -e "  ${Y}--- Java Stack ---${NC}"
@@ -430,21 +490,21 @@ show_summary() {
         if [[ "$ARCH_CHOICE" == "3tier" ]]; then
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 echo -e "    ${Y}Java Stack:${NC}"
-                echo -e "      Frontend    $JAVA_FE_IP   1CPU / 2048MB / 20GB"
-                echo -e "      App Server  $JAVA_APP_IP  2CPU / 4096MB / 40GB"
-                echo -e "      Database    $JAVA_DB_IP   2CPU / 4096MB / 60GB"
+                echo -e "      Frontend    $JAVA_FE_IP   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
+                echo -e "      App Server  $JAVA_APP_IP  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
+                echo -e "      Database    $JAVA_DB_IP   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
                 echo -e "    ${Y}.NET Stack:${NC}"
-                echo -e "      Frontend    $DOTNET_FE_IP   1CPU / 2048MB / 20GB"
-                echo -e "      App Server  $DOTNET_APP_IP  2CPU / 4096MB / 40GB"
-                echo -e "      Database    $DOTNET_DB_IP   2CPU / 4096MB / 60GB"
+                echo -e "      Frontend    $DOTNET_FE_IP   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
+                echo -e "      App Server  $DOTNET_APP_IP  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
+                echo -e "      Database    $DOTNET_DB_IP   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "    ${Y}PHP Stack:${NC}"
-                echo -e "      Frontend    $PHP_FE_IP   1CPU / 2048MB / 20GB"
-                echo -e "      App Server  $PHP_APP_IP  2CPU / 4096MB / 40GB"
-                echo -e "      Database    $PHP_DB_IP   2CPU / 4096MB / 60GB"
+                echo -e "      Frontend    $PHP_FE_IP   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
+                echo -e "      App Server  $PHP_APP_IP  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
+                echo -e "      Database    $PHP_DB_IP   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
             fi
         else
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
@@ -537,6 +597,17 @@ win_dotnet_db_ip  = "${WIN_DOTNET_DB_IP:-10.1.2.35}"
 win_php_fe_ip     = "${WIN_PHP_FE_IP:-10.1.2.36}"
 win_php_app_ip    = "${WIN_PHP_APP_IP:-10.1.2.37}"
 win_php_db_ip     = "${WIN_PHP_DB_IP:-10.1.2.38}"
+
+# --- 3-Tier VM Sizing ---
+fe_cpus   = ${FE_CPU:-1}
+fe_memory = ${FE_MEM:-2048}
+fe_disk   = ${FE_DISK:-20}
+app_cpus   = ${APP_CPU:-2}
+app_memory = ${APP_MEM:-4096}
+app_disk   = ${APP_DISK:-40}
+db_cpus   = ${DB_CPU:-2}
+db_memory = ${DB_MEM:-4096}
+db_disk   = ${DB_DISK:-60}
 EOF
     step "Created: terraform/terraform.tfvars"
 }
