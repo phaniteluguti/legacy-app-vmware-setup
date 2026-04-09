@@ -118,14 +118,14 @@ verify_deployment() {
       log "=== Deployment Summary ==="
       log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
       log ".NET MVC App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
-      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
+      log "PHP WordPress:   http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
       ;;
     windows)
       log ""
       log "=== Deployment Summary ==="
       log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
       log ".NET IIS App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
-      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
+      log "PHP WordPress:   http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
       ;;
     linux-3tier|windows-3tier)
       log ""

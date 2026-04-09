@@ -1,9 +1,9 @@
 ---
 # =============================================================================
-# Windows PHP 3-Tier — App Server VM: IIS + PHP + Laravel
+# Windows LAMP 3-Tier — App Server VM: IIS + PHP + WordPress
 # Connects to MySQL on the database VM
 # =============================================================================
-- name: Deploy PHP Laravel App Server (Windows PHP 3-Tier)
+- name: Deploy WordPress App Server (Windows LAMP 3-Tier)
   hosts: win_php_appserver
   gather_facts: true
   become: false
@@ -11,6 +11,7 @@
     - ../../group_vars/all.yml
   vars:
     db_host: "{{ hostvars[groups['win_php_database'][0]]['ansible_host'] | default(groups['win_php_database'][0]) }}"
+    fe_host: "{{ hostvars[groups['win_php_frontend'][0]]['ansible_host'] | default(groups['win_php_frontend'][0]) }}"
 
   tasks:
     - name: Increase WinRM shell memory to 1GB
@@ -45,16 +46,6 @@
     - name: Reboot if IIS install requires it
       win_reboot:
       when: iis_install.reboot_required | default(false)
-
-    - name: Install Git via Chocolatey
-      win_chocolatey:
-        name: git
-        state: present
-
-    - name: Install Composer via Chocolatey
-      win_chocolatey:
-        name: composer
-        state: present
 
     - name: Install PHP via Chocolatey
       win_chocolatey:
@@ -110,6 +101,7 @@
         - openssl
         - pdo_mysql
         - mysqli
+        - gd
 
     - name: Set PHP cgi.fix_pathinfo
       win_lineinfile:
@@ -130,75 +122,87 @@
         }
       changed_when: false
 
-    - name: Clone Laravel repository
-      win_shell: |
-        if (!(Test-Path "C:\inetpub\LaravelApp\.git")) {
-          & "C:\Program Files\Git\bin\git.exe" clone --branch {{ php_app_branch }} {{ php_app_repo }} C:\inetpub\LaravelApp
-        }
-      args:
-        creates: C:\inetpub\LaravelApp\composer.json
+    # ---------------------------------------------------------------
+    # Deploy WordPress
+    # ---------------------------------------------------------------
+    - name: Create temp directory
+      win_file:
+        path: C:\temp
+        state: directory
 
-    - name: Install Composer dependencies
-      win_shell: |
-        Set-Location C:\inetpub\LaravelApp
-        composer install --no-interaction --no-dev --optimize-autoloader --quiet 2>&1 | Out-File C:\composer-install.log
-        if ($LASTEXITCODE -ne 0) { Get-Content C:\composer-install.log | Select-Object -Last 20; exit 1 }
-      args:
-        creates: C:\inetpub\LaravelApp\vendor\autoload.php
-      environment:
-        COMPOSER_HOME: C:\ProgramData\ComposerData
-      timeout: 600
+    - name: Download WordPress
+      win_get_url:
+        url: "https://wordpress.org/wordpress-{{ wp_version }}.zip"
+        dest: C:\temp\wordpress.zip
+        force: false
 
-    - name: Copy .env file
-      win_shell: |
-        if (!(Test-Path "C:\inetpub\LaravelApp\.env")) {
-          Copy-Item "C:\inetpub\LaravelApp\.env.example" "C:\inetpub\LaravelApp\.env"
-        }
-      args:
-        creates: C:\inetpub\LaravelApp\.env
+    - name: Extract WordPress
+      win_unzip:
+        src: C:\temp\wordpress.zip
+        dest: C:\inetpub\
+        creates: C:\inetpub\wordpress\wp-settings.php
 
-    - name: Configure Laravel .env for remote MySQL
-      win_lineinfile:
-        path: C:\inetpub\LaravelApp\.env
-        regexp: "^{{ item.key }}="
-        line: "{{ item.key }}={{ item.value }}"
-      loop:
-        - { key: "DB_CONNECTION", value: "mysql" }
-        - { key: "DB_HOST", value: "{{ db_host }}" }
-        - { key: "DB_PORT", value: "3306" }
-        - { key: "DB_DATABASE", value: "{{ mysql_db_name }}" }
-        - { key: "DB_USERNAME", value: "{{ mysql_db_user }}" }
-        - { key: "DB_PASSWORD", value: "{{ mysql_db_password }}" }
-
-    - name: Generate Laravel app key
-      win_shell: |
-        Set-Location C:\inetpub\LaravelApp
-        php artisan key:generate --force
-      changed_when: false
-
-    - name: Run Laravel migrations
-      win_shell: |
-        Set-Location C:\inetpub\LaravelApp
-        php artisan migrate --force
-      changed_when: false
-      ignore_errors: true
-
-    - name: Set permissions on storage and bootstrap/cache
-      win_shell: |
-        icacls "C:\inetpub\LaravelApp\storage" /grant "IIS_IUSRS:(OI)(CI)F" /T
-        icacls "C:\inetpub\LaravelApp\bootstrap\cache" /grant "IIS_IUSRS:(OI)(CI)F" /T
-      changed_when: false
-
-    - name: Create web.config for Laravel URL rewriting
+    - name: Create wp-config.php (remote DB)
       win_copy:
-        dest: C:\inetpub\LaravelApp\public\web.config
+        dest: C:\inetpub\wordpress\wp-config.php
+        content: |
+          <?php
+          define('DB_NAME',     '{{ wp_db_name }}');
+          define('DB_USER',     '{{ wp_db_user }}');
+          define('DB_PASSWORD', '{{ wp_db_password }}');
+          define('DB_HOST',     '{{ db_host }}');
+          define('DB_CHARSET',  'utf8mb4');
+          define('DB_COLLATE',  '');
+          $table_prefix = 'wp_';
+          define('AUTH_KEY',         '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_KEY',  '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_KEY',    '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_KEY',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('AUTH_SALT',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_SALT', '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_SALT',   '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_SALT',       '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('WP_DEBUG', false);
+          define('WP_HOME',    'http://{{ fe_host }}');
+          define('WP_SITEURL', 'http://{{ fe_host }}');
+          if ( ! defined('ABSPATH') ) { define('ABSPATH', __DIR__ . '/'); }
+          require_once ABSPATH . 'wp-settings.php';
+
+    - name: Download WP-CLI
+      win_get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: C:\tools\wp-cli.phar
+        force: false
+
+    - name: Run WordPress CLI install
+      win_shell: |
+        Set-Location C:\inetpub\wordpress
+        php C:\tools\wp-cli.phar core install `
+          --url="http://{{ fe_host }}" `
+          --title="{{ wp_site_title }}" `
+          --admin_user="{{ wp_admin_user }}" `
+          --admin_password="{{ wp_admin_password }}" `
+          --admin_email="{{ wp_admin_email }}" `
+          --path=C:\inetpub\wordpress `
+          --skip-email
+      changed_when: false
+
+    - name: Set permissions on WordPress directory
+      win_shell: |
+        icacls "C:\inetpub\wordpress" /grant "IIS_IUSRS:(OI)(CI)F" /T
+        icacls "C:\inetpub\wordpress\wp-content" /grant "IIS_IUSRS:(OI)(CI)F" /T
+      changed_when: false
+
+    - name: Create web.config for WordPress URL rewriting
+      win_copy:
+        dest: C:\inetpub\wordpress\web.config
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
             <system.webServer>
               <rewrite>
                 <rules>
-                  <rule name="Laravel" stopProcessing="true">
+                  <rule name="WordPress" stopProcessing="true">
                     <match url="^" ignoreCase="false" />
                     <conditions logicalGrouping="MatchAll">
                       <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
@@ -226,18 +230,18 @@
         name: "Default Web Site"
         state: absent
 
-    - name: Create IIS application pool for Laravel
+    - name: Create IIS application pool for WordPress
       win_iis_webapppool:
-        name: LaravelPool
+        name: WordPressPool
         state: started
 
-    - name: Create IIS website for Laravel
+    - name: Create IIS website for WordPress
       win_iis_website:
-        name: LaravelApp
+        name: WordPressApp
         state: started
         port: 80
-        physical_path: C:\inetpub\LaravelApp\public
-        application_pool: LaravelPool
+        physical_path: C:\inetpub\wordpress
+        application_pool: WordPressPool
 
     - name: Allow HTTP through Windows Firewall
       win_firewall_rule:

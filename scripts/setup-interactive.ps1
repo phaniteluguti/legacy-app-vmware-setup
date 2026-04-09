@@ -168,8 +168,7 @@ function Load-PreviousValues {
     $script:prev.dotnet_app_repo = "https://github.com/dotnet/eShop.git"
     $script:prev.dotnet_app_branch = "main"
     $script:prev.php_version = "8.1"
-    $script:prev.php_app_repo = "https://github.com/laravel/laravel.git"
-    $script:prev.php_app_branch = "10.x"
+    $script:prev.wp_version = "6.7.2"
     $script:prev.install_azure_migrate_agent = "false"
 
     if (Test-Path $TfVarsFile) {
@@ -217,8 +216,7 @@ function Load-PreviousValues {
         $script:prev.dotnet_app_repo = Get-YmlValue "dotnet_app_repo" "https://github.com/dotnet/eShop.git"
         $script:prev.dotnet_app_branch = Get-YmlValue "dotnet_app_branch" "main"
         $script:prev.php_version = Get-YmlValue "php_version" "8.1"
-        $script:prev.php_app_repo = Get-YmlValue "php_app_repo" "https://github.com/laravel/laravel.git"
-        $script:prev.php_app_branch = Get-YmlValue "php_app_branch" "10.x"
+        $script:prev.wp_version = Get-YmlValue "wp_version" "6.7.2"
         $script:prev.install_azure_migrate_agent = Get-YmlValue "install_azure_migrate_agent" "false"
     }
 }
@@ -320,7 +318,7 @@ function Get-VMSettings {
     $script:dotnet_vm_disk   = Prompt-Input "  Disk (GB)" $script:prev.dotnet_vm_disk
 
     Write-Host ""
-    Write-Host "  --- PHP VM (Laravel + MySQL) ---" -ForegroundColor Yellow
+    Write-Host "  --- LAMP VM (WordPress + MySQL) ---" -ForegroundColor Yellow
     $script:php_vm_ip     = Prompt-Ip   "  IP Address" $script:prev.php_vm_ip
     $script:php_vm_cpus   = Prompt-Input "  CPUs" $script:prev.php_vm_cpus
     $script:php_vm_memory = Prompt-Input "  Memory (MB)" $script:prev.php_vm_memory
@@ -348,12 +346,11 @@ function Get-AppSettings {
     $script:mssql_sa_password  = Prompt-SecureInput "  SQL Server SA password (min 8 chars, needs complexity)"
 
     Write-Host ""
-    Write-Host "  --- PHP / Laravel ---" -ForegroundColor Yellow
+    Write-Host "  --- PHP / WordPress (LAMP) ---" -ForegroundColor Yellow
     $script:php_version       = Prompt-Input "  PHP version" $script:prev.php_version
-    $script:php_app_repo      = Prompt-Input "  Laravel Git repo URL" $script:prev.php_app_repo
-    $script:php_app_branch    = Prompt-Input "  Branch" $script:prev.php_app_branch
+    $script:wp_version        = Prompt-Input "  WordPress version" $script:prev.wp_version
     $script:mysql_root_password = Prompt-SecureInput "  MySQL root password"
-    $script:mysql_db_password   = Prompt-SecureInput "  MySQL app user ('laravel') password"
+    $script:wp_db_password      = Prompt-SecureInput "  WordPress DB user password"
 }
 
 # ---------------------------------------------------------------------------
@@ -467,17 +464,21 @@ mssql_edition: "express"
 mssql_sa_password: "$($script:mssql_sa_password)"
 mssql_db_name: "eShopDb"
 
-# --- PHP / Laravel ---
+# --- PHP / WordPress (LAMP) ---
 php_version: "$($script:php_version)"
-php_app_repo: "$($script:php_app_repo)"
-php_app_branch: "$($script:php_app_branch)"
 php_app_port: 80
+
+wp_version: "$($script:wp_version)"
+wp_site_title: "Legacy LAMP App"
+wp_admin_user: "admin"
+wp_admin_password: "Admin2024!"
+wp_admin_email: "admin@example.com"
 
 # MySQL
 mysql_root_password: "$($script:mysql_root_password)"
-mysql_db_name: "laravel_app"
-mysql_db_user: "laravel"
-mysql_db_password: "$($script:mysql_db_password)"
+wp_db_name: "wordpress"
+wp_db_user: "wpuser"
+wp_db_password: "$($script:wp_db_password)"
 
 # --- Azure Migrate Discovery ---
 install_azure_migrate_agent: $migrateVal
@@ -545,7 +546,7 @@ function Show-Summary {
     Write-Host "  Apps:" -ForegroundColor White
     Write-Host "    Java:  PetClinic ($($script:petclinic_repo))" -ForegroundColor Gray
     Write-Host "    .NET:  ASP.NET Core ($($script:dotnet_app_repo))" -ForegroundColor Gray
-    Write-Host "    PHP:   Laravel ($($script:php_app_repo))" -ForegroundColor Gray
+    Write-Host "    PHP:   WordPress $($script:wp_version) (LAMP)" -ForegroundColor Gray
     Write-Host ""
 }
 
@@ -617,7 +618,7 @@ function Invoke-Verify {
     $checks = @(
         @{ Name = "Java PetClinic";  IP = $script:java_vm_ip;   Port = "8080"; Url = "http://$($script:java_vm_ip):8080" }
         @{ Name = ".NET MVC App";    IP = $script:dotnet_vm_ip;  Port = "80";   Url = "http://$($script:dotnet_vm_ip)" }
-        @{ Name = "PHP Laravel App"; IP = $script:php_vm_ip;     Port = "80";   Url = "http://$($script:php_vm_ip)" }
+        @{ Name = "PHP WordPress App"; IP = $script:php_vm_ip;     Port = "80";   Url = "http://$($script:php_vm_ip)" }
     )
 
     foreach ($app in $checks) {

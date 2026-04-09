@@ -56,7 +56,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │                      │
 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
-│  │  Spring       │  │  ASP.NET Core │  │  Laravel     │                      │
+│  │  Spring       │  │  ASP.NET Core │  │  WordPress  │                      │
 │  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │                      │
 │  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │                      │
 │  │  PostgreSQL 15│  │  SQL Server   │  │  MySQL 8.0   │                      │
@@ -67,7 +67,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │ VM: win-java  │  │ VM: win-dotnet│  │ VM: win-php  │                      │
 │  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
-│  │ Spring        │  │ ASP.NET       │  │ Laravel      │                      │
+│  │ Spring        │  │ ASP.NET       │  │ WordPress    │                      │
 │  │ PetClinic     │  │ Framework     │  │ + IIS        │                      │
 │  │ (Java 17)     │  │ IIS (.NET 4.5)│  │ (PHP + CGI)  │                      │
 │  │ PostgreSQL 15 │  │ SQL Server    │  │ MySQL        │                      │
@@ -106,8 +106,8 @@ Each app is split across 3 VMs: Frontend (web server / reverse proxy), App Serve
 │  PHP Stack:                                                                  │
 │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                       │
 │  │  Frontend    │──▶│  App Server  │──▶│  Database    │                      │
-│  │  Nginx proxy │   │  Laravel    │   │  MySQL       │                      │
-│  │  :80         │   │  :8000      │   │  :3306       │                      │
+│  │  Nginx proxy │   │  WordPress  │   │  MySQL       │                      │
+│  │  :80         │   │  :8080      │   │  :3306       │                      │
 │  └─────────────┘   └─────────────┘   └─────────────┘                       │
 │                                                                              │
 │  Windows 3-Tier (deploy_mode = windows-3tier)  per app: 3 VMs               │
@@ -439,7 +439,7 @@ bash scripts/setup-interactive.sh
 Step 1: Choose Application(s)
   1) Java     — Spring PetClinic + PostgreSQL
   2) .NET     — ASP.NET + SQL Server
-  3) PHP      — Laravel + MySQL
+  3) PHP      — WordPress + MySQL (LAMP)
   4) All      — Java + .NET + PHP (all three)
 
 Step 2: Choose Operating System
@@ -498,7 +498,7 @@ After the wizard finishes, it runs health checks automatically. You can also ver
 # From your machine (replace IPs with your actual IPs)
 curl http://192.168.1.101:8080     # Java PetClinic — should return HTML
 curl http://192.168.1.102          # .NET App — should return HTML
-curl http://192.168.1.103          # PHP Laravel — should return HTML
+curl http://192.168.1.103          # PHP WordPress — should return HTML
 
 # Linux mode: SSH into any VM
 ssh ubuntu@192.168.1.101
@@ -551,7 +551,7 @@ bash scripts/deploy-all.sh all
 |----|----------|-----|------------|------------|----------|------------|
 | **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
-| **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
+| **PHP VM** | legacy-php-vm | Ubuntu 22.04 | WordPress (PHP 8.1, LAMP) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
 ### Windows Single-VM (deploy_mode = windows)
 
@@ -559,7 +559,7 @@ bash scripts/deploy-all.sh all
 |----|----------|-----|------------|------------|----------|------------|
 | **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | NSSM service | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
-| **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
+| **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | WordPress (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
 ### Linux 3-Tier (deploy_mode = linux-3tier)
 
@@ -569,7 +569,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 |-------|------------|---------------|-------------|
 | **Java** | Angular + Nginx (:80) | REST API Spring Boot (:9966) | PostgreSQL 15 (:5432) |
 | **.NET** | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
-| **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
+| **PHP** | Nginx reverse proxy (:80) | WordPress + Apache (:8080) | MySQL 8.0 (:3306) |
 
 ### Windows 3-Tier (deploy_mode = windows-3tier)
 
@@ -584,7 +584,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 You don't have to deploy all 3 apps. The wizard lets you choose:
 - **Java only** — deploys only Java/PetClinic VMs (`deploy_java = true`)
 - **.NET only** — deploys only .NET VMs (`deploy_dotnet = true`)
-- **PHP only** — deploys only PHP/Laravel VMs (`deploy_php = true`)
+- **PHP only** — deploys only PHP/WordPress VMs (`deploy_php = true`)
 - **All** — deploys all three (default)
 
 Each app:
@@ -624,10 +624,10 @@ legacy-app-vmware-setup/
 │   └── playbooks/
 │       ├── java-petclinic.yml         # Linux: Java 17 + Spring PetClinic + PostgreSQL
 │       ├── dotnet-app.yml             # Linux: .NET 6 + ASP.NET MVC + SQL Server
-│       ├── php-app.yml                # Linux: PHP 8.1 + Laravel + MySQL + Apache2
+│       ├── php-app.yml                # Linux: PHP 8.1 + WordPress + MySQL + Apache2
 │       ├── win-java-petclinic.yml     # Windows: Java PetClinic + PostgreSQL
 │       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server
-│       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
+│       ├── win-php-app.yml            # Windows: PHP WordPress + MySQL + IIS
 │       ├── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
 │       └── 3tier/                     # 3-Tier architecture playbooks
 │           ├── site-3tier.yml         # Master playbook — Linux 3-tier
@@ -639,7 +639,7 @@ legacy-app-vmware-setup/
 │           ├── dotnet-appserver.yml   # Linux: eShopOnWeb ASP.NET Core 8.0 Kestrel
 │           ├── dotnet-database.yml    # Linux: SQL Server 2022 Express
 │           ├── php-frontend.yml       # Linux: Nginx reverse proxy
-│           ├── php-appserver.yml      # Linux: Laravel artisan
+│           ├── php-appserver.yml      # Linux: WordPress + Apache
 │           ├── php-database.yml       # Linux: MySQL server
 │           ├── win-java-frontend.yml  # Windows: IIS + ARR
 │           ├── win-java-appserver.yml # Windows: NSSM Java service
@@ -740,7 +740,7 @@ Azure Portal → Azure Migrate → Create project
 |----|----------------|----------------|-------------|
 | legacy-java-vm | Java 17, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-dotnet-vm | .NET 8, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
-| legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
+| legacy-php-vm | PHP 8.1, Apache2, WordPress | MySQL 8.0 | → MySQL (localhost:3306) |
 
 **Single-VM Mode (Windows):**
 
@@ -748,7 +748,7 @@ Azure Portal → Azure Migrate → Create project
 |----|----------------|----------------|-------------|
 | legacy-win-java-vm | Java 17, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-win-dotnet-vm | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
-| legacy-win-php-vm | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
+| legacy-win-php-vm | PHP, IIS 10, WordPress | MySQL | → MySQL (localhost:3306) |
 
 **3-Tier Mode — Inter-VM Dependencies (the key value-add):**
 
@@ -756,7 +756,7 @@ Azure Portal → Azure Migrate → Create project
 |------------|-----------|---------------|-----------|-------------|
 | java-fe (Nginx :80) | → | java-app (:9966) | → | java-db (PostgreSQL :5432) |
 | dotnet-fe (Nginx :80) | → | dotnet-app (:5000) | → | dotnet-db (SQL Server :1433) |
-| php-fe (Nginx :80) | → | php-app (:8000) | → | php-db (MySQL :3306) |
+| php-fe (Nginx :80) | → | php-app (:8080) | → | php-db (MySQL :3306) |
 
 Azure Migrate will discover these cross-VM network connections and map them as **application dependencies** — critical for planning which VMs must migrate together.
 
@@ -766,7 +766,7 @@ Azure Migrate will discover these cross-VM network connections and map them as *
 |-------|-------------|--------|-------|
 | **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: Spring Boot :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
 | **.NET** | eShopOnWeb (ASP.NET Core 8.0) | [`eShopOnWeb`](https://github.com/dotnet-architecture/eShopOnWeb) (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
-| **PHP** | Laravel sample app | [`laravel`](https://github.com/laravel/laravel) | PHP-FPM behind Nginx; MySQL remote DB |
+| **PHP** | WordPress (LAMP) | [`wordpress.org`](https://wordpress.org/) | Apache + mod_php behind Nginx; WP-CLI auto-install; MySQL remote DB |
 
 ---
 

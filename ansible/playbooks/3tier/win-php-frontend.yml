@@ -1,8 +1,8 @@
 ---
 # =============================================================================
-# Windows PHP 3-Tier — Frontend VM: IIS reverse proxy to app server
+# Windows LAMP 3-Tier — Frontend VM: IIS reverse proxy to WordPress app server
 # =============================================================================
-- name: Deploy IIS Frontend (Windows PHP 3-Tier)
+- name: Deploy IIS Frontend (Windows LAMP 3-Tier)
   hosts: win_php_frontend
   gather_facts: true
   become: false
@@ -52,19 +52,19 @@
 
     - name: Create frontend web directory
       win_file:
-        path: C:\inetpub\PHPFrontend
+        path: C:\inetpub\WPFrontend
         state: directory
 
     - name: Create web.config with reverse proxy rules
       win_copy:
-        dest: C:\inetpub\PHPFrontend\web.config
+        dest: C:\inetpub\WPFrontend\web.config
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
             <system.webServer>
               <rewrite>
                 <rules>
-                  <rule name="ReverseProxy to Laravel App Server" stopProcessing="true">
+                  <rule name="ReverseProxy to WordPress App Server" stopProcessing="true">
                     <match url="(.*)" />
                     <action type="Rewrite" url="http://{{ app_host }}:80/{R:1}" />
                   </rule>
@@ -80,16 +80,16 @@
 
     - name: Create IIS application pool
       win_iis_webapppool:
-        name: PHPFrontendPool
+        name: WPFrontendPool
         state: started
 
     - name: Create IIS website
       win_iis_website:
-        name: PHPFrontend
+        name: WPFrontend
         state: started
         port: 80
-        physical_path: C:\inetpub\PHPFrontend
-        application_pool: PHPFrontendPool
+        physical_path: C:\inetpub\WPFrontend
+        application_pool: WPFrontendPool
 
     - name: Allow HTTP through Windows Firewall
       win_firewall_rule:

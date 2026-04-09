@@ -45,7 +45,7 @@ dotnet_vm_cpus     = 2
 dotnet_vm_memory   = 4096
 dotnet_vm_disk     = 40
 
-# PHP VM — Laravel + MySQL
+# PHP VM — WordPress + MySQL
 php_vm_ip       = "192.168.1.103"
 php_vm_hostname = "legacy-php-vm"
 php_vm_cpus     = 2

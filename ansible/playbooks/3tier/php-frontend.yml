@@ -1,16 +1,16 @@
 ---
 # =============================================================================
-# PHP 3-Tier — Frontend VM: Nginx reverse proxy + static asset server
-# Proxies requests to Laravel API on the app-server VM
+# LAMP 3-Tier — Frontend VM: Nginx reverse proxy
+# Proxies requests to WordPress/Apache on the app-server VM (port 8080)
 # =============================================================================
-- name: Deploy Nginx Frontend (PHP 3-Tier)
+- name: Deploy Nginx Frontend (LAMP 3-Tier)
   hosts: php_frontend
   become: true
   vars_files:
     - ../../group_vars/all.yml
   vars:
     app_host: "{{ hostvars[groups['php_appserver'][0]]['ansible_host'] | default(groups['php_appserver'][0]) }}"
-    laravel_port: 8000
+    wp_app_port: 8080
 
   tasks:
     - name: Update apt cache
@@ -23,16 +23,18 @@
         name: nginx
         state: present
 
-    - name: Configure Nginx as reverse proxy for Laravel
+    - name: Configure Nginx as reverse proxy for WordPress
       copy:
-        dest: /etc/nginx/sites-available/laravel
+        dest: /etc/nginx/sites-available/wordpress
         content: |
           server {
               listen 80;
               server_name _;
 
+              client_max_body_size 64M;
+
               location / {
-                  proxy_pass         http://{{ app_host }}:{{ laravel_port }};
+                  proxy_pass         http://{{ app_host }}:{{ wp_app_port }};
                   proxy_http_version 1.1;
                   proxy_set_header   Host $host;
                   proxy_set_header   X-Real-IP $remote_addr;
@@ -41,14 +43,16 @@
                   proxy_set_header   Upgrade $http_upgrade;
                   proxy_set_header   Connection keep-alive;
                   proxy_cache_bypass $http_upgrade;
+                  proxy_read_timeout 300;
+                  proxy_connect_timeout 300;
               }
           }
       notify: Restart Nginx
 
     - name: Enable the Nginx site
       file:
-        src: /etc/nginx/sites-available/laravel
-        dest: /etc/nginx/sites-enabled/laravel
+        src: /etc/nginx/sites-available/wordpress
+        dest: /etc/nginx/sites-enabled/wordpress
         state: link
       notify: Restart Nginx
 

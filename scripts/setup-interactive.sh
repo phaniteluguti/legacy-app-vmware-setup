@@ -113,7 +113,7 @@ load_previous() {
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="17"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
-    PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
+    PREV_PHP_VER="8.1"; PREV_WP_VERSION="6.7.2"
     PREV_AZ_AGENT="false"
     # 3-Tier sizing defaults
     PREV_FE_CPU="1"; PREV_FE_MEM="2048"; PREV_FE_DISK="20"
@@ -232,8 +232,7 @@ load_previous() {
         PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet/eShop.git")"
         PREV_DOTNET_BRANCH="$(ymlval dotnet_app_branch "main")"
         PREV_PHP_VER="$(ymlval php_version "8.1")"
-        PREV_PHP_REPO="$(ymlval php_app_repo "https://github.com/laravel/laravel.git")"
-        PREV_PHP_BRANCH="$(ymlval php_app_branch "10.x")"
+        PREV_WP_VERSION="$(ymlval wp_version "6.7.2")"
         PREV_AZ_AGENT="$(ymlval install_azure_migrate_agent "false")"
     fi
 }
@@ -432,7 +431,7 @@ collect_vms() {
             prompt "  Frontend Memory MB" "${PREV_FE_MEM:-2048}"; FE_MEM="$REPLY"
             prompt "  Frontend Disk GB" "${PREV_FE_DISK:-20}"; FE_DISK="$REPLY"
             echo ""
-            echo -e "  ${Y}--- App Server VMs (Spring Boot / ASP.NET / Laravel) ---${NC}"
+            echo -e "  ${Y}--- App Server VMs (Spring Boot / ASP.NET / WordPress) ---${NC}"
             prompt "  App Server CPUs" "${PREV_APP_CPU:-2}"; APP_CPU="$REPLY"
             prompt "  App Server Memory MB" "${PREV_APP_MEM:-4096}"; APP_MEM="$REPLY"
             prompt "  App Server Disk GB" "${PREV_APP_DISK:-40}"; APP_DISK="$REPLY"
@@ -510,8 +509,8 @@ collect_vms() {
         fi
 
         if [[ "$DEPLOY_PHP" == "true" ]]; then
-            local plabel="PHP VM (Laravel + MySQL)"
-            [[ "$OS_CHOICE" != "linux" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows"
+            local plabel="LAMP VM (WordPress + MySQL)"
+            [[ "$OS_CHOICE" != "linux" ]] && plabel="LAMP VM (IIS + WordPress + MySQL) — Windows"
             echo -e "  ${Y}--- $plabel ---${NC}"
             prompt "  Hostname" "$PREV_PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
             prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
@@ -530,8 +529,8 @@ collect_apps() {
     PG_PASS="placeholder"
     DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
     MSSQL_PASS="Placeholder1!"
-    PHP_VER="$PREV_PHP_VER"; PHP_REPO="$PREV_PHP_REPO"; PHP_BRANCH="$PREV_PHP_BRANCH"
-    MYSQL_ROOT="placeholder"; MYSQL_APP="placeholder"
+    PHP_VER="$PREV_PHP_VER"; WP_VERSION="$PREV_WP_VERSION"
+    MYSQL_ROOT="placeholder"; WP_DB_PASS="placeholder"
 
     if $QUICK_MODE; then
         step "Using saved app config from previous run"
@@ -540,7 +539,7 @@ collect_apps() {
         [[ "$DEPLOY_DOTNET" == "true" ]] && { prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"; }
         if [[ "$DEPLOY_PHP" == "true" ]]; then
             prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
-            prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+            prompt_secret "  WordPress DB user password"; WP_DB_PASS="$REPLY"
         fi
         return
     fi
@@ -566,12 +565,11 @@ collect_apps() {
     fi
 
     if [[ "$DEPLOY_PHP" == "true" ]]; then
-        echo -e "  ${Y}--- PHP / Laravel ---${NC}"
+        echo -e "  ${Y}--- PHP / WordPress (LAMP) ---${NC}"
         prompt "  PHP version" "$PREV_PHP_VER"; PHP_VER="$REPLY"
-        prompt "  Git repo" "$PREV_PHP_REPO"; PHP_REPO="$REPLY"
-        prompt "  Branch" "$PREV_PHP_BRANCH"; PHP_BRANCH="$REPLY"
+        prompt "  WordPress version" "$PREV_WP_VERSION"; WP_VERSION="$REPLY"
         prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
-        prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+        prompt_secret "  WordPress DB user password"; WP_DB_PASS="$REPLY"
     fi
 }
 
@@ -783,14 +781,18 @@ mssql_sa_password: "$MSSQL_PASS"
 mssql_db_name: "eShopDb"
 
 php_version: "$PHP_VER"
-php_app_repo: "$PHP_REPO"
-php_app_branch: "$PHP_BRANCH"
 php_app_port: 80
 
+wp_version: "$WP_VERSION"
+wp_site_title: "Legacy LAMP App"
+wp_admin_user: "admin"
+wp_admin_password: "Admin2024!"
+wp_admin_email: "admin@example.com"
+
 mysql_root_password: "$MYSQL_ROOT"
-mysql_db_name: "laravel_app"
-mysql_db_user: "laravel"
-mysql_db_password: "$MYSQL_APP"
+wp_db_name: "wordpress"
+wp_db_user: "wpuser"
+wp_db_password: "$WP_DB_PASS"
 
 install_azure_migrate_agent: $AZ_AGENT
 EOF
@@ -1190,11 +1192,11 @@ run_verify() {
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Java PetClinic|$JAVA_IP|8080")
         [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(".NET MVC App|$DOTNET_IP|80")
-        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP WordPress|$PHP_IP|80")
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080")
         [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET IIS App|$DOTNET_IP|80")
-        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP WordPress|$PHP_IP|80")
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
             "Java Frontend (Angular)|$JAVA_FE_IP|80"
@@ -1208,7 +1210,7 @@ run_verify() {
         )
         [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "PHP Frontend (Nginx)|$PHP_FE_IP|80"
-            "PHP App Server (Laravel)|$PHP_APP_IP|8000"
+            "PHP App Server (WordPress)|$PHP_APP_IP|8080"
             "PHP Database (MySQL)|$PHP_DB_IP|3306"
         )
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
@@ -1242,7 +1244,7 @@ run_verify() {
     if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
         [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET App:${NC}        http://$DOTNET_IP"
-        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP WordPress:${NC}   http://$PHP_IP"
     elif [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP"
         [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP"
@@ -1518,7 +1520,7 @@ main() {
     echo -e "  ${Y}Which application(s) do you want to deploy?${NC}"
     echo -e "    ${G}1)${NC} Java     — Spring PetClinic + PostgreSQL"
     echo -e "    ${G}2)${NC} .NET     — ASP.NET + SQL Server"
-    echo -e "    ${G}3)${NC} PHP      — Laravel + MySQL"
+    echo -e "    ${G}3)${NC} PHP      — WordPress + MySQL (LAMP)"
     echo -e "    ${G}4)${NC} All      — Java + .NET + PHP (all three)"
     local default_app_num
     case "$PREV_APP_SELECTION" in
@@ -1535,7 +1537,7 @@ main() {
         2) APP_SELECTION="dotnet"; DEPLOY_JAVA=false; DEPLOY_DOTNET=true;  DEPLOY_PHP=false
            step "App: .NET (ASP.NET + SQL Server)" ;;
         3) APP_SELECTION="php";    DEPLOY_JAVA=false; DEPLOY_DOTNET=false; DEPLOY_PHP=true
-           step "App: PHP (Laravel + MySQL)" ;;
+           step "App: PHP (WordPress + MySQL)" ;;
         *) APP_SELECTION="all";    DEPLOY_JAVA=true;  DEPLOY_DOTNET=true;  DEPLOY_PHP=true
            step "App: All (Java + .NET + PHP)" ;;
     esac

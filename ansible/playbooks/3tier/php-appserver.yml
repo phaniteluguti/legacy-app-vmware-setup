@@ -1,16 +1,16 @@
 ---
 # =============================================================================
-# PHP 3-Tier — App Server VM: Laravel API (port 8000)
+# LAMP 3-Tier — App Server VM: Apache + PHP + WordPress
 # Connects to MySQL on the database VM
 # =============================================================================
-- name: Deploy Laravel App Server (PHP 3-Tier)
+- name: Deploy WordPress App Server (LAMP 3-Tier)
   hosts: php_appserver
   become: true
   vars_files:
     - ../../group_vars/all.yml
   vars:
     db_host: "{{ hostvars[groups['php_database'][0]]['ansible_host'] | default(groups['php_database'][0]) }}"
-    laravel_port: 8000
+    fe_host: "{{ hostvars[groups['php_frontend'][0]]['ansible_host'] | default(groups['php_frontend'][0]) }}"
 
   tasks:
     - name: Update apt cache
@@ -20,7 +20,7 @@
 
     - name: Install base packages
       apt:
-        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip, acl]
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip, acl, tar]
         state: present
 
     - name: Add PHP PPA repository
@@ -40,132 +40,194 @@
           - "php{{ php_version }}-curl"
           - "php{{ php_version }}-zip"
           - "php{{ php_version }}-gd"
-          - "php{{ php_version }}-bcmath"
           - "php{{ php_version }}-intl"
-          - "php{{ php_version }}-readline"
+          - "php{{ php_version }}-soap"
+          - "php{{ php_version }}-imagick"
+          - "libapache2-mod-php{{ php_version }}"
         state: present
         update_cache: true
 
-    - name: Download Composer installer
+    - name: Install Apache2
+      apt:
+        name: apache2
+        state: present
+
+    - name: Enable Apache mod_rewrite
+      apache2_module:
+        name: rewrite
+        state: present
+      notify: Restart Apache
+
+    - name: Enable Apache mod_php
+      apache2_module:
+        name: "php{{ php_version }}"
+        state: present
+      notify: Restart Apache
+
+    # ---------------------------------------------------------------
+    # Deploy WordPress
+    # ---------------------------------------------------------------
+    - name: Download WordPress
       get_url:
-        url: https://getcomposer.org/installer
-        dest: /tmp/composer-setup.php
+        url: "https://wordpress.org/wordpress-{{ wp_version }}.tar.gz"
+        dest: /tmp/wordpress.tar.gz
 
-    - name: Install Composer globally
-      shell: |
-        php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
-      args:
-        creates: /usr/local/bin/composer
-
-    - name: Create web app directory
+    - name: Remove stale WordPress directory
       file:
-        path: /var/www/laravel
+        path: /var/www/wordpress
+        state: absent
+
+    - name: Extract WordPress
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: /var/www/
+        remote_src: true
+        owner: www-data
+        group: www-data
+
+    - name: Install WP-CLI
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: "0755"
+
+    - name: Generate WordPress wp-config.php (remote DB)
+      copy:
+        dest: /var/www/wordpress/wp-config.php
+        owner: www-data
+        group: www-data
+        mode: "0640"
+        content: |
+          <?php
+          define('DB_NAME',     '{{ wp_db_name }}');
+          define('DB_USER',     '{{ wp_db_user }}');
+          define('DB_PASSWORD', '{{ wp_db_password }}');
+          define('DB_HOST',     '{{ db_host }}');
+          define('DB_CHARSET',  'utf8mb4');
+          define('DB_COLLATE',  '');
+          $table_prefix = 'wp_';
+          define('AUTH_KEY',         '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_KEY',  '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_KEY',    '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_KEY',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('AUTH_SALT',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_SALT', '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_SALT',   '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_SALT',       '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('WP_DEBUG', false);
+          define('WP_HOME',    'http://{{ fe_host }}');
+          define('WP_SITEURL', 'http://{{ fe_host }}');
+          if ( ! defined('ABSPATH') ) { define('ABSPATH', __DIR__ . '/'); }
+          require_once ABSPATH . 'wp-settings.php';
+
+    - name: Run WordPress CLI install
+      shell: |
+        sudo -u www-data wp core install \
+          --url="http://{{ fe_host }}" \
+          --title="{{ wp_site_title }}" \
+          --admin_user="{{ wp_admin_user }}" \
+          --admin_password="{{ wp_admin_password }}" \
+          --admin_email="{{ wp_admin_email }}" \
+          --path=/var/www/wordpress \
+          --skip-email
+      args:
+        executable: /bin/bash
+
+    - name: Create sample pages and posts with WP-CLI
+      shell: |
+        cd /var/www/wordpress
+        sudo -u www-data wp post create --post_type=page --post_title='About Us' \
+          --post_content='This is a legacy LAMP-stack WordPress site deployed in a 3-tier architecture on VMware for Azure Migrate assessment.' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=page --post_title='Contact' \
+          --post_content='<p>Email: admin@example.com</p><p>Phone: +1-555-0100</p>' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=post --post_title='Welcome to our Legacy App' \
+          --post_content='This WordPress application runs on a distributed LAMP stack: Nginx frontend proxy, Apache+PHP app server, and MySQL database — each on its own VM.' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=post --post_title='3-Tier LAMP Architecture' \
+          --post_content='<h3>Tier 1 - Frontend</h3><p>Nginx reverse proxy</p><h3>Tier 2 - Application</h3><p>Apache {{ php_version }} + WordPress</p><h3>Tier 3 - Database</h3><p>MySQL 8.0</p>' \
+          --post_status=publish --path=/var/www/wordpress
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Install and activate a classic WordPress theme
+      shell: |
+        cd /var/www/wordpress
+        sudo -u www-data wp theme install twentytwentyone --activate --path=/var/www/wordpress
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Set WordPress file permissions
+      file:
+        path: /var/www/wordpress
+        owner: www-data
+        group: www-data
+        recurse: true
+
+    - name: Set directory permissions for wp-content
+      file:
+        path: /var/www/wordpress/wp-content
         state: directory
         owner: www-data
         group: www-data
         mode: "0755"
-
-    - name: Clone Laravel repository
-      command: git clone -b {{ php_app_branch }} {{ php_app_repo }} /var/www/laravel
-      args:
-        creates: /var/www/laravel/composer.json
-
-    - name: Install Composer dependencies
-      shell: |
-        cd /var/www/laravel
-        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
-      environment:
-        COMPOSER_ALLOW_SUPERUSER: "1"
-      args:
-        creates: /var/www/laravel/vendor
-
-    - name: Copy .env file
-      copy:
-        src: /var/www/laravel/.env.example
-        dest: /var/www/laravel/.env
-        remote_src: true
-        owner: www-data
-        group: www-data
-        force: false
-
-    - name: Configure .env database settings (remote DB)
-      lineinfile:
-        path: /var/www/laravel/.env
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-      loop:
-        - { regexp: '^DB_CONNECTION=', line: 'DB_CONNECTION=mysql' }
-        - { regexp: '^DB_HOST=', line: 'DB_HOST={{ db_host }}' }
-        - { regexp: '^DB_PORT=', line: 'DB_PORT=3306' }
-        - { regexp: '^DB_DATABASE=', line: 'DB_DATABASE={{ mysql_db_name }}' }
-        - { regexp: '^DB_USERNAME=', line: 'DB_USERNAME={{ mysql_db_user }}' }
-        - { regexp: '^DB_PASSWORD=', line: 'DB_PASSWORD={{ mysql_db_password }}' }
-        - { regexp: '^APP_URL=', line: 'APP_URL=http://0.0.0.0:{{ laravel_port }}' }
-
-    - name: Generate Laravel application key
-      shell: |
-        cd /var/www/laravel
-        php artisan key:generate --force
-      args:
-        creates: /var/www/laravel/storage/framework/sessions/.gitkeep
-
-    - name: Run Laravel migrations
-      shell: |
-        cd /var/www/laravel
-        php artisan migrate --force
-      ignore_errors: true
-
-    - name: Set Laravel directory permissions
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0775"
         recurse: true
-      loop:
-        - /var/www/laravel/storage
-        - /var/www/laravel/bootstrap/cache
 
-    - name: Create Laravel systemd service (artisan serve)
+    # ---------------------------------------------------------------
+    # Apache Virtual Host (port 8080 — behind Nginx proxy)
+    # ---------------------------------------------------------------
+    - name: Configure Apache to listen on port 8080
+      lineinfile:
+        path: /etc/apache2/ports.conf
+        regexp: "^Listen 80"
+        line: "Listen 8080"
+      notify: Restart Apache
+
+    - name: Configure Apache virtual host for WordPress
       copy:
-        dest: /etc/systemd/system/laravel-api.service
+        dest: /etc/apache2/sites-available/wordpress.conf
         content: |
-          [Unit]
-          Description=Laravel API Server
-          After=network.target
+          <VirtualHost *:8080>
+              ServerName {{ fe_host }}
+              DocumentRoot /var/www/wordpress
 
-          [Service]
-          Type=simple
-          User=www-data
-          Group=www-data
-          WorkingDirectory=/var/www/laravel
-          ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port={{ laravel_port }}
-          Restart=on-failure
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
+              <Directory /var/www/wordpress>
+                  AllowOverride All
+                  Require all granted
+                  Options -Indexes +FollowSymLinks
+              </Directory>
 
-          [Install]
-          WantedBy=multi-user.target
-      notify: Restart Laravel API
+              ErrorLog ${APACHE_LOG_DIR}/wordpress-error.log
+              CustomLog ${APACHE_LOG_DIR}/wordpress-access.log combined
+          </VirtualHost>
+      notify: Restart Apache
 
-    - name: Enable and start Laravel API service
+    - name: Enable WordPress site
+      shell: a2ensite wordpress.conf
+      notify: Restart Apache
+
+    - name: Disable default Apache site
+      shell: a2dissite 000-default.conf
+      notify: Restart Apache
+
+    - name: Ensure Apache is started and enabled
       systemd:
-        name: laravel-api
-        daemon_reload: true
-        enabled: true
+        name: apache2
         state: started
+        enabled: true
 
-    - name: Allow Laravel port through UFW
+    - name: Allow app server port through UFW
       ufw:
         rule: allow
-        port: "{{ laravel_port }}"
+        port: "8080"
         proto: tcp
       ignore_errors: true
 
   handlers:
-    - name: Restart Laravel API
+    - name: Restart Apache
       systemd:
-        name: laravel-api
+        name: apache2
         state: restarted

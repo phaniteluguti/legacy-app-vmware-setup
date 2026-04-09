@@ -23,7 +23,7 @@ variable "deploy_dotnet" {
 }
 
 variable "deploy_php" {
-  description = "Deploy PHP application VMs (Laravel + MySQL)"
+  description = "Deploy PHP application VMs (WordPress + MySQL)"
   type        = bool
   default     = true
 }
@@ -306,7 +306,7 @@ variable "php_fe_hostname" {
   default     = "3t-php-fe"
 }
 variable "php_app_ip" {
-  description = "Static IP for PHP app server VM (Laravel API)"
+  description = "Static IP for PHP app server VM (WordPress)"
   type        = string
   default     = "10.1.2.27"
 }

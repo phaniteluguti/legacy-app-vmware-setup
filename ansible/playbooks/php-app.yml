@@ -1,8 +1,8 @@
 ---
 # =============================================================================
-# PHP VM — Laravel sample app + MySQL 8.0 + Apache2
+# LAMP VM — WordPress + MySQL 8.0 + Apache2  (single-VM deployment)
 # =============================================================================
-- name: Deploy PHP Laravel App + MySQL
+- name: Deploy WordPress LAMP Stack
   hosts: php_servers
   become: true
   vars_files:
@@ -29,6 +29,7 @@
           - ca-certificates
           - unzip
           - acl
+          - tar
         state: present
 
     # ---------------------------------------------------------------
@@ -51,26 +52,12 @@
           - "php{{ php_version }}-curl"
           - "php{{ php_version }}-zip"
           - "php{{ php_version }}-gd"
-          - "php{{ php_version }}-bcmath"
           - "php{{ php_version }}-intl"
-          - "php{{ php_version }}-readline"
+          - "php{{ php_version }}-soap"
+          - "php{{ php_version }}-imagick"
           - "libapache2-mod-php{{ php_version }}"
         state: present
         update_cache: true
-
-    # ---------------------------------------------------------------
-    # Composer
-    # ---------------------------------------------------------------
-    - name: Download Composer installer
-      get_url:
-        url: https://getcomposer.org/installer
-        dest: /tmp/composer-setup.php
-
-    - name: Install Composer globally
-      shell: |
-        php /tmp/composer-setup.php --install-dir=/usr/local/bin --filename=composer
-      args:
-        creates: /usr/local/bin/composer
 
     # ---------------------------------------------------------------
     # MySQL 8.0
@@ -91,10 +78,9 @@
 
     - name: Set MySQL root password and create .my.cnf
       shell: |
-        # Try socket auth first (fresh install), then password auth (re-run)
-        mysql --defaults-file=/dev/null -u root -S /var/run/mysqld/mysqld.sock -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}'; FLUSH PRIVILEGES;" 2>/dev/null || \
+        mysql --defaults-file=/dev/null -u root -S /var/run/mysqld/mysqld.sock \
+          -e "ALTER USER 'root'@'localhost' IDENTIFIED WITH mysql_native_password BY '{{ mysql_root_password }}'; FLUSH PRIVILEGES;" 2>/dev/null || \
         mysql -u root -p'{{ mysql_root_password }}' -e "SELECT 1" 2>/dev/null
-        # Create .my.cnf for subsequent tasks
         cat > /root/.my.cnf <<MYCNF
         [client]
         user=root
@@ -105,18 +91,18 @@
         executable: /bin/bash
       changed_when: false
 
-    - name: Create Laravel database
+    - name: Create WordPress database
       community.mysql.mysql_db:
-        name: "{{ mysql_db_name }}"
+        name: "{{ wp_db_name }}"
         state: present
         login_user: root
         login_password: "{{ mysql_root_password }}"
 
-    - name: Create Laravel database user
+    - name: Create WordPress database user
       community.mysql.mysql_user:
-        name: "{{ mysql_db_user }}"
-        password: "{{ mysql_db_password }}"
-        priv: "{{ mysql_db_name }}.*:ALL"
+        name: "{{ wp_db_user }}"
+        password: "{{ wp_db_password }}"
+        priv: "{{ wp_db_name }}.*:ALL"
         host: "localhost"
         state: present
         login_user: root
@@ -143,109 +129,145 @@
       notify: Restart Apache
 
     # ---------------------------------------------------------------
-    # Deploy Laravel App
+    # Deploy WordPress
     # ---------------------------------------------------------------
-    - name: Remove stale Laravel directory
+    - name: Download WordPress
+      get_url:
+        url: "https://wordpress.org/wordpress-{{ wp_version }}.tar.gz"
+        dest: /tmp/wordpress.tar.gz
+
+    - name: Remove stale WordPress directory
       file:
-        path: /var/www/laravel
+        path: /var/www/wordpress
         state: absent
 
-    - name: Create web app directory
+    - name: Extract WordPress
+      unarchive:
+        src: /tmp/wordpress.tar.gz
+        dest: /var/www/
+        remote_src: true
+        owner: www-data
+        group: www-data
+
+    - name: Install WP-CLI
+      get_url:
+        url: https://raw.githubusercontent.com/wp-cli/builds/gh-pages/phar/wp-cli.phar
+        dest: /usr/local/bin/wp
+        mode: "0755"
+
+    - name: Generate WordPress wp-config.php
+      copy:
+        dest: /var/www/wordpress/wp-config.php
+        owner: www-data
+        group: www-data
+        mode: "0640"
+        content: |
+          <?php
+          define('DB_NAME',     '{{ wp_db_name }}');
+          define('DB_USER',     '{{ wp_db_user }}');
+          define('DB_PASSWORD', '{{ wp_db_password }}');
+          define('DB_HOST',     '127.0.0.1');
+          define('DB_CHARSET',  'utf8mb4');
+          define('DB_COLLATE',  '');
+          $table_prefix = 'wp_';
+          define('AUTH_KEY',         '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_KEY',  '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_KEY',    '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_KEY',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('AUTH_SALT',        '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('SECURE_AUTH_SALT', '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('LOGGED_IN_SALT',   '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('NONCE_SALT',       '{{ lookup("password", "/dev/null chars=ascii_letters,digits length=64") }}');
+          define('WP_DEBUG', false);
+          if ( ! defined('ABSPATH') ) { define('ABSPATH', __DIR__ . '/'); }
+          require_once ABSPATH . 'wp-settings.php';
+
+    - name: Run WordPress CLI install
+      shell: |
+        sudo -u www-data wp core install \
+          --url="http://{{ ansible_host }}" \
+          --title="{{ wp_site_title }}" \
+          --admin_user="{{ wp_admin_user }}" \
+          --admin_password="{{ wp_admin_password }}" \
+          --admin_email="{{ wp_admin_email }}" \
+          --path=/var/www/wordpress \
+          --skip-email
+      args:
+        executable: /bin/bash
+
+    - name: Create sample pages and posts with WP-CLI
+      shell: |
+        cd /var/www/wordpress
+        sudo -u www-data wp post create --post_type=page --post_title='About Us' \
+          --post_content='This is a legacy LAMP-stack WordPress site deployed on VMware for Azure Migrate assessment.' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=page --post_title='Contact' \
+          --post_content='<p>Email: admin@example.com</p><p>Phone: +1-555-0100</p>' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=post --post_title='Welcome to our Legacy App' \
+          --post_content='This WordPress application is running on a classic LAMP stack (Linux, Apache, MySQL, PHP) and represents a typical on-premises workload ready for cloud migration.' \
+          --post_status=publish --path=/var/www/wordpress
+        sudo -u www-data wp post create --post_type=post --post_title='LAMP Stack Architecture' \
+          --post_content='<h3>Components</h3><ul><li>Linux (Ubuntu 22.04)</li><li>Apache 2.4</li><li>MySQL 8.0</li><li>PHP {{ php_version }}</li></ul><p>This architecture has been the backbone of web applications for over two decades.</p>' \
+          --post_status=publish --path=/var/www/wordpress
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Install and activate a classic WordPress theme
+      shell: |
+        cd /var/www/wordpress
+        sudo -u www-data wp theme install twentytwentyone --activate --path=/var/www/wordpress
+      args:
+        executable: /bin/bash
+      ignore_errors: true
+
+    - name: Set WordPress file permissions
       file:
-        path: /var/www/laravel
+        path: /var/www/wordpress
+        owner: www-data
+        group: www-data
+        recurse: true
+
+    - name: Set directory permissions for wp-content
+      file:
+        path: /var/www/wordpress/wp-content
         state: directory
         owner: www-data
         group: www-data
         mode: "0755"
-
-    - name: Clone Laravel repository
-      command: git clone -b {{ php_app_branch }} {{ php_app_repo }} /var/www/laravel
-      notify: Set Laravel permissions
-
-    - name: Install Composer dependencies
-      shell: |
-        cd /var/www/laravel
-        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
-      environment:
-        COMPOSER_ALLOW_SUPERUSER: "1"
-      args:
-        creates: /var/www/laravel/vendor
-
-    - name: Copy .env file
-      copy:
-        src: /var/www/laravel/.env.example
-        dest: /var/www/laravel/.env
-        remote_src: true
-        owner: www-data
-        group: www-data
-        force: false
-
-    - name: Configure .env database settings
-      lineinfile:
-        path: /var/www/laravel/.env
-        regexp: "{{ item.regexp }}"
-        line: "{{ item.line }}"
-      loop:
-        - { regexp: '^DB_CONNECTION=', line: 'DB_CONNECTION=mysql' }
-        - { regexp: '^DB_HOST=', line: 'DB_HOST=127.0.0.1' }
-        - { regexp: '^DB_PORT=', line: 'DB_PORT=3306' }
-        - { regexp: '^DB_DATABASE=', line: 'DB_DATABASE={{ mysql_db_name }}' }
-        - { regexp: '^DB_USERNAME=', line: 'DB_USERNAME={{ mysql_db_user }}' }
-        - { regexp: '^DB_PASSWORD=', line: 'DB_PASSWORD={{ mysql_db_password }}' }
-
-    - name: Generate Laravel application key
-      shell: |
-        cd /var/www/laravel
-        php artisan key:generate --force
-      args:
-        creates: /var/www/laravel/storage/framework/sessions/.gitkeep
-
-    - name: Run Laravel migrations
-      shell: |
-        cd /var/www/laravel
-        php artisan migrate --force
-      ignore_errors: true
-
-    - name: Set Laravel directory permissions
-      file:
-        path: "{{ item }}"
-        state: directory
-        owner: www-data
-        group: www-data
-        mode: "0775"
         recurse: true
-      loop:
-        - /var/www/laravel/storage
-        - /var/www/laravel/bootstrap/cache
 
     # ---------------------------------------------------------------
     # Apache Virtual Host
     # ---------------------------------------------------------------
-    - name: Configure Apache virtual host for Laravel
+    - name: Configure Apache virtual host for WordPress
       copy:
-        dest: /etc/apache2/sites-available/laravel.conf
+        dest: /etc/apache2/sites-available/wordpress.conf
         content: |
           <VirtualHost *:80>
               ServerName localhost
-              DocumentRoot /var/www/laravel/public
+              DocumentRoot /var/www/wordpress
 
-              <Directory /var/www/laravel/public>
+              <Directory /var/www/wordpress>
                   AllowOverride All
                   Require all granted
                   Options -Indexes +FollowSymLinks
               </Directory>
 
-              ErrorLog ${APACHE_LOG_DIR}/laravel-error.log
-              CustomLog ${APACHE_LOG_DIR}/laravel-access.log combined
+              ErrorLog ${APACHE_LOG_DIR}/wordpress-error.log
+              CustomLog ${APACHE_LOG_DIR}/wordpress-access.log combined
           </VirtualHost>
       notify: Restart Apache
 
-    - name: Enable Laravel site
-      shell: a2ensite laravel.conf
+    - name: Enable WordPress site
+      shell: a2ensite wordpress.conf
       notify: Restart Apache
 
-    - name: Disable default Apache site
-      shell: a2dissite 000-default.conf
+    - name: Disable default and old site configs
+      shell: |
+        a2dissite 000-default.conf 2>/dev/null || true
+        a2dissite laravel.conf 2>/dev/null || true
       notify: Restart Apache
 
     - name: Ensure Apache is started and enabled
@@ -276,10 +298,3 @@
       systemd:
         name: apache2
         state: restarted
-
-    - name: Set Laravel permissions
-      file:
-        path: /var/www/laravel
-        owner: www-data
-        group: www-data
-        recurse: true
