@@ -369,9 +369,16 @@ collect_vms() {
         step "Using saved VM sizing and IPs from previous run"
         return
     fi
-    JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
-    DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
-    PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
+    # Only clear IPs for the selected stack — preserve previous IPs for other stacks
+    if [[ "$DEPLOY_JAVA" == "true" ]]; then
+        JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
+    fi
+    if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+        DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
+    fi
+    if [[ "$DEPLOY_PHP" == "true" ]]; then
+        PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
+    fi
 
     if [[ "$ARCH_CHOICE" == "3tier" ]]; then
         echo -e "  ${Y}--- 3-Tier Architecture ---${NC}"
@@ -969,6 +976,45 @@ run_terraform() {
             sed -i "s/^deploy_java   = .*/deploy_java   = $tf_java/" terraform.tfvars
             sed -i "s/^deploy_dotnet = .*/deploy_dotnet = $tf_dotnet/" terraform.tfvars
             sed -i "s/^deploy_php    = .*/deploy_php    = $tf_php/" terraform.tfvars
+
+            # Also restore IPs from state for stacks being preserved but not selected
+            # This guards against IPs defaulting when user only deploys one stack
+            if [[ "$tf_java" == "true" && "$DEPLOY_JAVA" != "true" ]]; then
+                local ip
+                for vm_key in java-fe java-app java-db; do
+                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                    if [[ -n "$ip" ]]; then
+                        local tf_var="${vm_key//-/_}_ip"   # java-fe -> java_fe_ip
+                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
+                        step "  Preserved $vm_key IP: $ip"
+                    fi
+                done
+            fi
+            if [[ "$tf_dotnet" == "true" && "$DEPLOY_DOTNET" != "true" ]]; then
+                local ip
+                for vm_key in dotnet-fe dotnet-app dotnet-db; do
+                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                    if [[ -n "$ip" ]]; then
+                        local tf_var="${vm_key//-/_}_ip"
+                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
+                        step "  Preserved $vm_key IP: $ip"
+                    fi
+                done
+            fi
+            if [[ "$tf_php" == "true" && "$DEPLOY_PHP" != "true" ]]; then
+                local ip
+                for vm_key in php-fe php-app php-db; do
+                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                    if [[ -n "$ip" ]]; then
+                        local tf_var="${vm_key//-/_}_ip"
+                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
+                        step "  Preserved $vm_key IP: $ip"
+                    fi
+                done
+            fi
         fi
     fi
 
