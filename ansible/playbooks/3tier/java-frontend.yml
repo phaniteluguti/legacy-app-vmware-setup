@@ -59,20 +59,25 @@
       environment:
         NODE_OPTIONS: "--max-old-space-size=2048"
 
-    - name: Find Angular dist output directory
-      find:
-        paths: /opt/petclinic-angular/dist
-        file_type: directory
-      register: dist_dirs
+    - name: Find Angular dist output directory (where index.html lives)
+      shell: |
+        # Angular may output to dist/ directly, dist/<project>/, or dist/<project>/browser/
+        if [ -f /opt/petclinic-angular/dist/index.html ]; then
+          echo /opt/petclinic-angular/dist
+        else
+          find /opt/petclinic-angular/dist -name index.html -type f -print -quit | xargs dirname
+        fi
+      register: dist_dir_result
+      changed_when: false
 
     - name: Set dist path fact
       set_fact:
-        angular_dist: "{{ dist_dirs.files[0].path if dist_dirs.files | length > 0 else '/opt/petclinic-angular/dist' }}"
+        angular_dist: "{{ dist_dir_result.stdout | trim }}"
 
     - name: Copy built Angular app to Nginx web root
       shell: |
         rm -rf /var/www/petclinic
-        cp -r {{ angular_dist }} /var/www/petclinic
+        cp -r {{ angular_dist }}/. /var/www/petclinic
         chown -R www-data:www-data /var/www/petclinic
       args:
         executable: /bin/bash
