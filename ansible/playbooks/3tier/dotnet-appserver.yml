@@ -63,6 +63,14 @@
       args:
         creates: /opt/eshop/repo/eShopOnWeb.sln
 
+    - name: Remove environment-specific appsettings overrides
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/eshop/repo/src/Web/appsettings.Docker.json
+        - /opt/eshop/repo/src/Web/appsettings.Development.json
+
     - name: Fix repo ownership
       file:
         path: /opt/eshop/repo
