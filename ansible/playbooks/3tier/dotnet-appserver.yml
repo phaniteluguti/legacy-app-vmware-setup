@@ -58,20 +58,10 @@
       command: git config --global --add safe.directory '*'
       changed_when: false
 
-    - name: Clone eShopOnWeb repository
-      command: git clone https://github.com/NimblePros/eShopOnWeb.git /opt/eshop/repo
+    - name: Clone eShopOnWeb repository (archived .NET 8 version)
+      command: git clone https://github.com/dotnet-architecture/eShopOnWeb.git /opt/eshop/repo
       args:
         creates: /opt/eshop/repo/eShopOnWeb.sln
-
-    - name: Remove global.json to use installed SDK version
-      file:
-        path: /opt/eshop/repo/global.json
-        state: absent
-
-    - name: Downgrade target framework from net10.0 to net8.0 in all csproj files
-      shell: find /opt/eshop/repo -name '*.csproj' -exec sed -i 's/net10\.0/net8.0/g' {} +
-      args:
-        executable: /bin/bash
 
     - name: Fix repo ownership
       file:
