@@ -550,7 +550,7 @@ bash scripts/deploy-all.sh all
 | VM | Hostname | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
 | **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 6) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
+| **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
 ### Windows Single-VM (deploy_mode = windows)
@@ -568,7 +568,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
 | **Java** | Angular + Nginx (:80) | REST API Spring Boot (:9966) | PostgreSQL 15 (:5432) |
-| **.NET** | Nginx reverse proxy (:80) | ASP.NET Kestrel (:5000) | SQL Server Express (:1433) |
+| **.NET** | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
 | **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
 
 ### Windows 3-Tier (deploy_mode = windows-3tier)
@@ -636,8 +636,8 @@ legacy-app-vmware-setup/
 │           ├── java-appserver.yml     # Linux: REST API Spring Boot
 │           ├── java-database.yml      # Linux: PostgreSQL server
 │           ├── dotnet-frontend.yml    # Linux: Nginx reverse proxy
-│           ├── dotnet-appserver.yml   # Linux: ASP.NET Kestrel
-│           ├── dotnet-database.yml    # Linux: SQL Server
+│           ├── dotnet-appserver.yml   # Linux: eShopOnWeb ASP.NET Core 8.0 Kestrel
+│           ├── dotnet-database.yml    # Linux: SQL Server 2022 Express
 │           ├── php-frontend.yml       # Linux: Nginx reverse proxy
 │           ├── php-appserver.yml      # Linux: Laravel artisan
 │           ├── php-database.yml       # Linux: MySQL server
@@ -727,7 +727,7 @@ Azure Portal → Azure Migrate → Create project
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
 | legacy-java-vm | Java 17, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
-| legacy-dotnet-vm | .NET 6, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
+| legacy-dotnet-vm | .NET 8, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
 | legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
 
 **Single-VM Mode (Windows):**
@@ -747,6 +747,14 @@ Azure Portal → Azure Migrate → Create project
 | php-fe (Nginx :80) | → | php-app (:8000) | → | php-db (MySQL :3306) |
 
 Azure Migrate will discover these cross-VM network connections and map them as **application dependencies** — critical for planning which VMs must migrate together.
+
+### 3-Tier Application Details
+
+| Stack | Application | Source | Notes |
+|-------|-------------|--------|-------|
+| **Java** | Spring PetClinic (Angular frontend + REST API) | `github.com/spring-petclinic` | Frontend: Angular SPA via Nginx; API: Spring Boot :9966 |
+| **.NET** | eShopOnWeb (ASP.NET Core 8.0) | `github.com/dotnet-architecture/eShopOnWeb` (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
+| **PHP** | Laravel sample app | `github.com/laravel/laravel` | PHP-FPM behind Nginx; MySQL remote DB |
 
 ---
 
