@@ -17,6 +17,7 @@ DEPLOY_MODES=()
 DEPLOY_JAVA="true"
 DEPLOY_DOTNET="true"
 DEPLOY_PHP="true"
+QUICK_MODE=false
 
 # Colors
 C='\033[0;36m'; G='\033[0;32m'; Y='\033[1;33m'; R='\033[0;31m'; GR='\033[0;90m'; NC='\033[0m'
@@ -241,6 +242,14 @@ check_prerequisites() {
 # ---------------------------------------------------------------------------
 collect_vcenter() {
     header "Step 1/6 — vCenter Connection"
+    if $QUICK_MODE; then
+        VSPHERE_SERVER="$PREV_VSPHERE_SERVER"
+        VSPHERE_USER="$PREV_VSPHERE_USER"
+        VSPHERE_SSL="$PREV_VSPHERE_SSL"
+        step "Using saved: $VSPHERE_SERVER (user: $VSPHERE_USER)"
+        prompt_secret "vCenter Password"; VSPHERE_PASSWORD="$REPLY"
+        return
+    fi
     prompt "vCenter Server FQDN or IP" "$PREV_VSPHERE_SERVER"; VSPHERE_SERVER="$REPLY"
     prompt "vCenter Username" "$PREV_VSPHERE_USER"; VSPHERE_USER="$REPLY"
     prompt_secret "vCenter Password"; VSPHERE_PASSWORD="$REPLY"
@@ -249,6 +258,14 @@ collect_vcenter() {
 
 collect_infra() {
     header "Step 2/6 — vSphere Infrastructure"
+    if $QUICK_MODE; then
+        VSPHERE_DC="$PREV_VSPHERE_DC"; VSPHERE_CLUSTER="$PREV_VSPHERE_CLUSTER"
+        VSPHERE_DS="$PREV_VSPHERE_DS"; VSPHERE_NET="$PREV_VSPHERE_NET"
+        VSPHERE_FOLDER="$PREV_VSPHERE_FOLDER"
+        VM_TEMPLATE="$PREV_VM_TEMPLATE"; WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
+        step "Using saved: DC=$VSPHERE_DC  Cluster=$VSPHERE_CLUSTER  DS=$VSPHERE_DS"
+        return
+    fi
     echo -e "  ${GR}Names must match your vCenter inventory exactly.${NC}"
     prompt "Datacenter name" "$PREV_VSPHERE_DC"; VSPHERE_DC="$REPLY"
     prompt "Compute Cluster name" "$PREV_VSPHERE_CLUSTER"; VSPHERE_CLUSTER="$REPLY"
@@ -270,6 +287,28 @@ collect_infra() {
 
 collect_network() {
     header "Step 3/6 — VM Network Settings"
+    if $QUICK_MODE; then
+        VM_GW="$PREV_VM_GW"; VM_MASK="$PREV_VM_MASK"
+        VM_DOMAIN="$PREV_VM_DOMAIN"; VM_DNS="$PREV_VM_DNS"
+        SSH_USER="$PREV_SSH_USER"; SSH_AUTH_METHOD="$PREV_SSH_AUTH_METHOD"
+        SSH_KEY="$PREV_SSH_KEY"
+        step "Using saved: GW=$VM_GW/$VM_MASK  DNS=$VM_DNS  SSH user=$SSH_USER"
+        if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
+            if [[ "$SSH_AUTH_METHOD" == "key" ]]; then
+                SSH_PASSWORD=""
+            else
+                prompt_secret "SSH password for user '$SSH_USER'"; SSH_PASSWORD="$REPLY"
+            fi
+        else
+            SSH_PASSWORD=""
+        fi
+        if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        else
+            WIN_ADMIN_PASS=""
+        fi
+        return
+    fi
     prompt_ip "Default Gateway IP" "$PREV_VM_GW"; VM_GW="$REPLY"
     prompt "Subnet mask (CIDR bits)" "$PREV_VM_MASK"; VM_MASK="$REPLY"
     prompt "Domain suffix" "$PREV_VM_DOMAIN"; VM_DOMAIN="$REPLY"
@@ -318,7 +357,18 @@ collect_vms() {
     JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
     DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
     PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
-    # Initialize 3-tier IPs to empty
+    # Initialize 3-tier IPs & sizing
+    JAVA_FE_IP="${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_APP_IP="${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_DB_IP="${PREV_JAVA_DB_IP:-10.1.2.22}"
+    DOTNET_FE_IP="${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_APP_IP="${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_DB_IP="${PREV_DOTNET_DB_IP:-10.1.2.25}"
+    PHP_FE_IP="${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_APP_IP="${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_DB_IP="${PREV_PHP_DB_IP:-10.1.2.28}"
+    FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"; FE_DISK="${PREV_FE_DISK:-20}"
+    APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
+    DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
+
+    if $QUICK_MODE; then
+        step "Using saved VM sizing and IPs from previous run"
+        return
+    fi
     JAVA_FE_IP=""; JAVA_APP_IP=""; JAVA_DB_IP=""
     DOTNET_FE_IP=""; DOTNET_APP_IP=""; DOTNET_DB_IP=""
     PHP_FE_IP=""; PHP_APP_IP=""; PHP_DB_IP=""
@@ -439,6 +489,18 @@ collect_apps() {
     PHP_VER="$PREV_PHP_VER"; PHP_REPO="$PREV_PHP_REPO"; PHP_BRANCH="$PREV_PHP_BRANCH"
     MYSQL_ROOT="placeholder"; MYSQL_APP="placeholder"
 
+    if $QUICK_MODE; then
+        step "Using saved app config from previous run"
+        echo -e "  ${GR}Only prompting for database passwords (not saved)${NC}"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && { prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"; }
+        [[ "$DEPLOY_DOTNET" == "true" ]] && { prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"; }
+        if [[ "$DEPLOY_PHP" == "true" ]]; then
+            prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
+            prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
+        fi
+        return
+    fi
+
     if [[ "$DEPLOY_JAVA" == "true" ]]; then
         echo -e "  ${Y}--- Java / PetClinic ---${NC}"
         prompt "  Git repo" "$PREV_PETCLINIC_REPO"; PETCLINIC_REPO="$REPLY"
@@ -471,6 +533,11 @@ collect_apps() {
 
 collect_migrate() {
     header "Step 6/6 — Azure Migrate Options"
+    if $QUICK_MODE; then
+        AZ_AGENT="$PREV_AZ_AGENT"
+        step "Using saved: Azure Migrate Agent = $AZ_AGENT"
+        return
+    fi
     local default_yn; [[ "$PREV_AZ_AGENT" == "true" ]] && default_yn="y" || default_yn="n"
     prompt_yn "Install Azure Migrate Dependency Agent on VMs?" "$default_yn" && AZ_AGENT="true" || AZ_AGENT="false"
 }
@@ -1184,6 +1251,83 @@ main() {
             run_ansible_resume
             run_verify
         done
+        exit 0
+    fi
+
+    # Handle --quick flag: reuse saved config, only prompt for passwords
+    if [[ "${1:-}" == "--quick" || "${1:-}" == "quick" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Quick Mode — Reuse Previous Config${NC}"
+        echo -e "  ${C}     Only prompting for passwords (not saved)${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+
+        if [[ ! -f "$TFVARS_FILE" ]]; then
+            err "No previous config found (terraform.tfvars). Run without --quick first."
+            exit 1
+        fi
+
+        QUICK_MODE=true
+
+        # Restore selections from saved config
+        APP_SELECTION="$PREV_APP_SELECTION"
+        OS_CHOICE="$PREV_OS_CHOICE"
+        ARCH_CHOICE="$PREV_ARCH_CHOICE"
+        DEPLOY_JAVA="$PREV_DEPLOY_JAVA"
+        DEPLOY_DOTNET="$PREV_DEPLOY_DOTNET"
+        DEPLOY_PHP="$PREV_DEPLOY_PHP"
+
+        # Derive deploy modes
+        DEPLOY_MODES=()
+        if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
+            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
+        fi
+        if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
+            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
+        fi
+        DEPLOY_MODE="${DEPLOY_MODES[0]}"
+
+        step "Loaded: App=${APP_SELECTION}  OS=${OS_CHOICE}  Arch=${ARCH_CHOICE}"
+        step "Modes: ${DEPLOY_MODES[*]}"
+        echo ""
+
+        collect_vcenter
+        collect_infra
+        collect_network
+        collect_vms
+        collect_apps
+        collect_migrate
+
+        show_summary
+
+        echo ""
+        prompt_yn "Proceed with these settings?" "y" || { warn "Aborted."; exit 0; }
+
+        header "Saving Configuration Files"
+        write_tfvars
+        write_ansible_vars
+        write_inventory
+
+        echo ""
+        echo -e "  ${G}Files saved. Ready to deploy.${NC}"
+        echo ""
+        echo -e "  ${Y}What would you like to do next?${NC}"
+        echo -e "    ${G}1)${NC} Run full pipeline (Terraform + Ansible + Verify)"
+        echo -e "    ${G}2)${NC} Stop here — I'll run Terraform & Ansible myself later"
+        read -rp "  Choice [2]: " qchoice
+        qchoice="${qchoice:-2}"
+        if [[ "$qchoice" == "1" ]]; then
+            for mode in "${DEPLOY_MODES[@]}"; do
+                DEPLOY_MODE="$mode"
+                write_tfvars; write_inventory
+                run_terraform; run_ansible; run_verify
+            done
+        else
+            step "Config saved. Run manually when ready."
+        fi
         exit 0
     fi
 
