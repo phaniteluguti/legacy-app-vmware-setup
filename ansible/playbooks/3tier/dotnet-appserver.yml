@@ -68,6 +68,11 @@
         path: /opt/eshop/repo/global.json
         state: absent
 
+    - name: Downgrade target framework from net10.0 to net8.0 in all csproj files
+      shell: find /opt/eshop/repo -name '*.csproj' -exec sed -i 's/net10\.0/net8.0/g' {} +
+      args:
+        executable: /bin/bash
+
     - name: Fix repo ownership
       file:
         path: /opt/eshop/repo
