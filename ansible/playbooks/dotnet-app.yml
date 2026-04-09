@@ -67,16 +67,16 @@
     # ---------------------------------------------------------------
     # SQL Server 2022 Express
     # ---------------------------------------------------------------
-    - name: Add SQL Server APT key
-      ansible.builtin.apt_key:
-        url: https://packages.microsoft.com/keys/microsoft.asc
-        state: present
+    - name: Import Microsoft GPG key for SQL Server repo
+      shell: |
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/microsoft-archive-keyring.gpg
 
     - name: Add SQL Server APT repository
-      ansible.builtin.apt_repository:
-        repo: "deb [arch=amd64] https://packages.microsoft.com/ubuntu/{{ ansible_distribution_version }}/mssql-server-2022 {{ ansible_distribution_release }} main"
-        state: present
-        filename: mssql-server-2022
+      copy:
+        dest: /etc/apt/sources.list.d/mssql-server-2022.list
+        content: "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/ubuntu/{{ ansible_distribution_version }}/mssql-server-2022 {{ ansible_distribution_release }} main\n"
 
     - name: Install SQL Server 2022
       apt:
