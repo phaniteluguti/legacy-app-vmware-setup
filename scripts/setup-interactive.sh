@@ -1385,9 +1385,13 @@ main() {
         APP_SELECTION="$PREV_APP_SELECTION"
         OS_CHOICE="$PREV_OS_CHOICE"
         ARCH_CHOICE="$PREV_ARCH_CHOICE"
-        DEPLOY_JAVA="$PREV_DEPLOY_JAVA"
-        DEPLOY_DOTNET="$PREV_DEPLOY_DOTNET"
-        DEPLOY_PHP="$PREV_DEPLOY_PHP"
+        # Derive deploy flags from the wizard app selection (not merged tfvars flags)
+        case "$APP_SELECTION" in
+            java)   DEPLOY_JAVA=true;  DEPLOY_DOTNET=false; DEPLOY_PHP=false ;;
+            dotnet) DEPLOY_JAVA=false; DEPLOY_DOTNET=true;  DEPLOY_PHP=false ;;
+            php)    DEPLOY_JAVA=false; DEPLOY_DOTNET=false; DEPLOY_PHP=true  ;;
+            *)      DEPLOY_JAVA=true;  DEPLOY_DOTNET=true;  DEPLOY_PHP=true  ;;
+        esac
 
         # Derive deploy modes
         DEPLOY_MODES=()
