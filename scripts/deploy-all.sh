@@ -81,9 +81,19 @@ deploy_apps() {
   log "=== Phase 2: Deploying Legacy Apps with Ansible ==="
   cd "$ANSIBLE_DIR"
 
-  # Install required Ansible collections
-  log "Installing Ansible Galaxy collections..."
-  ansible-galaxy collection install community.postgresql community.mysql --force
+  # Install required Ansible collections (skip if already present)
+  local missing=()
+  for col in community.postgresql community.mysql; do
+    if ! ansible-galaxy collection list 2>/dev/null | grep -q "$col"; then
+      missing+=("$col")
+    fi
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    log "Installing Ansible Galaxy collections: ${missing[*]}"
+    ansible-galaxy collection install "${missing[@]}"
+  else
+    log "Ansible Galaxy collections already installed — skipping"
+  fi
 
   log "Running master playbook..."
   ansible-playbook -i inventory/hosts.ini site.yml -v

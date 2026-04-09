@@ -585,8 +585,16 @@ function Invoke-Ansible {
 
     Push-Location $AnsibleDir
     try {
-        Write-Step "Installing Ansible Galaxy collections..."
-        ansible-galaxy collection install community.postgresql community.mysql community.general --force
+        # Only install collections not already present
+        $collections = @("community.postgresql", "community.mysql", "community.general")
+        $installed = ansible-galaxy collection list 2>$null | Out-String
+        $missing = $collections | Where-Object { $installed -notmatch [regex]::Escape($_) }
+        if ($missing.Count -gt 0) {
+            Write-Step "Installing Ansible Galaxy collections: $($missing -join ', ')"
+            ansible-galaxy collection install @missing
+        } else {
+            Write-Step "Ansible Galaxy collections already installed — skipping"
+        }
 
         Write-Step "Running master playbook (this may take 15-30 minutes)..."
         ansible-playbook -i inventory/hosts.ini site.yml -v

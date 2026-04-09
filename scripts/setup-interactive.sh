@@ -992,11 +992,25 @@ run_ansible() {
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
-    step "Installing Ansible Galaxy collections..."
+    # Only install collections that are not already present
+    install_galaxy_if_missing() {
+        local missing=()
+        for col in "$@"; do
+            if ! ansible-galaxy collection list 2>/dev/null | grep -q "$col"; then
+                missing+=("$col")
+            fi
+        done
+        if [[ ${#missing[@]} -gt 0 ]]; then
+            step "Installing Ansible Galaxy collections: ${missing[*]}"
+            ansible-galaxy collection install "${missing[@]}"
+        else
+            step "Ansible Galaxy collections already installed — skipping"
+        fi
+    }
     if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "linux-3tier" ]]; then
-        ansible-galaxy collection install community.postgresql community.mysql community.general --force
+        install_galaxy_if_missing community.postgresql community.mysql community.general
     else
-        ansible-galaxy collection install ansible.windows community.general --force
+        install_galaxy_if_missing ansible.windows community.general
     fi
 
     local max_retries=3
