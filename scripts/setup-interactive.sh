@@ -1202,9 +1202,9 @@ main() {
 
     local vm_count=0
     local apps_count=0
-    [[ "$DEPLOY_JAVA" == "true" ]] && ((apps_count++))
-    [[ "$DEPLOY_DOTNET" == "true" ]] && ((apps_count++))
-    [[ "$DEPLOY_PHP" == "true" ]] && ((apps_count++))
+    [[ "$DEPLOY_JAVA" == "true" ]]   && ((apps_count+=1)) || true
+    [[ "$DEPLOY_DOTNET" == "true" ]] && ((apps_count+=1)) || true
+    [[ "$DEPLOY_PHP" == "true" ]]    && ((apps_count+=1)) || true
     if [[ "$ARCH_CHOICE" == "3tier" ]]; then
         vm_count=$((apps_count * 3))
     else
