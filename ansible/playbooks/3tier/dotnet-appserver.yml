@@ -110,6 +110,13 @@
       args:
         executable: /bin/bash
 
+    - name: Wait for SQL Server on database VM to be reachable
+      wait_for:
+        host: "{{ db_host }}"
+        port: 1433
+        timeout: 60
+        state: started
+
     - name: Create eShopOnWeb systemd service
       copy:
         dest: /etc/systemd/system/eshop-web.service

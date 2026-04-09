@@ -93,6 +93,18 @@
       delay: 5
       until: sql_ready.rc == 0
 
+    - name: Ensure SQL Server TCP port is set to 1433
+      shell: /opt/mssql/bin/mssql-conf set network.tcpport 1433
+      register: tcp_port_result
+      changed_when: "'unchanged' not in tcp_port_result.stdout"
+      notify: Restart SQL Server
+
+    - name: Ensure SQL Server listens on all interfaces
+      shell: /opt/mssql/bin/mssql-conf set network.ipaddress 0.0.0.0
+      register: ip_result
+      changed_when: "'unchanged' not in ip_result.stdout"
+      ignore_errors: true
+
     - name: Create application database
       shell: |
         /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "
@@ -105,3 +117,9 @@
         port: "1433"
         proto: tcp
       ignore_errors: true
+
+  handlers:
+    - name: Restart SQL Server
+      systemd:
+        name: mssql-server
+        state: restarted
