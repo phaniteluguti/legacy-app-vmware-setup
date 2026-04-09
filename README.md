@@ -459,7 +459,7 @@ After the 3-step selection, the wizard collects:
 | vCenter Connection | Server, username, password | `vcenter.lab.local` |
 | vSphere Infrastructure | Datacenter, cluster, datastore, template name(s) | `Datacenter1`, `ubuntu-2204-template` |
 | Network Settings | Gateway, DNS, SSH user, key path, Windows password | `192.168.1.1`, `ubuntu` |
-| VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM (only for selected apps) | `192.168.1.101`, 2 CPU, 4096 MB |
+| VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM; 3-Tier offers same-for-all, per-tier, or recommended defaults | `192.168.1.101`, 2 CPU, 4096 MB |
 | App & DB Config | Git repos, versions, database passwords (only for selected apps) | JDK 17, PostgreSQL password |
 | Azure Migrate | Install dependency agent? | Yes/No |
 
@@ -475,6 +475,12 @@ After confirming the summary, choose a run mode:
 ```
 
 > **Re-running the wizard:** All prompts pre-fill with previously saved values — including app, OS, and architecture selections. Just press Enter to keep them, or type a new value. Passwords are always re-prompted.
+
+> **Quick mode (`--quick`):** If you've already run the wizard once and just want to re-deploy with the same settings, use `--quick` to skip all saved prompts and only enter passwords:
+> ```bash
+> bash scripts/setup-interactive.sh --quick
+> ```
+> This loads your previous app/OS/architecture selections, vCenter, infrastructure, network, VM sizing, IPs, and app config from the saved `terraform.tfvars` and `group_vars/all.yml`. Only passwords are prompted (vCenter, SSH, Windows admin, database passwords) since they are never saved to disk.
 
 > **"Both" OS mode:** The pipeline runs Terraform + Ansible once for each OS. For example, choosing "All apps + Both + 3-Tier" provisions 9 Linux VMs then 9 Windows VMs (18 total).
 
@@ -801,6 +807,7 @@ petclinic.service: Main process exited, code=exited, status=1/FAILURE
 - **Terraform:** `terraform apply` is idempotent — safe to re-run
 - **Ansible:** All playbooks are idempotent — safe to re-run
 - **Wizard:** Running the wizard again overwrites config files, so confirm backup if needed
+- **Quick re-run:** `bash scripts/setup-interactive.sh --quick` — reuses all saved config, only prompts for passwords
 - **Failed run?** Run `bash scripts/setup-interactive.sh --destroy` to clean up, then re-run
 
 ### Resuming after Ansible failure
@@ -845,6 +852,15 @@ UNREACHABLE! => {"msg": "winrm connection error"}
 ---
 
 ## Cleanup
+
+### CLI Flags
+
+| Flag | Description |
+|------|-------------|
+| *(none)* | Full interactive wizard — prompts for everything |
+| `--quick` | Reuse saved config from previous run, only prompt for passwords |
+| `--resume` | Retry failed Ansible hosts without re-running Terraform |
+| `--destroy` | Destroy all VMs across all workspaces |
 
 ### Quick destroy via wizard
 ```bash
