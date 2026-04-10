@@ -81,6 +81,7 @@
       win_copy:
         dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
         content: |
+          database=postgresql
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
@@ -89,6 +90,7 @@
           spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
+          spring.sql.init.continue-on-error=true
 
     - name: Build PetClinic REST API with Maven wrapper
       win_shell: |
