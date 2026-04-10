@@ -92,7 +92,7 @@
               "CatalogConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
               "IdentityConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
             },
-            "CatalogBaseUrl": "http://{{ ansible_host }}:{{ dotnet_app_port }}",
+            "CatalogBaseUrl": "",
             "Logging": {
               "LogLevel": {
                 "Default": "Warning",
@@ -142,7 +142,7 @@
           RestartSec=10
           StandardOutput=journal
           StandardError=journal
-          Environment=ASPNETCORE_ENVIRONMENT=Production
+          Environment=ASPNETCORE_ENVIRONMENT=Docker
           Environment=DOTNET_CLI_HOME=/tmp
 
           [Install]

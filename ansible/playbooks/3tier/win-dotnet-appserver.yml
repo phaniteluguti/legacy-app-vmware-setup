@@ -74,7 +74,7 @@
               "CatalogConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
               "IdentityConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
             },
-            "CatalogBaseUrl": "http://{{ ansible_host }}:{{ dotnet_app_port }}",
+            "CatalogBaseUrl": "",
             "Logging": {
               "LogLevel": {
                 "Default": "Warning",
@@ -139,7 +139,7 @@
 
     - name: Pre-flight test — start eShopOnWeb briefly to check for startup crashes
       win_shell: |
-        $env:ASPNETCORE_ENVIRONMENT = "Production"
+        $env:ASPNETCORE_ENVIRONMENT = "Docker"
         $env:DOTNET_CLI_HOME = "{{ eshop_src }}\temp"
         $env:DOTNET_ROOT = "{{ dotnet_root_dir.stdout | trim }}"
         $proc = Start-Process -FilePath "{{ dotnet_exe.stdout | trim }}" -ArgumentList "{{ eshop_published }}\Web.dll" -WorkingDirectory "{{ eshop_published }}" -PassThru -RedirectStandardError "{{ eshop_logs }}\preflight-stderr.txt" -RedirectStandardOutput "{{ eshop_logs }}\preflight-stdout.txt"
@@ -189,7 +189,7 @@
     - name: Configure NSSM service parameters
       win_shell: |
         nssm set eShopOnWeb AppDirectory "{{ eshop_published }}"
-        nssm set eShopOnWeb AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Production" "DOTNET_CLI_HOME={{ eshop_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
+        nssm set eShopOnWeb AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Docker" "DOTNET_CLI_HOME={{ eshop_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
         nssm set eShopOnWeb AppStdout "{{ eshop_logs }}\stdout.log"
         nssm set eShopOnWeb AppStderr "{{ eshop_logs }}\stderr.log"
         nssm set eShopOnWeb AppStdoutCreationDisposition 4
