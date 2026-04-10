@@ -129,12 +129,12 @@
         path: '{{ iis_site_path }}'
         state: directory
 
+    - name: Clear IIS site directory
+      win_shell: Remove-Item "{{ iis_site_path }}/*" -Recurse -Force -ErrorAction SilentlyContinue
+      changed_when: true
+
     - name: Copy built Angular app to IIS site directory
-      win_shell: |
-        if (Test-Path "{{ iis_site_path }}\\index.html") {
-          Remove-Item "{{ iis_site_path }}\\*" -Recurse -Force
-        }
-        Copy-Item "{{ angular_dist }}\\*" "{{ iis_site_path }}\\" -Recurse -Force
+      win_shell: Copy-Item "{{ angular_dist }}/*" "{{ iis_site_path }}/" -Recurse -Force
       register: copy_result
       changed_when: true
 
