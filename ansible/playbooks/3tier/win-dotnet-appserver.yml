@@ -1,9 +1,9 @@
 ---
 # =============================================================================
-# Windows .NET 3-Tier — App Server VM: IIS + ASP.NET Framework app
-# Connects to SQL Server on the database VM
+# Windows .NET 3-Tier — App Server VM: eShopOnWeb ASP.NET Core 8 (port 5000)
+# Same eShopOnWeb app as Linux, running on Kestrel via NSSM service
 # =============================================================================
-- name: Deploy ASP.NET App Server (Windows .NET 3-Tier)
+- name: Deploy eShopOnWeb App Server (Windows .NET 3-Tier)
   hosts: win_dotnet_appserver
   gather_facts: true
   become: false
@@ -11,163 +11,167 @@
     - ../../group_vars/all.yml
   vars:
     db_host: "{{ hostvars[groups['win_dotnet_database'][0]]['ansible_host'] | default(groups['win_dotnet_database'][0]) }}"
+    eshop_src: C:\Apps\eShopOnWeb
+    eshop_published: C:\Apps\eShopOnWeb\published
+    eshop_logs: C:\Apps\eShopOnWeb\logs
 
   tasks:
-    - name: Wait for SQL Server on database VM to be reachable
+    - name: Install Chocolatey
+      win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install Git and NSSM via Chocolatey
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - nssm
+
+    - name: Install .NET 8 SDK
+      win_chocolatey:
+        name: dotnet-8.0-sdk
+        state: present
+
+    - name: Refresh environment PATH
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        dotnet --version
+      register: dotnet_check
+      changed_when: false
+
+    - name: Create app directories
+      win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - '{{ eshop_src }}'
+        - '{{ eshop_logs }}'
+
+    - name: Clone eShopOnWeb repository
+      win_shell: >
+        & "C:/Program Files/Git/bin/git.exe" clone
+        https://github.com/dotnet-architecture/eShopOnWeb.git
+        "{{ eshop_src }}/repo"
+      args:
+        creates: '{{ eshop_src }}\repo\eShopOnWeb.sln'
+
+    - name: Write appsettings.json for eShopOnWeb
+      win_copy:
+        dest: '{{ eshop_src }}\repo\src\Web\appsettings.json'
+        content: |
+          {
+            "baseUrls": {
+              "apiBase": "http://0.0.0.0:{{ dotnet_app_port }}/api/",
+              "webBase": "http://0.0.0.0:{{ dotnet_app_port }}/"
+            },
+            "ConnectionStrings": {
+              "CatalogConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
+              "IdentityConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
+            },
+            "CatalogBaseUrl": "",
+            "Logging": {
+              "LogLevel": {
+                "Default": "Warning",
+                "Microsoft": "Warning",
+                "System": "Warning"
+              }
+            },
+            "AllowedHosts": "*",
+            "Kestrel": {
+              "Endpoints": {
+                "Http": {
+                  "Url": "http://0.0.0.0:{{ dotnet_app_port }}"
+                }
+              }
+            }
+          }
+
+    - name: Remove environment-specific appsettings overrides
+      win_file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - '{{ eshop_src }}\repo\src\Web\appsettings.Docker.json'
+        - '{{ eshop_src }}\repo\src\Web\appsettings.Development.json'
+
+    - name: Build and publish eShopOnWeb
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ eshop_src }}/repo"
+        dotnet publish src/Web/Web.csproj -c Release -o "{{ eshop_published }}"
+      register: build_result
+      timeout: 600
+
+    - name: Copy appsettings.json to published directory (runtime override)
+      win_copy:
+        src: '{{ eshop_src }}\repo\src\Web\appsettings.json'
+        dest: '{{ eshop_published }}\appsettings.json'
+        remote_src: true
+
+    - name: Wait for SQL Server on database VM
       win_wait_for:
         host: "{{ db_host }}"
         port: 1433
         timeout: 120
         state: started
 
-    - name: Install IIS with ASP.NET 4.5
-      win_feature:
-        name:
-          - Web-Server
-          - Web-Asp-Net45
-          - Web-Net-Ext45
-          - Web-ISAPI-Ext
-          - Web-ISAPI-Filter
-          - Web-Mgmt-Console
-          - Web-Mgmt-Tools
-          - NET-Framework-45-Core
-          - NET-Framework-45-ASPNET
-        state: present
-      register: iis_install
+    - name: Stop existing eShopOnWeb service if running
+      win_shell: nssm stop eShopOnWeb
+      ignore_errors: true
+      changed_when: false
 
-    - name: Reboot if IIS install requires it
-      win_reboot:
-      when: iis_install.reboot_required | default(false)
+    - name: Remove existing NSSM service for clean reinstall
+      win_shell: nssm remove eShopOnWeb confirm
+      ignore_errors: true
+      changed_when: false
 
-    - name: Create application directory
-      win_file:
-        path: C:\inetpub\LegacyMvcApp
-        state: directory
+    - name: Install eShopOnWeb as Windows service via NSSM
+      win_shell: >
+        nssm install eShopOnWeb "{{ eshop_published }}/Web.exe"
+      register: nssm_install
 
-    - name: Create Default.aspx page
-      win_copy:
-        dest: C:\inetpub\LegacyMvcApp\Default.aspx
-        content: |
-          <%@ Page Language="C#" %>
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <title>Legacy MVC App — 3-Tier Architecture</title>
-              <style>
-                  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; padding: 0; background: #f0f0f0; }
-                  .header { background: #0078d4; color: white; padding: 20px 40px; }
-                  .container { max-width: 960px; margin: 40px auto; padding: 0 20px; }
-                  .card { background: white; border-radius: 4px; padding: 30px; margin-bottom: 20px;
-                          box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                  table { width: 100%; border-collapse: collapse; }
-                  table th, table td { text-align: left; padding: 8px 12px; border-bottom: 1px solid #eee; }
-                  table th { background: #f8f8f8; color: #555; }
-                  .badge { display: inline-block; padding: 4px 10px; border-radius: 3px; font-size: 12px; font-weight: 600; }
-                  .badge-green { background: #dff6dd; color: #107c10; }
-                  .badge-blue { background: #deecf9; color: #0078d4; }
-              </style>
-          </head>
-          <body>
-              <div class="header">
-                  <h1>Legacy MVC Application — 3-Tier</h1>
-                  <p>ASP.NET Web Forms (App Server) → SQL Server (Database VM: {{ db_host }})</p>
-              </div>
-              <div class="container">
-                  <div class="card">
-                      <h2>System Information</h2>
-                      <table>
-                          <tr><th>Server Name</th><td><%= Environment.MachineName %></td></tr>
-                          <tr><th>OS Version</th><td><%= Environment.OSVersion %></td></tr>
-                          <tr><th>.NET Version</th><td><%= Environment.Version %></td></tr>
-                          <tr><th>Server Time (UTC)</th><td><%= DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss") %></td></tr>
-                          <tr><th>IIS</th><td><span class="badge badge-green">Running</span></td></tr>
-                          <tr><th>SQL Server</th><td><span class="badge badge-blue">Remote ({{ db_host }})</span></td></tr>
-                      </table>
-                  </div>
-                  <div class="card">
-                      <h2>Database Connectivity</h2>
-                      <%
-                          try {
-                              var connStr = "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;";
-                              using (var conn = new System.Data.SqlClient.SqlConnection(connStr)) {
-                                  conn.Open();
-                                  Response.Write("<p><span class='badge badge-green'>Connected</span> to remote database <strong>" +
-                                      conn.Database + "</strong> on " + conn.DataSource + "</p>");
-                              }
-                          } catch (Exception ex) {
-                              Response.Write("<p style='color:red;'>Connection failed: " + ex.Message + "</p>");
-                          }
-                      %>
-                  </div>
-              </div>
-          </body>
-          </html>
+    - name: Configure NSSM service parameters
+      win_shell: |
+        nssm set eShopOnWeb AppDirectory "{{ eshop_published }}"
+        nssm set eShopOnWeb AppEnvironmentExtra ASPNETCORE_ENVIRONMENT=Production DOTNET_CLI_HOME=C:/Temp
+        nssm set eShopOnWeb AppStdout "{{ eshop_logs }}/stdout.log"
+        nssm set eShopOnWeb AppStderr "{{ eshop_logs }}/stderr.log"
+        nssm set eShopOnWeb AppStdoutCreationDisposition 4
+        nssm set eShopOnWeb AppStderrCreationDisposition 4
+        nssm set eShopOnWeb AppRotateFiles 1
+        nssm set eShopOnWeb AppRotateBytes 10485760
+      changed_when: false
 
-    - name: Create web.config
-      win_copy:
-        dest: C:\inetpub\LegacyMvcApp\web.config
-        content: |
-          <?xml version="1.0" encoding="UTF-8"?>
-          <configuration>
-            <system.web>
-              <compilation targetFramework="4.5" />
-              <httpRuntime targetFramework="4.5" />
-            </system.web>
-            <connectionStrings>
-              <add name="DefaultConnection"
-                   connectionString="Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
-                   providerName="System.Data.SqlClient" />
-            </connectionStrings>
-          </configuration>
-
-    - name: Remove default IIS website
-      win_iis_website:
-        name: "Default Web Site"
-        state: absent
-
-    - name: Create IIS application pool
-      win_iis_webapppool:
-        name: LegacyMvcPool
-        state: started
-        attributes:
-          managedRuntimeVersion: v4.0
-          managedPipelineMode: 0
-
-    - name: Create IIS website
-      win_iis_website:
-        name: LegacyMvcApp
-        state: started
-        port: 80
-        physical_path: C:\inetpub\LegacyMvcApp
-        application_pool: LegacyMvcPool
-
-    - name: Allow HTTP through Windows Firewall
-      win_firewall_rule:
-        name: "HTTP Inbound"
-        localport: 80
-        protocol: tcp
-        direction: in
-        action: allow
-        state: present
-        enabled: true
-
-    - name: Ensure WinRM service is running
+    - name: Start eShopOnWeb service
       win_service:
-        name: WinRM
+        name: eShopOnWeb
         start_mode: auto
         state: started
 
-    - name: Enable RDP
-      win_regedit:
-        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
-        name: fDenyTSConnections
-        data: 0
-        type: dword
+    - name: Wait for eShopOnWeb to start responding
+      win_uri:
+        url: "http://localhost:{{ dotnet_app_port }}/"
+        return_content: false
+        status_code: [200, 302]
+      register: eshop_check
+      retries: 12
+      delay: 10
+      until: eshop_check.status_code is defined
+      ignore_errors: true
 
-    - name: Allow RDP through firewall
+    - name: Show eShopOnWeb startup status
+      debug:
+        msg: "eShopOnWeb is {{ 'running' if eshop_check is succeeded else 'NOT responding — check logs at ' + eshop_logs }}"
+
+    - name: Allow app port through Windows Firewall
       win_firewall_rule:
-        name: "Remote Desktop"
-        localport: 3389
+        name: "eShopOnWeb HTTP"
+        localport: "{{ dotnet_app_port }}"
         protocol: tcp
         direction: in
         action: allow

@@ -1,6 +1,7 @@
 ---
 # =============================================================================
-# Windows .NET 3-Tier — Frontend VM: IIS reverse proxy to app server
+# Windows .NET 3-Tier — Frontend VM: IIS reverse proxy to eShopOnWeb on app server
+# Same eShopOnWeb app as Linux, proxied through IIS (like Nginx on Linux)
 # =============================================================================
 - name: Deploy IIS Frontend (Windows .NET 3-Tier)
   hosts: win_dotnet_frontend
@@ -27,11 +28,9 @@
 
     - name: Install Chocolatey
       win_shell: |
-        if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
-          Set-ExecutionPolicy Bypass -Scope Process -Force
-          [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
-          Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
-        }
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
       args:
         creates: C:\ProgramData\chocolatey\bin\choco.exe
 
@@ -44,26 +43,27 @@
         - iis-arr
 
     - name: Enable ARR proxy globally
-      win_shell: |
-        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
-      register: arr_result
-      changed_when: "'HRESULT' not in arr_result.stderr"
-      ignore_errors: false
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config
+        -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      changed_when: false
+      ignore_errors: true
 
-    - name: Unlock httpErrors section so web.config can override
-      win_shell: |
-        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config -section:system.webServer/httpErrors
+    - name: Unlock httpErrors section
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config
+        -section:system.webServer/httpErrors
       changed_when: false
       ignore_errors: true
 
     - name: Create frontend web directory
       win_file:
-        path: C:\inetpub\DotNetFrontend
+        path: C:\inetpub\eShopFrontend
         state: directory
 
-    - name: Create web.config with reverse proxy rules
+    - name: Create web.config with reverse proxy to eShopOnWeb
       win_copy:
-        dest: C:\inetpub\DotNetFrontend\web.config
+        dest: C:\inetpub\eShopFrontend\web.config
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
@@ -71,9 +71,9 @@
               <httpErrors existingResponse="PassThrough" />
               <rewrite>
                 <rules>
-                  <rule name="ReverseProxy to App Server" stopProcessing="true">
+                  <rule name="ReverseProxy to eShopOnWeb" stopProcessing="true">
                     <match url="(.*)" />
-                    <action type="Rewrite" url="http://{{ app_host }}:80/{R:1}" />
+                    <action type="Rewrite" url="http://{{ app_host }}:{{ dotnet_app_port }}/{R:1}" />
                   </rule>
                 </rules>
               </rewrite>
@@ -85,18 +85,20 @@
         name: "Default Web Site"
         state: absent
 
-    - name: Create IIS application pool
+    - name: Create IIS application pool (No Managed Code)
       win_iis_webapppool:
-        name: DotNetFrontendPool
+        name: eShopFrontendPool
         state: started
+        attributes:
+          managedRuntimeVersion: ''
 
     - name: Create IIS website
       win_iis_website:
-        name: DotNetFrontend
+        name: eShopFrontend
         state: started
         port: 80
-        physical_path: C:\inetpub\DotNetFrontend
-        application_pool: DotNetFrontendPool
+        physical_path: C:\inetpub\eShopFrontend
+        application_pool: eShopFrontendPool
 
     - name: Allow HTTP through Windows Firewall
       win_firewall_rule:
@@ -114,39 +116,16 @@
 
     - name: Verify app server is reachable from frontend
       win_uri:
-        url: "http://{{ app_host }}/"
+        url: "http://{{ app_host }}:{{ dotnet_app_port }}/"
         return_content: false
-        status_code: 200
+        status_code: [200, 302]
       register: app_check
       retries: 5
       delay: 10
-      until: app_check.status_code == 200
+      until: app_check.status_code is defined
       ignore_errors: true
 
     - name: Warn if app server is not reachable
       debug:
-        msg: "WARNING — App server at {{ app_host }} is not responding on port 80. Check IIS on the app server VM."
+        msg: "WARNING — eShopOnWeb at {{ app_host }}:{{ dotnet_app_port }} is not responding. Deploy the app server first."
       when: app_check is failed
-
-    - name: Ensure WinRM service is running
-      win_service:
-        name: WinRM
-        start_mode: auto
-        state: started
-
-    - name: Enable RDP
-      win_regedit:
-        path: HKLM:\System\CurrentControlSet\Control\Terminal Server
-        name: fDenyTSConnections
-        data: 0
-        type: dword
-
-    - name: Allow RDP through firewall
-      win_firewall_rule:
-        name: "Remote Desktop"
-        localport: 3389
-        protocol: tcp
-        direction: in
-        action: allow
-        state: present
-        enabled: true
