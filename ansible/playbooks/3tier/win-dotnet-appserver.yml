@@ -165,8 +165,11 @@
 
     - name: Fail if pre-flight test shows app is not starting
       fail:
-        msg: "eShopOnWeb failed pre-flight test — see output above for crash details"
-      when: preflight.rc is defined and preflight.rc != 0 and "'TCP_TEST: True' not in preflight.stdout"
+        msg: "eShopOnWeb failed pre-flight test - see output above for crash details"
+      when: >
+        preflight.rc is defined and
+        preflight.rc != 0 and
+        'TCP_TEST: True' not in (preflight.stdout | default(''))
 
     - name: Stop existing eShopOnWeb service if running
       win_shell: nssm stop eShopOnWeb
