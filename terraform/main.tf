@@ -360,7 +360,10 @@ resource "vsphere_virtual_machine" "win_vm" {
           "cmd.exe /c winrm set winrm/config/service @{AllowUnencrypted=\"true\"}",
           "cmd.exe /c winrm set winrm/config/service/auth @{Basic=\"true\"}",
           "powershell.exe -Command Enable-PSRemoting -Force",
-          "powershell.exe -Command New-NetFirewallRule -Name WinRM-HTTP -DisplayName 'WinRM HTTP' -Protocol TCP -LocalPort 5985 -Action Allow",
+          "powershell.exe -Command Set-Service WinRM -StartupType Automatic",
+          "powershell.exe -Command Start-Service WinRM",
+          "powershell.exe -Command New-NetFirewallRule -Name WinRM-HTTP -DisplayName 'WinRM HTTP' -Protocol TCP -LocalPort 5985 -Action Allow -ErrorAction SilentlyContinue",
+          "powershell.exe -Command Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True",
         ]
       }
 
@@ -470,7 +473,10 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
           "cmd.exe /c winrm set winrm/config/service @{AllowUnencrypted=\"true\"}",
           "cmd.exe /c winrm set winrm/config/service/auth @{Basic=\"true\"}",
           "powershell.exe -Command Enable-PSRemoting -Force",
-          "powershell.exe -Command New-NetFirewallRule -Name WinRM-HTTP -DisplayName 'WinRM HTTP' -Protocol TCP -LocalPort 5985 -Action Allow",
+          "powershell.exe -Command Set-Service WinRM -StartupType Automatic",
+          "powershell.exe -Command Start-Service WinRM",
+          "powershell.exe -Command New-NetFirewallRule -Name WinRM-HTTP -DisplayName 'WinRM HTTP' -Protocol TCP -LocalPort 5985 -Action Allow -ErrorAction SilentlyContinue",
+          "powershell.exe -Command Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled True",
         ]
       }
 
