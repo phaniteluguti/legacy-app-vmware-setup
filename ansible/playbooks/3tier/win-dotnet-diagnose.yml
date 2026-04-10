@@ -1,0 +1,120 @@
+---
+# Quick diagnostic playbook — run on win_dotnet_appserver to see actual VM state
+- name: Diagnose eShopOnWeb on Windows App Server
+  hosts: win_dotnet_appserver
+  gather_facts: false
+  become: false
+
+  tasks:
+    - name: Check NSSM service status
+      win_shell: nssm status eShopOnWeb
+      register: nssm_status
+      ignore_errors: true
+
+    - name: Get NSSM service config
+      win_shell: |
+        Write-Output "=== Application ==="
+        nssm get eShopOnWeb Application
+        Write-Output "=== AppParameters ==="
+        nssm get eShopOnWeb AppParameters
+        Write-Output "=== AppDirectory ==="
+        nssm get eShopOnWeb AppDirectory
+        Write-Output "=== AppEnvironmentExtra ==="
+        nssm get eShopOnWeb AppEnvironmentExtra
+      register: nssm_config
+      ignore_errors: true
+
+    - name: Check if dotnet process is running
+      win_shell: Get-Process dotnet -ErrorAction SilentlyContinue | Format-Table Id, ProcessName, StartTime, WorkingSet64 -AutoSize
+      register: dotnet_procs
+
+    - name: Check what is listening on port 5000
+      win_shell: netstat -ano | findstr ":5000"
+      register: port_check
+      ignore_errors: true
+
+    - name: Check all listening ports
+      win_shell: netstat -ano | findstr "LISTENING" | findstr /V "127.0.0.1" | Sort-Object
+      register: all_listeners
+      ignore_errors: true
+
+    - name: Read actual appsettings.json in published directory
+      win_shell: Get-Content "C:\Apps\eShopOnWeb\published\appsettings.json" -ErrorAction SilentlyContinue
+      register: actual_appsettings
+
+    - name: Check if Web.dll exists in published dir
+      win_shell: |
+        Write-Output "=== Published directory contents ==="
+        Get-ChildItem "C:\Apps\eShopOnWeb\published" -ErrorAction SilentlyContinue | Select-Object Name, Length, LastWriteTime | Format-Table -AutoSize
+      register: published_dir
+
+    - name: Read stderr log (last 50 lines)
+      win_shell: Get-Content "C:\Apps\eShopOnWeb\logs\stderr.log" -Tail 50 -ErrorAction SilentlyContinue
+      register: stderr_log
+
+    - name: Read stdout log (last 50 lines)
+      win_shell: Get-Content "C:\Apps\eShopOnWeb\logs\stdout.log" -Tail 50 -ErrorAction SilentlyContinue
+      register: stdout_log
+
+    - name: Read preflight logs if they exist
+      win_shell: |
+        Write-Output "=== Preflight STDERR ==="
+        Get-Content "C:\Apps\eShopOnWeb\logs\preflight-stderr.txt" -ErrorAction SilentlyContinue
+        Write-Output "=== Preflight STDOUT ==="
+        Get-Content "C:\Apps\eShopOnWeb\logs\preflight-stdout.txt" -ErrorAction SilentlyContinue
+      register: preflight_logs
+      ignore_errors: true
+
+    - name: Try running dotnet Web.dll manually for 20s and capture output
+      win_shell: |
+        $env:ASPNETCORE_ENVIRONMENT = "Production"
+        $env:DOTNET_CLI_HOME = "C:\Apps\eShopOnWeb\temp"
+        Stop-Process -Name dotnet -Force -ErrorAction SilentlyContinue
+        Start-Sleep -Seconds 2
+        $proc = Start-Process -FilePath "dotnet" -ArgumentList "C:\Apps\eShopOnWeb\published\Web.dll" -WorkingDirectory "C:\Apps\eShopOnWeb\published" -PassThru -RedirectStandardError "C:\Apps\eShopOnWeb\logs\diag-stderr.txt" -RedirectStandardOutput "C:\Apps\eShopOnWeb\logs\diag-stdout.txt"
+        Start-Sleep -Seconds 20
+        $exited = $proc.HasExited
+        $exitCode = $proc.ExitCode
+        $listening = Test-NetConnection -ComputerName localhost -Port 5000 -WarningAction SilentlyContinue
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-Output "PROCESS_EXITED: $exited"
+        Write-Output "EXIT_CODE: $exitCode"
+        Write-Output "PORT_5000_LISTENING: $($listening.TcpTestSucceeded)"
+        Write-Output "=== DIAG STDERR ==="
+        Get-Content "C:\Apps\eShopOnWeb\logs\diag-stderr.txt" -ErrorAction SilentlyContinue
+        Write-Output "=== DIAG STDOUT ==="
+        Get-Content "C:\Apps\eShopOnWeb\logs\diag-stdout.txt" -ErrorAction SilentlyContinue
+      register: manual_test
+      timeout: 60
+      ignore_errors: true
+
+    - name: Check Windows Firewall for port 5000
+      win_shell: Get-NetFirewallRule -DisplayName "*eShop*" -ErrorAction SilentlyContinue | Format-List DisplayName, Enabled, Direction, Action
+      register: firewall_rules
+      ignore_errors: true
+
+    - name: Print all diagnostics
+      debug:
+        msg:
+          - "========== NSSM STATUS =========="
+          - "{{ nssm_status.stdout_lines | default(['(not found)']) }}"
+          - "========== NSSM CONFIG =========="
+          - "{{ nssm_config.stdout_lines | default(['(not found)']) }}"
+          - "========== DOTNET PROCESSES =========="
+          - "{{ dotnet_procs.stdout_lines | default(['(none)']) }}"
+          - "========== PORT 5000 =========="
+          - "{{ port_check.stdout_lines | default(['(nothing on 5000)']) }}"
+          - "========== ALL LISTENERS (non-loopback) =========="
+          - "{{ all_listeners.stdout_lines | default([]) }}"
+          - "========== APPSETTINGS.JSON (published) =========="
+          - "{{ actual_appsettings.stdout_lines | default(['(not found)']) }}"
+          - "========== STDERR LOG =========="
+          - "{{ stderr_log.stdout_lines | default(['(empty)']) }}"
+          - "========== STDOUT LOG =========="
+          - "{{ stdout_log.stdout_lines | default(['(empty)']) }}"
+          - "========== PREFLIGHT LOGS =========="
+          - "{{ preflight_logs.stdout_lines | default(['(none)']) }}"
+          - "========== MANUAL TEST (20s) =========="
+          - "{{ manual_test.stdout_lines | default(['(failed to run)']) }}"
+          - "========== FIREWALL =========="
+          - "{{ firewall_rules.stdout_lines | default(['(no rules found)']) }}"
