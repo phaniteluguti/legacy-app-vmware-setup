@@ -59,9 +59,9 @@
         group: "{{ ansible_user }}"
         recurse: true
 
-    - name: Configure PostgreSQL connection in application-postgres.properties
+    - name: Configure PostgreSQL connection in application-postgresql.properties
       copy:
-        dest: /opt/petclinic-rest/repo/src/main/resources/application-postgres.properties
+        dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
@@ -108,7 +108,7 @@
           Type=simple
           User={{ ansible_user }}
           WorkingDirectory=/opt/petclinic-rest
-          ExecStart=/usr/bin/java -jar /opt/petclinic-rest/petclinic-rest.jar --spring.profiles.active=postgres,spring-data-jpa --server.port={{ petclinic_rest_port }}
+          ExecStart=/usr/bin/java -jar /opt/petclinic-rest/petclinic-rest.jar --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}
           Restart=on-failure
           RestartSec=10
           StandardOutput=journal

@@ -14,6 +14,13 @@
     petclinic_rest_port: 9966
 
   tasks:
+    - name: Wait for PostgreSQL on database VM to be reachable
+      win_wait_for:
+        host: "{{ db_host }}"
+        port: 5432
+        timeout: 120
+        state: started
+
     - name: Install Chocolatey
       win_shell: |
         if (!(Get-Command choco -ErrorAction SilentlyContinue)) {
@@ -72,7 +79,7 @@
 
     - name: Create PostgreSQL application properties
       win_copy:
-        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgres.properties
+        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
         content: |
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
@@ -127,7 +134,7 @@
 
     - name: Install PetClinic REST as a Windows service
       win_shell: |
-        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgres,spring-data-jpa --server.port={{ petclinic_rest_port }}"
+        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}"
         nssm set PetClinicREST AppDirectory "C:\Apps\petclinic-rest"
         nssm set PetClinicREST DisplayName "Spring PetClinic REST API"
         nssm set PetClinicREST Description "Spring PetClinic REST API on PostgreSQL"
