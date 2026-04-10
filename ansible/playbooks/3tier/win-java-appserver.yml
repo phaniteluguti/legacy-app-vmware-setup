@@ -109,26 +109,46 @@
         name: nssm
         state: present
 
-    - name: Check if PetClinic REST service exists
+    - name: Create logs directory
+      win_file:
+        path: C:\Apps\petclinic-rest\logs
+        state: directory
+
+    - name: Stop PetClinic REST service if it exists (for re-provisioning)
       win_service:
         name: PetClinicREST
-      register: petclinic_svc
+        state: stopped
+      ignore_errors: true
+
+    - name: Remove existing PetClinic REST service (for re-provisioning)
+      win_shell: nssm remove PetClinicREST confirm
       ignore_errors: true
 
     - name: Install PetClinic REST as a Windows service
       win_shell: |
-        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgresql --server.port={{ petclinic_rest_port }}"
+        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}"
         nssm set PetClinicREST AppDirectory "C:\Apps\petclinic-rest"
         nssm set PetClinicREST DisplayName "Spring PetClinic REST API"
         nssm set PetClinicREST Description "Spring PetClinic REST API on PostgreSQL"
         nssm set PetClinicREST Start SERVICE_AUTO_START
-      when: petclinic_svc.state is not defined
+        nssm set PetClinicREST AppEnvironmentExtra "JAVA_HOME={{ java_home_path }}"
+        nssm set PetClinicREST AppStdout "C:\Apps\petclinic-rest\logs\stdout.log"
+        nssm set PetClinicREST AppStderr "C:\Apps\petclinic-rest\logs\stderr.log"
+        nssm set PetClinicREST AppStdoutCreationDisposition 4
+        nssm set PetClinicREST AppStderrCreationDisposition 4
+        nssm set PetClinicREST AppRotateFiles 1
+        nssm set PetClinicREST AppRotateBytes 10485760
 
-    - name: Ensure PetClinic REST service is running
+    - name: Start PetClinic REST service
       win_service:
         name: PetClinicREST
         start_mode: auto
         state: started
+
+    - name: Wait for PetClinic REST API to be ready
+      win_wait_for:
+        port: "{{ petclinic_rest_port }}"
+        timeout: 120
 
     - name: Allow PetClinic REST port through Windows Firewall
       win_firewall_rule:

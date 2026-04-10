@@ -45,10 +45,19 @@
         - urlrewrite
         - iis-arr
 
-    - name: Enable ARR proxy
+    - name: Enable ARR proxy globally
       win_shell: |
-        Import-Module WebAdministration
-        Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled" -value "True"
+        # Register the ServerManager module and enable proxy
+        Import-Module WebAdministration -ErrorAction SilentlyContinue
+        # Enable proxy via appcmd as fallback (more reliable than Set-WebConfigurationProperty)
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      register: arr_result
+      changed_when: "'HRESULT' not in arr_result.stderr"
+      ignore_errors: false
+
+    - name: Enable server-level URL Rewrite (preserveHostHeader)
+      win_shell: |
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /preserveHostHeader:"False" /commit:apphost
       changed_when: false
       ignore_errors: true
 
@@ -110,11 +119,12 @@
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
             <system.webServer>
+              <httpErrors existingResponse="PassThrough" />
               <rewrite>
                 <rules>
                   <rule name="Proxy to PetClinic API" stopProcessing="true">
-                    <match url="^petclinic/api/(.*)" />
-                    <action type="Rewrite" url="http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/api/{R:1}" />
+                    <match url="^petclinic/(.*)" />
+                    <action type="Rewrite" url="http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/{R:1}" />
                   </rule>
                 </rules>
               </rewrite>
@@ -153,6 +163,26 @@
         action: allow
         state: present
         enabled: true
+
+    - name: Reset IIS to apply ARR and rewrite changes
+      win_shell: iisreset /restart
+      changed_when: false
+
+    - name: Verify API backend is reachable from frontend
+      win_uri:
+        url: "http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/api/vets"
+        return_content: false
+        status_code: 200
+      register: api_check
+      retries: 10
+      delay: 15
+      until: api_check.status_code == 200
+      ignore_errors: true
+
+    - name: Warn if API backend is not reachable
+      debug:
+        msg: "WARNING — PetClinic REST API at {{ app_host }}:{{ petclinic_rest_port }} is not responding. Check the app server service logs at C:\\Apps\\petclinic-rest\\logs\\"
+      when: api_check is failed
 
     - name: Ensure WinRM service is running
       win_service:
