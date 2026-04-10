@@ -51,6 +51,7 @@
       loop:
         - '{{ eshop_src }}'
         - '{{ eshop_logs }}'
+        - '{{ eshop_src }}\temp'
 
     - name: Clone eShopOnWeb repository
       win_shell: >
@@ -124,12 +125,48 @@
       register: dotnet_exe
       changed_when: false
 
+    - name: Detect dotnet root directory
+      win_shell: Split-Path "{{ dotnet_exe.stdout | trim }}"
+      register: dotnet_root_dir
+      changed_when: false
+
     - name: Wait for SQL Server on database VM
       win_wait_for:
         host: "{{ db_host }}"
         port: 1433
         timeout: 120
         state: started
+
+    - name: Pre-flight test — start eShopOnWeb briefly to check for startup crashes
+      win_shell: |
+        $env:ASPNETCORE_ENVIRONMENT = "Production"
+        $env:DOTNET_CLI_HOME = "{{ eshop_src }}\temp"
+        $env:DOTNET_ROOT = "{{ dotnet_root_dir.stdout | trim }}"
+        $proc = Start-Process -FilePath "{{ dotnet_exe.stdout | trim }}" -ArgumentList "{{ eshop_published }}\Web.dll" -WorkingDirectory "{{ eshop_published }}" -PassThru -RedirectStandardError "{{ eshop_logs }}\preflight-stderr.txt" -RedirectStandardOutput "{{ eshop_logs }}\preflight-stdout.txt"
+        Start-Sleep -Seconds 15
+        $listening = Test-NetConnection -ComputerName localhost -Port {{ dotnet_app_port }} -WarningAction SilentlyContinue
+        $hasExited = $proc.HasExited
+        $exitCode = $proc.ExitCode
+        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
+        Write-Output "TCP_TEST: $($listening.TcpTestSucceeded)"
+        Write-Output "PROCESS_EXITED: $hasExited"
+        Write-Output "EXIT_CODE: $exitCode"
+        Write-Output "=== STDERR ==="
+        Get-Content "{{ eshop_logs }}\preflight-stderr.txt" -ErrorAction SilentlyContinue
+        Write-Output "=== STDOUT ==="
+        Get-Content "{{ eshop_logs }}\preflight-stdout.txt" -ErrorAction SilentlyContinue
+      register: preflight
+      timeout: 60
+      ignore_errors: true
+
+    - name: Show pre-flight result
+      debug:
+        msg: "{{ preflight.stdout_lines }}"
+
+    - name: Fail if pre-flight test shows app is not starting
+      fail:
+        msg: "eShopOnWeb failed pre-flight test — see output above for crash details"
+      when: preflight.rc is defined and preflight.rc != 0 and "'TCP_TEST: True' not in preflight.stdout"
 
     - name: Stop existing eShopOnWeb service if running
       win_shell: nssm stop eShopOnWeb
@@ -144,14 +181,14 @@
     - name: Install eShopOnWeb as Windows service via NSSM
       win_shell: >
         nssm install eShopOnWeb "{{ dotnet_exe.stdout | trim }}"
-        "{{ eshop_published }}/Web.dll"
+        "{{ eshop_published }}\Web.dll"
 
     - name: Configure NSSM service parameters
       win_shell: |
         nssm set eShopOnWeb AppDirectory "{{ eshop_published }}"
-        nssm set eShopOnWeb AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Production"
-        nssm set eShopOnWeb AppStdout "{{ eshop_logs }}/stdout.log"
-        nssm set eShopOnWeb AppStderr "{{ eshop_logs }}/stderr.log"
+        nssm set eShopOnWeb AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Production" "DOTNET_CLI_HOME={{ eshop_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
+        nssm set eShopOnWeb AppStdout "{{ eshop_logs }}\stdout.log"
+        nssm set eShopOnWeb AppStderr "{{ eshop_logs }}\stderr.log"
         nssm set eShopOnWeb AppStdoutCreationDisposition 4
         nssm set eShopOnWeb AppStderrCreationDisposition 4
         nssm set eShopOnWeb AppRotateFiles 1
@@ -187,14 +224,14 @@
 
     - name: Show NSSM stderr log if service failed to start
       win_shell: >
-        Get-Content "{{ eshop_logs }}/stderr.log" -Tail 50 -ErrorAction SilentlyContinue
+        Get-Content "{{ eshop_logs }}\stderr.log" -Tail 50 -ErrorAction SilentlyContinue
       register: stderr_log
       changed_when: false
       when: eshop_check is failed
 
     - name: Show NSSM stdout log if service failed to start
       win_shell: >
-        Get-Content "{{ eshop_logs }}/stdout.log" -Tail 50 -ErrorAction SilentlyContinue
+        Get-Content "{{ eshop_logs }}\stdout.log" -Tail 50 -ErrorAction SilentlyContinue
       register: stdout_log
       changed_when: false
       when: eshop_check is failed
