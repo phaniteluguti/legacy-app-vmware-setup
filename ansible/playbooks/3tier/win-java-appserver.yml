@@ -72,7 +72,7 @@
 
     - name: Create PostgreSQL application properties
       win_copy:
-        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
+        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgres.properties
         content: |
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
@@ -95,7 +95,8 @@
     - name: Find the built JAR file
       win_find:
         paths: C:\Apps\petclinic-rest\target
-        patterns: "*.jar"
+        patterns: "spring-petclinic-rest*.jar"
+        excludes: "*.original,*-sources.jar,*-javadoc.jar"
         file_type: file
       register: jar_files
 
@@ -126,7 +127,7 @@
 
     - name: Install PetClinic REST as a Windows service
       win_shell: |
-        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}"
+        nssm install PetClinicREST "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgres,spring-data-jpa --server.port={{ petclinic_rest_port }}"
         nssm set PetClinicREST AppDirectory "C:\Apps\petclinic-rest"
         nssm set PetClinicREST DisplayName "Spring PetClinic REST API"
         nssm set PetClinicREST Description "Spring PetClinic REST API on PostgreSQL"
@@ -148,7 +149,40 @@
     - name: Wait for PetClinic REST API to be ready
       win_wait_for:
         port: "{{ petclinic_rest_port }}"
-        timeout: 120
+        timeout: 180
+      register: wait_result
+      ignore_errors: true
+
+    - name: Show service status if startup failed
+      win_shell: |
+        Write-Output "=== Service Status ==="
+        Get-Service PetClinicREST | Format-List *
+        Write-Output ""
+        Write-Output "=== Last 50 lines of stderr.log ==="
+        if (Test-Path C:\Apps\petclinic-rest\logs\stderr.log) {
+          Get-Content C:\Apps\petclinic-rest\logs\stderr.log -Tail 50
+        } else {
+          Write-Output "(no stderr.log found)"
+        }
+        Write-Output ""
+        Write-Output "=== Last 50 lines of stdout.log ==="
+        if (Test-Path C:\Apps\petclinic-rest\logs\stdout.log) {
+          Get-Content C:\Apps\petclinic-rest\logs\stdout.log -Tail 50
+        } else {
+          Write-Output "(no stdout.log found)"
+        }
+      register: debug_output
+      when: wait_result is failed
+
+    - name: Display service debug info
+      debug:
+        var: debug_output.stdout_lines
+      when: wait_result is failed
+
+    - name: Fail if PetClinic REST API did not start
+      fail:
+        msg: "PetClinic REST service failed to start on port {{ petclinic_rest_port }}. Check logs above."
+      when: wait_result is failed
 
     - name: Allow PetClinic REST port through Windows Firewall
       win_firewall_rule:
