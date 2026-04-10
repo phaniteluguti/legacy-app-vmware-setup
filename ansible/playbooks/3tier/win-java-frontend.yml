@@ -141,10 +141,13 @@
         name: "Default Web Site"
         state: absent
 
-    - name: Create IIS application pool
+    - name: Create IIS application pool (No Managed Code)
       win_iis_webapppool:
         name: PetClinicFrontendPool
         state: started
+        attributes:
+          managedRuntimeVersion: ''
+          managedPipelineMode: 'Integrated'
 
     - name: Create IIS website
       win_iis_website:
@@ -167,6 +170,42 @@
     - name: Reset IIS to apply ARR and rewrite changes
       win_shell: iisreset /restart
       changed_when: false
+
+    - name: Smoke-test local index.html via IIS
+      win_uri:
+        url: http://localhost/
+        return_content: false
+        status_code: 200
+      register: local_check
+      retries: 3
+      delay: 5
+      until: local_check.status_code == 200
+      ignore_errors: true
+
+    - name: Dump IIS error details if smoke-test failed
+      win_shell: |
+        Write-Output "=== IIS Sites ==="
+        & "$env:windir\system32\inetsrv\appcmd.exe" list site
+        Write-Output ""
+        Write-Output "=== App Pools ==="
+        & "$env:windir\system32\inetsrv\appcmd.exe" list apppool
+        Write-Output ""
+        Write-Output "=== Last 20 lines of IIS error log ==="
+        $logDir = "$env:SystemDrive\inetpub\logs\LogFiles"
+        $latestLog = Get-ChildItem $logDir -Recurse -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($latestLog) { Get-Content $latestLog.FullName -Tail 20 } else { Write-Output '(no IIS log found)' }
+        Write-Output ""
+        Write-Output "=== HTTP Error Log ==="
+        $httpErrDir = "$env:SystemRoot\System32\LogFiles\HTTPERR"
+        $latestHttpErr = Get-ChildItem $httpErrDir -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($latestHttpErr) { Get-Content $latestHttpErr.FullName -Tail 20 } else { Write-Output '(no HTTPERR log found)' }
+      register: iis_diag
+      when: local_check is failed
+
+    - name: Display IIS diagnostics
+      debug:
+        var: iis_diag.stdout_lines
+      when: local_check is defined and local_check is failed
 
     - name: Verify API backend is reachable from frontend
       win_uri:
