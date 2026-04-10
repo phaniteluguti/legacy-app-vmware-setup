@@ -161,12 +161,24 @@
       register: eshop_check
       retries: 12
       delay: 10
-      until: eshop_check.status_code is defined
+      until: eshop_check.status_code is defined and eshop_check.status_code in [200, 302]
       ignore_errors: true
 
     - name: Show eShopOnWeb startup status
       debug:
         msg: "eShopOnWeb is {{ 'running' if eshop_check is succeeded else 'NOT responding — check logs at ' + eshop_logs }}"
+
+    - name: Show NSSM stderr log if service failed to start
+      win_shell: >
+        Get-Content "{{ eshop_logs }}/stderr.log" -Tail 40 -ErrorAction SilentlyContinue
+      register: stderr_log
+      changed_when: false
+      when: eshop_check is failed
+
+    - name: Display stderr log
+      debug:
+        msg: "{{ stderr_log.stdout_lines | default(['(no stderr log found)']) }}"
+      when: eshop_check is failed
 
     - name: Allow app port through Windows Firewall
       win_firewall_rule:

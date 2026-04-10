@@ -198,7 +198,7 @@
       register: laravel_check
       retries: 12
       delay: 10
-      until: laravel_check.status_code is defined
+      until: laravel_check.status_code is defined and laravel_check.status_code in [200, 302]
       ignore_errors: true
 
     - name: Show Laravel startup status
