@@ -75,6 +75,33 @@
         start_mode: auto
         state: started
 
+    - name: Wait for SQL Server to be ready
+      win_command: >
+        sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}"
+        -Q "SELECT 1"
+      register: sql_ready
+      retries: 12
+      delay: 10
+      until: sql_ready.rc == 0
+      changed_when: false
+
+    - name: Ensure SQL Server TCP/IP protocol is enabled
+      win_shell: |
+        Import-Module SQLPS -DisableNameChecking -ErrorAction SilentlyContinue
+        $wmi = New-Object Microsoft.SqlServer.Management.Smo.Wmi.ManagedComputer $env:COMPUTERNAME
+        $tcp = $wmi.ServerInstances['MSSQLSERVER'].ServerProtocols['Tcp']
+        if (-not $tcp.IsEnabled) {
+          $tcp.IsEnabled = $true
+          $tcp.Alter()
+          Restart-Service MSSQLSERVER -Force
+          Write-Output "TCP enabled and service restarted"
+        } else {
+          Write-Output "TCP already enabled"
+        }
+      register: tcp_result
+      changed_when: "'restarted' in tcp_result.stdout"
+      ignore_errors: true
+
     - name: Create application database
       win_command: >
         sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}"

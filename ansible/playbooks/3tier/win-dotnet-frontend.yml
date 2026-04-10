@@ -43,12 +43,12 @@
         - urlrewrite
         - iis-arr
 
-    - name: Enable ARR proxy
+    - name: Enable ARR proxy globally
       win_shell: |
-        Import-Module WebAdministration
-        Set-WebConfigurationProperty -pspath 'MACHINE/WEBROOT/APPHOST' -filter "system.webServer/proxy" -name "enabled" -value "True"
-      changed_when: false
-      ignore_errors: true
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      register: arr_result
+      changed_when: "'HRESULT' not in arr_result.stderr"
+      ignore_errors: false
 
     - name: Create frontend web directory
       win_file:
@@ -62,6 +62,7 @@
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
             <system.webServer>
+              <httpErrors existingResponse="PassThrough" />
               <rewrite>
                 <rules>
                   <rule name="ReverseProxy to App Server" stopProcessing="true">
@@ -100,6 +101,26 @@
         action: allow
         state: present
         enabled: true
+
+    - name: Reset IIS to apply ARR and rewrite changes
+      win_shell: iisreset /restart
+      changed_when: false
+
+    - name: Verify app server is reachable from frontend
+      win_uri:
+        url: "http://{{ app_host }}/"
+        return_content: false
+        status_code: 200
+      register: app_check
+      retries: 5
+      delay: 10
+      until: app_check.status_code == 200
+      ignore_errors: true
+
+    - name: Warn if app server is not reachable
+      debug:
+        msg: "WARNING — App server at {{ app_host }} is not responding on port 80. Check IIS on the app server VM."
+      when: app_check is failed
 
     - name: Ensure WinRM service is running
       win_service:

@@ -13,6 +13,13 @@
     db_host: "{{ hostvars[groups['win_dotnet_database'][0]]['ansible_host'] | default(groups['win_dotnet_database'][0]) }}"
 
   tasks:
+    - name: Wait for SQL Server on database VM to be reachable
+      win_wait_for:
+        host: "{{ db_host }}"
+        port: 1433
+        timeout: 120
+        state: started
+
     - name: Install IIS with ASP.NET 4.5
       win_feature:
         name:
@@ -81,7 +88,7 @@
                       <h2>Database Connectivity</h2>
                       <%
                           try {
-                              var connStr = "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};";
+                              var connStr = "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;";
                               using (var conn = new System.Data.SqlClient.SqlConnection(connStr)) {
                                   conn.Open();
                                   Response.Write("<p><span class='badge badge-green'>Connected</span> to remote database <strong>" +
@@ -108,7 +115,7 @@
             </system.web>
             <connectionStrings>
               <add name="DefaultConnection"
-                   connectionString="Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};"
+                   connectionString="Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
                    providerName="System.Data.SqlClient" />
             </connectionStrings>
           </configuration>
