@@ -1082,7 +1082,7 @@ run_terraform() {
                 local ip
                 for vm_key in java-fe java-app java-db; do
                     ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
                     if [[ -n "$ip" ]]; then
                         local tf_var="${vm_key//-/_}_ip"   # java-fe -> java_fe_ip
                         sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
@@ -1094,7 +1094,7 @@ run_terraform() {
                 local ip
                 for vm_key in dotnet-fe dotnet-app dotnet-db; do
                     ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
                     if [[ -n "$ip" ]]; then
                         local tf_var="${vm_key//-/_}_ip"
                         sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
@@ -1106,7 +1106,7 @@ run_terraform() {
                 local ip
                 for vm_key in php-fe php-app php-db; do
                     ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
                     if [[ -n "$ip" ]]; then
                         local tf_var="${vm_key//-/_}_ip"
                         sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
