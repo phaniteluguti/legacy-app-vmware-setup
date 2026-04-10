@@ -61,6 +61,12 @@
       changed_when: false
       ignore_errors: true
 
+    - name: Unlock httpErrors section so web.config can override
+      win_shell: |
+        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config -section:system.webServer/httpErrors
+      changed_when: false
+      ignore_errors: true
+
     - name: Create frontend web directory
       win_file:
         path: C:\inetpub\PetClinicFrontend
