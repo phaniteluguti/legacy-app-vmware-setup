@@ -134,11 +134,6 @@
                   </rule>
                 </rules>
               </rewrite>
-              <defaultDocument>
-                <files>
-                  <add value="index.html" />
-                </files>
-              </defaultDocument>
             </system.webServer>
           </configuration>
 
