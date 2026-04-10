@@ -74,7 +74,7 @@
               "CatalogConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
               "IdentityConnection": "Server={{ db_host }};Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
             },
-            "CatalogBaseUrl": "http://localhost:{{ dotnet_app_port }}",
+            "CatalogBaseUrl": "http://{{ ansible_host }}:{{ dotnet_app_port }}",
             "Logging": {
               "LogLevel": {
                 "Default": "Warning",
