@@ -5,6 +5,27 @@
 # Usage: ansible-playbook -i inventory/hosts.ini playbooks/3tier/site-3tier-win.yml
 # =============================================================================
 
+# --- Phase 0: Wait for WinRM on all Windows 3-tier VMs ---
+- name: Wait for WinRM connectivity on Windows 3-tier VMs
+  hosts: win_servers_3tier
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Wait for WinRM port 5985 to be reachable
+      delegate_to: localhost
+      wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: 5985
+        timeout: 300
+        delay: 10
+        state: started
+
+    - name: Wait for WinRM connection to succeed
+      wait_for_connection:
+        timeout: 300
+        delay: 5
+        sleep: 10
+
 # --- Phase 1: Databases (must come first) ---
 - import_playbook: win-java-database.yml
 - import_playbook: win-dotnet-database.yml

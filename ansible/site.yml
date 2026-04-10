@@ -40,6 +40,27 @@
 - import_playbook: playbooks/dotnet-app.yml
 - import_playbook: playbooks/php-app.yml
 
+# --- Wait for WinRM on all Windows VMs (single-VM + 3-tier) ---
+- name: Wait for WinRM connectivity on Windows VMs
+  hosts: win_servers,win_servers_3tier
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Wait for WinRM port 5985 to be reachable
+      delegate_to: localhost
+      wait_for:
+        host: "{{ ansible_host | default(inventory_hostname) }}"
+        port: 5985
+        timeout: 300
+        delay: 10
+        state: started
+
+    - name: Wait for WinRM connection to succeed
+      wait_for_connection:
+        timeout: 300
+        delay: 5
+        sleep: 10
+
 # Deploy each application stack (Windows single-VM)
 - import_playbook: playbooks/win-java-petclinic.yml
 - import_playbook: playbooks/win-iis-app.yml

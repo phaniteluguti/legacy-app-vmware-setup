@@ -353,8 +353,10 @@ resource "vsphere_virtual_machine" "win_vm" {
 
     customize {
       windows_options {
-        computer_name  = each.value.computer_name
-        admin_password = var.win_admin_password
+        computer_name    = each.value.computer_name
+        admin_password   = var.win_admin_password
+        auto_logon       = true
+        auto_logon_count = 1
         run_once_command_list = [
           "cmd.exe /c winrm quickconfig -force",
           "cmd.exe /c winrm set winrm/config/service @{AllowUnencrypted=\"true\"}",
@@ -466,8 +468,10 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
 
     customize {
       windows_options {
-        computer_name  = each.value.computer_name
-        admin_password = var.win_admin_password
+        computer_name    = each.value.computer_name
+        admin_password   = var.win_admin_password
+        auto_logon       = true
+        auto_logon_count = 1
         run_once_command_list = [
           "cmd.exe /c winrm quickconfig -force",
           "cmd.exe /c winrm set winrm/config/service @{AllowUnencrypted=\"true\"}",
