@@ -77,10 +77,10 @@
       args:
         creates: C:\Apps\petclinic-rest\pom.xml
 
-    - name: Create PostgreSQL application properties
+    - name: Create PostgreSQL application properties (source — for future builds)
       win_copy:
         dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
-        content: |
+        content: &postgres_props |
           database=postgresql
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
@@ -91,6 +91,18 @@
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
           spring.sql.init.continue-on-error=true
+      register: props_source
+
+    - name: Create PostgreSQL application properties (external — overrides JAR)
+      win_copy:
+        dest: C:\Apps\petclinic-rest\application-postgresql.properties
+        content: *postgres_props
+
+    - name: Remove target to force rebuild when properties changed
+      win_file:
+        path: C:\Apps\petclinic-rest\target
+        state: absent
+      when: props_source is changed
 
     - name: Build PetClinic REST API with Maven wrapper
       win_shell: |
