@@ -1528,14 +1528,21 @@ main() {
         echo ""
         echo -e "  ${Y}What would you like to do next?${NC}"
         echo -e "    ${G}1)${NC} Run full pipeline (Terraform + Ansible + Verify)"
-        echo -e "    ${G}2)${NC} Stop here — I'll run Terraform & Ansible myself later"
-        read -rp "  Choice [2]: " qchoice
-        qchoice="${qchoice:-2}"
+        echo -e "    ${G}2)${NC} Ansible only — skip Terraform, re-run playbooks on existing VMs"
+        echo -e "    ${G}3)${NC} Stop here — I'll run Terraform & Ansible myself later"
+        read -rp "  Choice [3]: " qchoice
+        qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 write_tfvars; write_inventory
                 run_terraform; run_ansible; run_verify
+            done
+        elif [[ "$qchoice" == "2" ]]; then
+            for mode in "${DEPLOY_MODES[@]}"; do
+                DEPLOY_MODE="$mode"
+                write_tfvars; write_inventory
+                run_ansible; run_verify
             done
         else
             step "Config saved. Run manually when ready."
