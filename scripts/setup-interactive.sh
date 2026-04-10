@@ -1260,12 +1260,12 @@ run_verify() {
         )
         [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(
             "Win .NET Frontend (IIS+ARR)|$DOTNET_FE_IP|80"
-            "Win .NET App Server (IIS)|$DOTNET_APP_IP|80"
+            "Win .NET App Server (Kestrel)|$DOTNET_APP_IP|5000"
             "Win .NET Database (SQL Server)|$DOTNET_DB_IP|1433"
         )
         [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "Win PHP Frontend (IIS+ARR)|$PHP_FE_IP|80"
-            "Win PHP App Server (IIS+PHP)|$PHP_APP_IP|80"
+            "Win PHP App Server (Laravel)|$PHP_APP_IP|8000"
             "Win PHP Database (MySQL)|$PHP_DB_IP|3306"
         )
     fi
