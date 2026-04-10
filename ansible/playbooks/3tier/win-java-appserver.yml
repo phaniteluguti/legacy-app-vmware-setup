@@ -103,14 +103,17 @@
       win_find:
         paths: C:\Apps\petclinic-rest\target
         patterns: "spring-petclinic-rest*.jar"
-        excludes: "*.original,*-sources.jar,*-javadoc.jar"
         file_type: file
-      register: jar_files
+      register: jar_files_raw
+
+    - name: Filter out non-runnable JARs
+      set_fact:
+        jar_files_filtered: "{{ jar_files_raw.files | rejectattr('path', 'search', '\\.original$') | rejectattr('path', 'search', '-sources\\.jar$') | rejectattr('path', 'search', '-javadoc\\.jar$') | list }}"
 
     - name: Set JAR path fact
       set_fact:
-        petclinic_jar: "{{ jar_files.files[0].path }}"
-      when: jar_files.files | length > 0
+        petclinic_jar: "{{ jar_files_filtered[0].path }}"
+      when: jar_files_filtered | length > 0
 
     - name: Install NSSM
       win_chocolatey:
