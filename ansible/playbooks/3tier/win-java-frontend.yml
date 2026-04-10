@@ -1,7 +1,7 @@
 ---
 # =============================================================================
-# Windows Java 3-Tier — Frontend VM: IIS reverse proxy to REST API
-# Proxies requests to PetClinic REST API on app-server VM (port 9966)
+# Windows Java 3-Tier — Frontend VM: IIS serving Angular SPA + reverse proxy
+# Same Angular UI as Linux, proxies API to PetClinic REST on app-server VM
 # =============================================================================
 - name: Deploy IIS Frontend (Windows Java 3-Tier)
   hosts: win_java_frontend
@@ -12,8 +12,11 @@
   vars:
     app_host: "{{ hostvars[groups['win_java_appserver'][0]]['ansible_host'] | default(groups['win_java_appserver'][0]) }}"
     petclinic_rest_port: 9966
+    angular_src: C:\Apps\petclinic-angular
+    iis_site_path: C:\inetpub\PetClinicFrontend
 
   tasks:
+    # --- IIS + modules ---
     - name: Install IIS with required features
       win_feature:
         name:
@@ -37,25 +40,24 @@
       args:
         creates: C:\ProgramData\chocolatey\bin\choco.exe
 
-    - name: Install IIS URL Rewrite and ARR modules
+    - name: Install IIS URL Rewrite, ARR, Node.js and Git
       win_chocolatey:
         name: "{{ item }}"
         state: present
       loop:
         - urlrewrite
         - iis-arr
+        - nodejs-lts
+        - git
 
     - name: Enable ARR proxy globally
       win_shell: |
-        # Register the ServerManager module and enable proxy
-        Import-Module WebAdministration -ErrorAction SilentlyContinue
-        # Enable proxy via appcmd as fallback (more reliable than Set-WebConfigurationProperty)
         & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
       register: arr_result
       changed_when: "'HRESULT' not in arr_result.stderr"
       ignore_errors: false
 
-    - name: Enable server-level URL Rewrite (preserveHostHeader)
+    - name: Set ARR preserveHostHeader to false
       win_shell: |
         & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /preserveHostHeader:"False" /commit:apphost
       changed_when: false
@@ -67,61 +69,78 @@
       changed_when: false
       ignore_errors: true
 
-    - name: Create frontend web directory
+    # --- Build Angular SPA (same as Linux) ---
+    - name: Clone spring-petclinic-angular repository
+      win_shell: |
+        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-petclinic/spring-petclinic-angular.git {{ angular_src }}
+      args:
+        creates: '{{ angular_src }}\package.json'
+
+    - name: Refresh environment PATH (pick up Node.js)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        node --version
+        npm --version
+      register: node_check
+      changed_when: false
+
+    - name: Install npm dependencies
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ angular_src }}"
+        npm install
+      args:
+        creates: '{{ angular_src }}\node_modules'
+      timeout: 600
+
+    - name: Build Angular app for production
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:NODE_OPTIONS = "--max-old-space-size=2048"
+        Set-Location "{{ angular_src }}"
+        npx ng build --configuration production
+      args:
+        creates: '{{ angular_src }}\dist'
+      timeout: 600
+
+    - name: Find Angular dist output directory (where index.html lives)
+      win_shell: |
+        $distRoot = "{{ angular_src }}\dist"
+        if (Test-Path "$distRoot\index.html") {
+          Write-Output $distRoot
+        } else {
+          $indexFile = Get-ChildItem $distRoot -Recurse -Filter index.html -File | Select-Object -First 1
+          if ($indexFile) {
+            Write-Output $indexFile.DirectoryName
+          } else {
+            Write-Output $distRoot
+          }
+        }
+      register: dist_dir_result
+      changed_when: false
+
+    - name: Set dist path fact
+      set_fact:
+        angular_dist: "{{ dist_dir_result.stdout | trim }}"
+
+    # --- Deploy to IIS ---
+    - name: Create IIS site directory
       win_file:
-        path: C:\inetpub\PetClinicFrontend
+        path: '{{ iis_site_path }}'
         state: directory
 
-    - name: Create index.html landing page
-      win_copy:
-        dest: C:\inetpub\PetClinicFrontend\index.html
-        content: |
-          <!DOCTYPE html>
-          <html>
-          <head>
-              <meta charset="UTF-8">
-              <title>PetClinic - 3-Tier Frontend</title>
-              <style>
-                  body { font-family: 'Segoe UI', Arial, sans-serif; margin: 0; background: #f5f5f5; }
-                  .header { background: #34a853; color: white; padding: 20px 40px; }
-                  .container { max-width: 960px; margin: 40px auto; padding: 0 20px; }
-                  .card { background: white; border-radius: 4px; padding: 30px; margin-bottom: 20px;
-                          box-shadow: 0 2px 4px rgba(0,0,0,0.1); }
-                  a { color: #1a73e8; }
-              </style>
-          </head>
-          <body>
-              <div class="header">
-                  <h1>Spring PetClinic — 3-Tier Architecture</h1>
-                  <p>Frontend (IIS) → App Server (REST API) → Database (PostgreSQL)</p>
-              </div>
-              <div class="container">
-                  <div class="card">
-                      <h2>PetClinic REST API</h2>
-                      <p>API is served from: <a href="/petclinic/api/owners">{{ app_host }}:{{ petclinic_rest_port }}</a></p>
-                      <p><a href="/petclinic/api/vets">View Vets (API)</a> |
-                         <a href="/petclinic/api/owners">View Owners (API)</a></p>
-                  </div>
-                  <div class="card">
-                      <h2>Architecture</h2>
-                      <table style="width:100%;border-collapse:collapse;">
-                          <tr><th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Tier</th>
-                              <th style="text-align:left;padding:8px;border-bottom:1px solid #eee;">Role</th></tr>
-                          <tr><td style="padding:8px;border-bottom:1px solid #eee;">Frontend (this VM)</td>
-                              <td style="padding:8px;border-bottom:1px solid #eee;">IIS Reverse Proxy</td></tr>
-                          <tr><td style="padding:8px;border-bottom:1px solid #eee;">App Server</td>
-                              <td style="padding:8px;border-bottom:1px solid #eee;">Spring Boot REST API (port {{ petclinic_rest_port }})</td></tr>
-                          <tr><td style="padding:8px;">Database</td>
-                              <td style="padding:8px;">PostgreSQL {{ postgres_version }}</td></tr>
-                      </table>
-                  </div>
-              </div>
-          </body>
-          </html>
+    - name: Copy built Angular app to IIS site directory
+      win_shell: |
+        if (Test-Path "{{ iis_site_path }}\index.html") {
+          Remove-Item "{{ iis_site_path }}\*" -Recurse -Force
+        }
+        Copy-Item "{{ angular_dist }}\*" "{{ iis_site_path }}\" -Recurse -Force
+      register: copy_result
+      changed_when: true
 
-    - name: Create web.config with URL rewrite rules for API proxy
+    - name: Create web.config for SPA routing and API proxy
       win_copy:
-        dest: C:\inetpub\PetClinicFrontend\web.config
+        dest: '{{ iis_site_path }}\web.config'
         content: |
           <?xml version="1.0" encoding="UTF-8"?>
           <configuration>
@@ -130,8 +149,16 @@
               <rewrite>
                 <rules>
                   <rule name="Proxy to PetClinic API" stopProcessing="true">
-                    <match url="^petclinic/(.*)" />
-                    <action type="Rewrite" url="http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/{R:1}" />
+                    <match url="^petclinic/api/(.*)" />
+                    <action type="Rewrite" url="http://{{ app_host }}:{{ petclinic_rest_port }}/petclinic/api/{R:1}" />
+                  </rule>
+                  <rule name="Angular SPA fallback" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/index.html" />
                   </rule>
                 </rules>
               </rewrite>
@@ -156,7 +183,7 @@
         name: PetClinicFrontend
         state: started
         port: 80
-        physical_path: C:\inetpub\PetClinicFrontend
+        physical_path: '{{ iis_site_path }}'
         application_pool: PetClinicFrontendPool
 
     - name: Allow HTTP through Windows Firewall
@@ -169,11 +196,12 @@
         state: present
         enabled: true
 
-    - name: Reset IIS to apply ARR and rewrite changes
+    - name: Reset IIS to apply changes
       win_shell: iisreset /restart
       changed_when: false
 
-    - name: Smoke-test local index.html via IIS
+    # --- Verification ---
+    - name: Smoke-test local Angular SPA via IIS
       win_uri:
         url: http://localhost/
         return_content: false
@@ -196,11 +224,6 @@
         $logDir = "$env:SystemDrive\inetpub\logs\LogFiles"
         $latestLog = Get-ChildItem $logDir -Recurse -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
         if ($latestLog) { Get-Content $latestLog.FullName -Tail 20 } else { Write-Output '(no IIS log found)' }
-        Write-Output ""
-        Write-Output "=== HTTP Error Log ==="
-        $httpErrDir = "$env:SystemRoot\System32\LogFiles\HTTPERR"
-        $latestHttpErr = Get-ChildItem $httpErrDir -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($latestHttpErr) { Get-Content $latestHttpErr.FullName -Tail 20 } else { Write-Output '(no HTTPERR log found)' }
       register: iis_diag
       when: local_check is failed
 
@@ -222,9 +245,10 @@
 
     - name: Warn if API backend is not reachable
       debug:
-        msg: "WARNING — PetClinic REST API at {{ app_host }}:{{ petclinic_rest_port }} is not responding. Check the app server service logs at C:\\Apps\\petclinic-rest\\logs\\"
+        msg: "WARNING — PetClinic REST API at {{ app_host }}:{{ petclinic_rest_port }} is not responding."
       when: api_check is failed
 
+    # --- Standard services ---
     - name: Ensure WinRM service is running
       win_service:
         name: WinRM
