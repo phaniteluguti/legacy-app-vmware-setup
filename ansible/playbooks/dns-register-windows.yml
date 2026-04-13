@@ -1,0 +1,75 @@
+---
+# =============================================================================
+# DNS Registration — Windows VMs
+# Registers all Windows VMs (single-VM + 3-tier) as A records in a
+# Windows DNS Server (AD-integrated) using PowerShell Add-DnsServerResourceRecordA.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-windows.yml -v
+#
+# Required variables in group_vars/all.yml:
+#   dns_server: "10.1.3.1"     # Windows DNS server IP
+#   dns_zone:   "lab.local"    # Forward lookup zone
+# =============================================================================
+- name: Register Windows VMs in DNS
+  hosts: win_servers:win_servers_3tier
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate DNS variables are set
+      assert:
+        that:
+          - dns_server is defined and dns_server | length > 0
+          - dns_zone is defined and dns_zone | length > 0
+        fail_msg: "dns_server and dns_zone must be set in group_vars/all.yml"
+
+    - name: Build DNS hostname
+      set_fact:
+        dns_hostname: "{{ ansible_hostname | lower }}"
+        dns_ip: "{{ ansible_host }}"
+
+    - name: Register A record in Windows DNS
+      win_shell: |
+        $dns = "{{ dns_server }}"
+        $zone = "{{ dns_zone }}"
+        $name = "{{ dns_hostname }}"
+        $ip   = "{{ dns_ip }}"
+
+        # Try to remove existing record first (ignore errors)
+        try {
+          Invoke-Command -ComputerName $dns -ScriptBlock {
+            param($z,$n)
+            $existing = Get-DnsServerResourceRecord -ZoneName $z -Name $n -RRType A -ErrorAction SilentlyContinue
+            if ($existing) {
+              Remove-DnsServerResourceRecord -ZoneName $z -Name $n -RRType A -Force -ErrorAction Stop
+            }
+          } -ArgumentList $zone, $name -ErrorAction Stop
+        } catch {
+          Write-Warning "Could not remove old record: $_"
+        }
+
+        # Add new A record
+        Invoke-Command -ComputerName $dns -ScriptBlock {
+          param($z,$n,$i)
+          Add-DnsServerResourceRecordA -ZoneName $z -Name $n -IPv4Address $i -TimeToLive 01:00:00 -ErrorAction Stop
+        } -ArgumentList $zone, $name, $ip
+
+        Write-Host "Registered $name.$zone -> $ip on $dns"
+      register: dns_result
+
+    - name: Verify DNS registration
+      win_shell: |
+        nslookup {{ dns_hostname }}.{{ dns_zone }} {{ dns_server }}
+      register: nslookup_result
+      changed_when: false
+      failed_when: false
+
+    - name: Show registration result
+      debug:
+        msg: >-
+          {{ dns_hostname }}.{{ dns_zone }} -> {{ dns_ip }}:
+          {{ 'OK' if dns_ip in (nslookup_result.stdout | default(''))
+             else 'FAILED - check dns_result output' }}

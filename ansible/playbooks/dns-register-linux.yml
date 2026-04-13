@@ -1,0 +1,73 @@
+---
+# =============================================================================
+# DNS Registration — Linux VMs
+# Registers all Linux VMs (single-VM + 3-tier) as A records in a
+# Windows DNS Server (AD-integrated) using nsupdate dynamic DNS updates.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-linux.yml -v
+#
+# Required variables in group_vars/all.yml:
+#   dns_server: "10.1.3.1"     # Windows DNS server IP
+#   dns_zone:   "lab.local"    # Forward lookup zone
+# =============================================================================
+- name: Register Linux VMs in DNS
+  hosts: legacy_apps:legacy_apps_3tier
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate DNS variables are set
+      assert:
+        that:
+          - dns_server is defined and dns_server | length > 0
+          - dns_zone is defined and dns_zone | length > 0
+        fail_msg: "dns_server and dns_zone must be set in group_vars/all.yml"
+
+    - name: Install dnsutils for nsupdate
+      become: true
+      apt:
+        name: dnsutils
+        state: present
+        update_cache: true
+      when: ansible_os_family == "Debian"
+
+    - name: Install bind-utils for nsupdate
+      become: true
+      yum:
+        name: bind-utils
+        state: present
+      when: ansible_os_family == "RedHat"
+
+    - name: Build DNS hostname
+      set_fact:
+        dns_hostname: "{{ ansible_hostname | lower }}"
+        dns_ip: "{{ ansible_host }}"
+
+    - name: Register A record via nsupdate
+      shell: |
+        nsupdate <<NSEOF
+        server {{ dns_server }}
+        zone {{ dns_zone }}
+        update delete {{ dns_hostname }}.{{ dns_zone }}. A
+        update add {{ dns_hostname }}.{{ dns_zone }}. 3600 A {{ dns_ip }}
+        send
+        NSEOF
+      register: nsupdate_result
+      changed_when: nsupdate_result.rc == 0
+      failed_when: false
+
+    - name: Verify DNS registration
+      command: nslookup {{ dns_hostname }}.{{ dns_zone }} {{ dns_server }}
+      register: nslookup_result
+      changed_when: false
+      failed_when: false
+
+    - name: Show registration result
+      debug:
+        msg: >-
+          {{ dns_hostname }}.{{ dns_zone }} -> {{ dns_ip }}:
+          {{ 'OK' if dns_ip in (nslookup_result.stdout | default(''))
+             else 'FAILED - ' + (nsupdate_result.stderr | default('unknown error')) }}

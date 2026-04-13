@@ -834,6 +834,10 @@ mysql_db_user: "laravel"
 mysql_db_password: "$MYSQL_APP"
 
 install_azure_migrate_agent: $AZ_AGENT
+
+# DNS Registration (used by dns-register-*.yml playbooks)
+dns_server: "${VM_DNS%%,*}"
+dns_zone: "$VM_DOMAIN"
 EOF
     step "Created: ansible/group_vars/all.yml"
 }
@@ -1354,6 +1358,48 @@ run_ansible_resume() {
 }
 
 # ---------------------------------------------------------------------------
+run_dns_register() {
+    header "DNS Registration — Register VMs in Windows DNS"
+    pushd "$ANSIBLE_DIR" > /dev/null
+
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
+    # Prompt for DNS server address
+    local prev_dns="${VM_DNS%%,*}"
+    prev_dns="${prev_dns:-10.1.3.1}"
+    read -rp "  DNS Server IP [$prev_dns]: " dns_srv
+    dns_srv="${dns_srv:-$prev_dns}"
+
+    # Prompt for DNS zone
+    local prev_zone="${VM_DOMAIN:-lab.local}"
+    read -rp "  DNS Zone [$prev_zone]: " dns_z
+    dns_z="${dns_z:-$prev_zone}"
+
+    echo ""
+    echo -e "  ${Y}Which VMs to register?${NC}"
+    echo -e "    ${G}1)${NC} Linux only"
+    echo -e "    ${G}2)${NC} Windows only"
+    echo -e "    ${G}3)${NC} Both (all deployed VMs)"
+    read -rp "  Choice [3]: " dns_choice
+    dns_choice="${dns_choice:-3}"
+
+    local playbook=""
+    case "$dns_choice" in
+        1) playbook="playbooks/dns-register-linux.yml" ;;
+        2) playbook="playbooks/dns-register-windows.yml" ;;
+        3) playbook="playbooks/dns-register-all.yml" ;;
+        *) err "Invalid choice"; popd > /dev/null; return 1 ;;
+    esac
+
+    step "Registering VMs — DNS server=$dns_srv zone=$dns_z playbook=$playbook"
+    ansible-playbook -i inventory/hosts.ini "$playbook" \
+        -e "dns_server=$dns_srv" -e "dns_zone=$dns_z" -v
+
+    popd > /dev/null
+}
+
+# ---------------------------------------------------------------------------
 main() {
     # Handle --destroy flag for quick cleanup
     if [[ "${1:-}" == "--destroy" || "${1:-}" == "destroy" ]]; then
@@ -1530,6 +1576,7 @@ main() {
         echo -e "    ${G}1)${NC} Run full pipeline (Terraform + Ansible + Verify)"
         echo -e "    ${G}2)${NC} Ansible only — skip Terraform, re-run playbooks on existing VMs"
         echo -e "    ${G}3)${NC} Stop here — I'll run Terraform & Ansible myself later"
+        echo -e "    ${G}4)${NC} Register VMs in DNS"
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
@@ -1544,6 +1591,8 @@ main() {
                 write_tfvars; write_inventory
                 run_ansible; run_verify
             done
+        elif [[ "$qchoice" == "4" ]]; then
+            run_dns_register
         else
             step "Config saved. Run manually when ready."
         fi
@@ -1701,6 +1750,7 @@ main() {
     echo -e "    ${G}4)${NC} Ansible only (deploy to existing VMs)"
     echo -e "    ${G}5)${NC} Resume Ansible (retry failed hosts only)"
     echo -e "    ${G}6)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
+    echo -e "    ${G}7)${NC} Register VMs in DNS"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -1731,6 +1781,7 @@ main() {
                run_ansible_resume; run_verify
            done ;;
         6) run_destroy ;;
+        7) run_dns_register ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }

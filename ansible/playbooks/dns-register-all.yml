@@ -1,0 +1,10 @@
+---
+# =============================================================================
+# DNS Registration — All VMs (Linux + Windows)
+# Wrapper that imports both Linux and Windows DNS registration playbooks.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-all.yml -v
+# =============================================================================
+- import_playbook: dns-register-linux.yml
+- import_playbook: dns-register-windows.yml
