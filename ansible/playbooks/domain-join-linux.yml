@@ -112,8 +112,8 @@
         - ansible_service_mgr == 'systemd'
 
     - name: Wait for DNS to settle
-      pause:
-        seconds: 3
+      command: sleep 3
+      changed_when: false
       when: not already_joined | bool
 
     - name: Verify DNS can resolve domain controller
