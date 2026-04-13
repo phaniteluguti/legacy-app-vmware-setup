@@ -1521,18 +1521,25 @@ main() {
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        # Derive DEPLOY_MODES from saved wizard choices
-        DEPLOY_MODES=()
-        local d_os="${PREV_OS_CHOICE:-linux}"
-        local d_arch="${PREV_ARCH_CHOICE:-single}"
-        if [[ "$d_os" == "linux" || "$d_os" == "both" ]]; then
-            [[ "$d_arch" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
-        fi
-        if [[ "$d_os" == "windows" || "$d_os" == "both" ]]; then
-            [[ "$d_arch" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
+        # Discover ALL Terraform workspaces with state (don't rely on saved OS choice)
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        local all_workspaces
+        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
+        popd > /dev/null
+
+        if [[ -z "$all_workspaces" ]]; then
+            err "No Terraform workspaces found. Deploy VMs first."
+            exit 1
         fi
 
-        # Prompt for credentials needed to rebuild inventory
+        DEPLOY_MODES=()
+        while IFS= read -r ws; do
+            DEPLOY_MODES+=("$ws")
+        done <<< "$all_workspaces"
+        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+
+        # Prompt for credentials based on discovered workspaces
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
             [[ "$m" == linux* ]] && need_linux=true
@@ -1545,13 +1552,12 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
-        # Read Terraform state for all modes and rebuild combined inventory
+        # Read Terraform state for all workspaces and rebuild combined inventory
         INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
             step "Reading Terraform state for workspace: $DEPLOY_MODE"
             pushd "$TF_DIR" > /dev/null
-            terraform init -input=false > /dev/null 2>&1
             terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
                 warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
                 popd > /dev/null
