@@ -142,7 +142,7 @@
         - realm_discover is defined
 
     - name: Join the Active Directory domain
-      shell: echo "{{ ad_admin_password }}" | realm join --user="{{ ad_admin_user }}" {{ ad_domain }}
+      shell: echo "{{ ad_admin_password }}" | realm join --user="{{ ad_admin_user }}" --membership-software=adcli --verbose {{ ad_domain }}
       register: join_result
       when: not already_joined | bool
       no_log: true
