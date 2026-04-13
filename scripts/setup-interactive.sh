@@ -1358,12 +1358,74 @@ run_ansible_resume() {
 }
 
 # ---------------------------------------------------------------------------
+# Helper: parse inventory and list VMs by group type
+show_inventory_vms() {
+    local inv_file="$ANSIBLE_DIR/inventory/hosts.ini"
+    if [[ ! -f "$inv_file" ]]; then
+        echo -e "  ${R}No inventory found at $inv_file${NC}"
+        echo -e "  ${R}Run the wizard or Terraform first to generate inventory.${NC}"
+        return 1
+    fi
+
+    local linux_vms="" windows_vms="" current_section="" line host ip
+    while IFS= read -r line; do
+        # Skip comments and blank lines
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue
+        [[ -z "${line// /}" ]] && continue
+        # Track section headers
+        if [[ "$line" =~ ^\[(.+)\]$ ]]; then
+            current_section="${BASH_REMATCH[1]}"
+            continue
+        fi
+        # Skip :children and :vars meta-sections
+        [[ "$current_section" == *:children* || "$current_section" == *:vars* ]] && continue
+        # Extract host IP (first token on the line)
+        host="${line%% *}"
+        [[ -z "$host" ]] && continue
+        # Classify as Linux or Windows based on section name prefix
+        if [[ "$current_section" == win_* ]]; then
+            windows_vms+="    $current_section: $host\n"
+        else
+            linux_vms+="    $current_section: $host\n"
+        fi
+    done < "$inv_file"
+
+    local has_linux=false has_windows=false
+    if [[ -n "$linux_vms" ]]; then
+        has_linux=true
+        echo -e "  ${C}--- Linux VMs ---${NC}"
+        echo -e "$linux_vms"
+    fi
+    if [[ -n "$windows_vms" ]]; then
+        has_windows=true
+        echo -e "  ${C}--- Windows VMs ---${NC}"
+        echo -e "$windows_vms"
+    fi
+    if ! $has_linux && ! $has_windows; then
+        echo -e "  ${R}No VMs found in inventory.${NC}"
+        return 1
+    fi
+
+    # Export for caller
+    DNS_HAS_LINUX=$has_linux
+    DNS_HAS_WINDOWS=$has_windows
+}
+
 run_dns_register() {
     header "DNS Registration — Register VMs in Windows DNS"
     pushd "$ANSIBLE_DIR" > /dev/null
 
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
+    # Show discovered VMs from inventory
+    echo ""
+    echo -e "  ${Y}Discovered VMs from inventory:${NC}"
+    echo ""
+    if ! show_inventory_vms; then
+        popd > /dev/null
+        return 1
+    fi
 
     # Prompt for DNS server address
     local prev_dns="${VM_DNS%%,*}"
@@ -1378,11 +1440,23 @@ run_dns_register() {
 
     echo ""
     echo -e "  ${Y}Which VMs to register?${NC}"
-    echo -e "    ${G}1)${NC} Linux only"
-    echo -e "    ${G}2)${NC} Windows only"
-    echo -e "    ${G}3)${NC} Both (all deployed VMs)"
-    read -rp "  Choice [3]: " dns_choice
-    dns_choice="${dns_choice:-3}"
+    if $DNS_HAS_LINUX; then
+        echo -e "    ${G}1)${NC} Linux only"
+    fi
+    if $DNS_HAS_WINDOWS; then
+        echo -e "    ${G}2)${NC} Windows only"
+    fi
+    if $DNS_HAS_LINUX && $DNS_HAS_WINDOWS; then
+        echo -e "    ${G}3)${NC} Both (all deployed VMs)"
+        read -rp "  Choice [3]: " dns_choice
+        dns_choice="${dns_choice:-3}"
+    elif $DNS_HAS_LINUX; then
+        read -rp "  Choice [1]: " dns_choice
+        dns_choice="${dns_choice:-1}"
+    else
+        read -rp "  Choice [2]: " dns_choice
+        dns_choice="${dns_choice:-2}"
+    fi
 
     local playbook=""
     case "$dns_choice" in
@@ -1409,6 +1483,21 @@ main() {
         echo -e "  ${R}================================================================${NC}"
         echo ""
         run_destroy
+        exit 0
+    fi
+
+    # Handle --dns flag for standalone DNS registration of existing VMs
+    if [[ "${1:-}" == "--dns" || "${1:-}" == "dns" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     DNS Registration — Register Existing VMs${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+        run_dns_register
         exit 0
     fi
 
@@ -1585,12 +1674,20 @@ main() {
                 write_tfvars; write_inventory
                 run_terraform; run_ansible; run_verify
             done
+            echo ""
+            echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
+            read -rp "  Register in DNS? [y/N]: " dns_yn
+            [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register
         elif [[ "$qchoice" == "2" ]]; then
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 write_tfvars; write_inventory
                 run_ansible; run_verify
             done
+            echo ""
+            echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
+            read -rp "  Register in DNS? [y/N]: " dns_yn
+            [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register
         elif [[ "$qchoice" == "4" ]]; then
             run_dns_register
         else
@@ -1759,7 +1856,11 @@ main() {
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_terraform; run_ansible; run_verify
-           done ;;
+           done
+           echo ""
+           echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
+           read -rp "  Register in DNS? [y/N]: " dns_yn
+           [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register ;;
         2) step "Config files saved. Run manually when ready:"
            for mode in "${DEPLOY_MODES[@]}"; do
                echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $mode && terraform apply${NC}"
@@ -1774,7 +1875,11 @@ main() {
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_ansible; run_verify
-           done ;;
+           done
+           echo ""
+           echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
+           read -rp "  Register in DNS? [y/N]: " dns_yn
+           [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register ;;
         5) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
