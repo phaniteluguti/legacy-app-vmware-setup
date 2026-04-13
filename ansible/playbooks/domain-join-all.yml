@@ -1,0 +1,13 @@
+---
+# =============================================================================
+# Domain Join — All VMs (Linux + Windows)
+# Wrapper that imports both Linux and Windows domain join playbooks.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/domain-join-all.yml \
+#     -e "ad_domain=azurecmf.org" \
+#     -e "ad_admin_user=Administrator" -e "ad_admin_password=SECRET" \
+#     -e "dns_server=10.20.1.4" -v
+# =============================================================================
+- import_playbook: domain-join-linux.yml
+- import_playbook: domain-join-windows.yml

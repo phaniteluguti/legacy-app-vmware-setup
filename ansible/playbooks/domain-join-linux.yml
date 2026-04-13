@@ -1,0 +1,146 @@
+---
+# =============================================================================
+# Domain Join — Linux VMs
+# Joins all Linux VMs to an Active Directory domain using realmd/SSSD.
+# DNS registration happens automatically when a machine joins the domain.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/domain-join-linux.yml \
+#     -e "ad_domain=azurecmf.org" \
+#     -e "ad_admin_user=Administrator" -e "ad_admin_password=SECRET" \
+#     -e "dns_server=10.20.1.4" -v
+# =============================================================================
+- name: Join Linux VMs to Active Directory Domain
+  hosts: legacy_apps:legacy_apps_3tier
+  gather_facts: true
+  become: true
+  serial: 3
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - ad_domain is defined and ad_domain | length > 0
+          - ad_admin_user is defined and ad_admin_user | length > 0
+          - ad_admin_password is defined and ad_admin_password | length > 0
+          - dns_server is defined and dns_server | length > 0
+        fail_msg: "ad_domain, ad_admin_user, ad_admin_password, and dns_server must be provided"
+
+    - name: Check if already domain-joined
+      command: realm list
+      register: realm_list
+      changed_when: false
+      failed_when: false
+
+    - name: Set already_joined fact
+      set_fact:
+        already_joined: "{{ ad_domain | lower in (realm_list.stdout | default('') | lower) }}"
+
+    - name: Show current domain status
+      debug:
+        msg: >-
+          {{ ansible_hostname }}:
+          {{ 'Already joined to ' + ad_domain if already_joined | bool
+             else 'Not domain-joined (WORKGROUP)' }}
+
+    - name: Set DNS to point to domain controller
+      block:
+        - name: Configure DNS resolver
+          copy:
+            content: |
+              [Resolve]
+              DNS={{ dns_server }}
+              Domains={{ ad_domain }}
+            dest: /etc/systemd/resolved.conf.d/ad-dns.conf
+            mode: '0644'
+          notify: restart resolved
+          when: ansible_service_mgr == 'systemd'
+
+        - name: Configure resolv.conf fallback
+          lineinfile:
+            path: /etc/resolv.conf
+            line: "nameserver {{ dns_server }}"
+            insertbefore: BOF
+          when: ansible_service_mgr != 'systemd'
+      when: not already_joined | bool
+
+    - name: Install required packages (Debian/Ubuntu)
+      apt:
+        name:
+          - realmd
+          - sssd
+          - sssd-tools
+          - adcli
+          - krb5-user
+          - packagekit
+          - samba-common-bin
+        state: present
+        update_cache: true
+      environment:
+        DEBIAN_FRONTEND: noninteractive
+      when:
+        - not already_joined | bool
+        - ansible_os_family == "Debian"
+
+    - name: Install required packages (RedHat/CentOS)
+      yum:
+        name:
+          - realmd
+          - sssd
+          - oddjob
+          - oddjob-mkhomedir
+          - adcli
+          - samba-common-tools
+          - krb5-workstation
+        state: present
+      when:
+        - not already_joined | bool
+        - ansible_os_family == "RedHat"
+
+    - name: Discover the AD domain
+      command: realm discover {{ ad_domain }}
+      register: realm_discover
+      changed_when: false
+      when: not already_joined | bool
+
+    - name: Show discovered domain info
+      debug:
+        var: realm_discover.stdout_lines
+      when:
+        - not already_joined | bool
+        - realm_discover is defined
+
+    - name: Join the Active Directory domain
+      shell: echo "{{ ad_admin_password }}" | realm join --user="{{ ad_admin_user }}" {{ ad_domain }}
+      register: join_result
+      when: not already_joined | bool
+      no_log: true
+
+    - name: Configure SSSD for home directory creation
+      lineinfile:
+        path: /etc/pam.d/common-session
+        line: "session required pam_mkhomedir.so skel=/etc/skel/ umask=0077"
+        insertafter: "session.*pam_systemd"
+      when:
+        - not already_joined | bool
+        - ansible_os_family == "Debian"
+      failed_when: false
+
+    - name: Verify domain membership
+      command: realm list
+      register: verify_realm
+      changed_when: false
+
+    - name: Show final status
+      debug:
+        msg: >-
+          {{ ansible_hostname }}:
+          {{ 'Joined to ' + ad_domain if ad_domain | lower in (verify_realm.stdout | default('') | lower)
+             else 'FAILED - not joined. Check realm discover output.' }}
+
+  handlers:
+    - name: restart resolved
+      systemd:
+        name: systemd-resolved
+        state: restarted
+      failed_when: false

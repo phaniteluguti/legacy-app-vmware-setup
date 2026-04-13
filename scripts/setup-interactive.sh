@@ -1489,7 +1489,81 @@ run_dns_register() {
 }
 
 # ---------------------------------------------------------------------------
-main() {
+run_domain_join() {
+    header "Domain Join — Join VMs to Active Directory"
+    echo -e "  ${C}This will join VMs to an AD domain.${NC}"
+    echo -e "  ${C}DNS registration happens automatically with domain join.${NC}"
+    echo ""
+    pushd "$ANSIBLE_DIR" > /dev/null
+
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
+    # Show discovered VMs from inventory
+    echo -e "  ${Y}Discovered VMs from inventory:${NC}"
+    echo ""
+    if ! show_inventory_vms; then
+        popd > /dev/null
+        return 1
+    fi
+
+    # Prompt for AD domain
+    local prev_zone="${VM_DOMAIN:-lab.local}"
+    read -rp "  AD Domain to join [$prev_zone]: " ad_domain
+    ad_domain="${ad_domain:-$prev_zone}"
+
+    # Prompt for DNS server (domain controller)
+    local prev_dns="${VM_DNS%%,*}"
+    prev_dns="${prev_dns:-10.1.3.1}"
+    read -rp "  Domain Controller / DNS Server IP [$prev_dns]: " dc_ip
+    dc_ip="${dc_ip:-$prev_dns}"
+
+    # Prompt for domain admin credentials
+    echo ""
+    echo -e "  ${Y}Domain admin credentials (must have permission to join machines):${NC}"
+    read -rp "  Domain admin username [Administrator]: " ad_user
+    ad_user="${ad_user:-Administrator}"
+    read -srp "  Domain admin password: " ad_pass
+    echo ""
+    if [[ -z "$ad_pass" ]]; then
+        err "Password cannot be empty"; popd > /dev/null; return 1
+    fi
+
+    echo ""
+    echo -e "  ${Y}Which VMs to join to ${C}${ad_domain}${Y}?${NC}"
+    if $DNS_HAS_LINUX; then
+        echo -e "    ${G}1)${NC} Linux only"
+    fi
+    if $DNS_HAS_WINDOWS; then
+        echo -e "    ${G}2)${NC} Windows only"
+    fi
+    if $DNS_HAS_LINUX && $DNS_HAS_WINDOWS; then
+        echo -e "    ${G}3)${NC} Both (all deployed VMs)"
+        read -rp "  Choice [3]: " dj_choice
+        dj_choice="${dj_choice:-3}"
+    elif $DNS_HAS_LINUX; then
+        read -rp "  Choice [1]: " dj_choice
+        dj_choice="${dj_choice:-1}"
+    else
+        read -rp "  Choice [2]: " dj_choice
+        dj_choice="${dj_choice:-2}"
+    fi
+
+    local playbook=""
+    case "$dj_choice" in
+        1) playbook="playbooks/domain-join-linux.yml" ;;
+        2) playbook="playbooks/domain-join-windows.yml" ;;
+        3) playbook="playbooks/domain-join-all.yml" ;;
+        *) err "Invalid choice"; popd > /dev/null; return 1 ;;
+    esac
+
+    step "Joining VMs to domain=$ad_domain DC=$dc_ip user=$ad_user"
+    ansible-playbook -i inventory/hosts.ini "$playbook" \
+        -e "ad_domain=$ad_domain" -e "dns_server=$dc_ip" \
+        -e "ad_admin_user=$ad_user" -e "ad_admin_password=$ad_pass" -v
+
+    popd > /dev/null
+}
     # Handle --destroy flag for quick cleanup
     if [[ "${1:-}" == "--destroy" || "${1:-}" == "destroy" ]]; then
         echo ""
@@ -1592,6 +1666,94 @@ main() {
 
         step "Inventory rebuilt from Terraform state"
         run_dns_register
+        exit 0
+    fi
+
+    # Handle --domainjoin flag for standalone domain join of existing VMs
+    if [[ "${1:-}" == "--domainjoin" || "${1:-}" == "domainjoin" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Domain Join — Join Existing VMs to AD Domain${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        local all_workspaces
+        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
+        popd > /dev/null
+
+        if [[ -z "$all_workspaces" ]]; then
+            err "No Terraform workspaces found. Deploy VMs first."
+            exit 1
+        fi
+
+        DEPLOY_MODES=()
+        while IFS= read -r ws; do
+            DEPLOY_MODES+=("$ws")
+        done <<< "$all_workspaces"
+        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true
+            [[ "$m" == windows* ]] && need_windows=true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        fi
+
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform state for workspace: $DEPLOY_MODE"
+            pushd "$TF_DIR" > /dev/null
+            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                popd > /dev/null
+                continue
+            }
+            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_PHP" == "true" ]]; then
+                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+            else
+                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            fi
+            popd > /dev/null
+            write_inventory
+        done
+
+        step "Inventory rebuilt from Terraform state"
+        run_domain_join
         exit 0
     fi
 
@@ -1759,7 +1921,8 @@ main() {
         echo -e "    ${G}1)${NC} Run full pipeline (Terraform + Ansible + Verify)"
         echo -e "    ${G}2)${NC} Ansible only — skip Terraform, re-run playbooks on existing VMs"
         echo -e "    ${G}3)${NC} Stop here — I'll run Terraform & Ansible myself later"
-        echo -e "    ${G}4)${NC} Register VMs in DNS"
+        echo -e "    ${G}4)${NC} DNS Registration only (create A records — no domain join)"
+        echo -e "    ${G}5)${NC} Domain Join (join AD domain — DNS registration is automatic)"
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
@@ -1769,9 +1932,14 @@ main() {
                 run_terraform; run_ansible; run_verify
             done
             echo ""
-            echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
-            read -rp "  Register in DNS? [y/N]: " dns_yn
-            [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register
+            echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+            echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+            echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+            echo -e "    ${G}3)${NC} Skip"
+            read -rp "  Choice [3]: " post_choice
+            post_choice="${post_choice:-3}"
+            [[ "$post_choice" == "1" ]] && run_dns_register
+            [[ "$post_choice" == "2" ]] && run_domain_join
         elif [[ "$qchoice" == "2" ]]; then
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
@@ -1779,11 +1947,18 @@ main() {
                 run_ansible; run_verify
             done
             echo ""
-            echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
-            read -rp "  Register in DNS? [y/N]: " dns_yn
-            [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register
+            echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+            echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+            echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+            echo -e "    ${G}3)${NC} Skip"
+            read -rp "  Choice [3]: " post_choice
+            post_choice="${post_choice:-3}"
+            [[ "$post_choice" == "1" ]] && run_dns_register
+            [[ "$post_choice" == "2" ]] && run_domain_join
         elif [[ "$qchoice" == "4" ]]; then
             run_dns_register
+        elif [[ "$qchoice" == "5" ]]; then
+            run_domain_join
         else
             step "Config saved. Run manually when ready."
         fi
@@ -1941,7 +2116,8 @@ main() {
     echo -e "    ${G}4)${NC} Ansible only (deploy to existing VMs)"
     echo -e "    ${G}5)${NC} Resume Ansible (retry failed hosts only)"
     echo -e "    ${G}6)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
-    echo -e "    ${G}7)${NC} Register VMs in DNS"
+    echo -e "    ${G}7)${NC} DNS Registration only (create A records — no domain join)"
+    echo -e "    ${G}8)${NC} Domain Join (join AD domain — DNS registration is automatic)"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -1952,9 +2128,14 @@ main() {
                run_terraform; run_ansible; run_verify
            done
            echo ""
-           echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
-           read -rp "  Register in DNS? [y/N]: " dns_yn
-           [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register ;;
+           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+           echo -e "    ${G}3)${NC} Skip"
+           read -rp "  Choice [3]: " post_choice
+           post_choice="${post_choice:-3}"
+           [[ "$post_choice" == "1" ]] && run_dns_register
+           [[ "$post_choice" == "2" ]] && run_domain_join ;;
         2) step "Config files saved. Run manually when ready:"
            for mode in "${DEPLOY_MODES[@]}"; do
                echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $mode && terraform apply${NC}"
@@ -1971,9 +2152,14 @@ main() {
                run_ansible; run_verify
            done
            echo ""
-           echo -e "  ${Y}Would you like to register the deployed VMs in DNS?${NC}"
-           read -rp "  Register in DNS? [y/N]: " dns_yn
-           [[ "$dns_yn" =~ ^[Yy] ]] && run_dns_register ;;
+           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+           echo -e "    ${G}3)${NC} Skip"
+           read -rp "  Choice [3]: " post_choice
+           post_choice="${post_choice:-3}"
+           [[ "$post_choice" == "1" ]] && run_dns_register
+           [[ "$post_choice" == "2" ]] && run_domain_join ;;
         5) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
@@ -1981,6 +2167,7 @@ main() {
            done ;;
         6) run_destroy ;;
         7) run_dns_register ;;
+        8) run_domain_join ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }
