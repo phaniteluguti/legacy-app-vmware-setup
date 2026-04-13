@@ -146,6 +146,21 @@
       register: join_result
       when: not already_joined | bool
       no_log: true
+      failed_when: false
+
+    - name: Show domain join error (if any)
+      debug:
+        msg: "realm join {{ 'SUCCEEDED' if join_result.rc | default(1) == 0 else 'FAILED (rc=' + (join_result.rc | default(1) | string) + '): ' + (join_result.stderr | default('unknown error')) }}"
+      when:
+        - not already_joined | bool
+        - join_result is defined
+
+    - name: Fail if domain join did not succeed
+      fail:
+        msg: "realm join failed — see error above"
+      when:
+        - not already_joined | bool
+        - join_result.rc | default(1) != 0
 
     - name: Configure SSSD for home directory creation
       lineinfile:
