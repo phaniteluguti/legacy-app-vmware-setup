@@ -1512,6 +1512,79 @@ main() {
         load_previous
         VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
         VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+
+        # Restore deployment flags from previous config
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+
+        # Derive DEPLOY_MODES from saved wizard choices
+        DEPLOY_MODES=()
+        local d_os="${PREV_OS_CHOICE:-linux}"
+        local d_arch="${PREV_ARCH_CHOICE:-single}"
+        if [[ "$d_os" == "linux" || "$d_os" == "both" ]]; then
+            [[ "$d_arch" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
+        fi
+        if [[ "$d_os" == "windows" || "$d_os" == "both" ]]; then
+            [[ "$d_arch" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
+        fi
+
+        # Prompt for credentials needed to rebuild inventory
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true
+            [[ "$m" == windows* ]] && need_windows=true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        fi
+
+        # Read Terraform state for all modes and rebuild combined inventory
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform state for workspace: $DEPLOY_MODE"
+            pushd "$TF_DIR" > /dev/null
+            terraform init -input=false > /dev/null 2>&1
+            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                popd > /dev/null
+                continue
+            }
+            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_PHP" == "true" ]]; then
+                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+            else
+                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            fi
+            popd > /dev/null
+
+            # Append to inventory (INVENTORY_INITIALIZED flag handles first-write truncation)
+            write_inventory
+        done
+
+        step "Inventory rebuilt from Terraform state"
         run_dns_register
         exit 0
     fi
