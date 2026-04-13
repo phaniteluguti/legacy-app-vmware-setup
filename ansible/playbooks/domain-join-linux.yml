@@ -45,6 +45,13 @@
 
     - name: Set DNS to point to domain controller
       block:
+        - name: Ensure resolved.conf.d directory exists
+          file:
+            path: /etc/systemd/resolved.conf.d
+            state: directory
+            mode: '0755'
+          when: ansible_service_mgr == 'systemd'
+
         - name: Configure DNS resolver
           copy:
             content: |
