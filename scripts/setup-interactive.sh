@@ -1557,10 +1557,41 @@ run_domain_join() {
         *) err "Invalid choice"; popd > /dev/null; return 1 ;;
     esac
 
+    # Derive retry file path from playbook name
+    local retry_file="${ANSIBLE_DIR}/${playbook%.yml}.retry"
+
     step "Joining VMs to domain=$ad_domain DC=$dc_ip user=$ad_user"
+    local rc=0
     ansible-playbook -i inventory/hosts.ini "$playbook" \
         -e "ad_domain=$ad_domain" -e "dns_server=$dc_ip" \
-        -e "ad_admin_user=$ad_user" -e "ad_admin_password=$ad_pass" -v
+        -e "ad_admin_user=$ad_user" -e "ad_admin_password=$ad_pass" -v || rc=$?
+
+    # Retry loop — keep offering to resume from failed hosts
+    while [[ $rc -ne 0 && -f "$retry_file" ]]; do
+        echo ""
+        echo -e "  ${R}Domain join failed on some hosts.${NC}"
+        echo -e "  ${Y}Retry file: ${retry_file}${NC}"
+        echo -e "  ${Y}Failed hosts:${NC}"
+        sed 's/^/    /' "$retry_file"
+        echo ""
+        read -rp "  Resume domain join for failed hosts? (y/n) [y]: " resume
+        resume="${resume:-y}"
+        if [[ "${resume,,}" != "y" ]]; then
+            echo -e "  ${C}Skipping retry. You can re-run with: --domainjoin${NC}"
+            break
+        fi
+        echo ""
+        step "Resuming domain join for failed hosts..."
+        rc=0
+        ansible-playbook -i inventory/hosts.ini "$playbook" \
+            --limit "@${retry_file}" \
+            -e "ad_domain=$ad_domain" -e "dns_server=$dc_ip" \
+            -e "ad_admin_user=$ad_user" -e "ad_admin_password=$ad_pass" -v || rc=$?
+    done
+
+    if [[ $rc -eq 0 ]]; then
+        echo -e "  ${G}Domain join completed successfully.${NC}"
+    fi
 
     popd > /dev/null
 }

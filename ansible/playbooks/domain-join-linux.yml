@@ -60,7 +60,6 @@
               Domains={{ ad_domain }}
             dest: /etc/systemd/resolved.conf.d/ad-dns.conf
             mode: '0644'
-          notify: restart resolved
           when: ansible_service_mgr == 'systemd'
 
         - name: Configure resolv.conf fallback
@@ -104,8 +103,30 @@
         - not already_joined | bool
         - ansible_os_family == "RedHat"
 
-    - name: Apply DNS changes now
-      meta: flush_handlers
+    - name: Restart systemd-resolved to apply DNS settings
+      systemd:
+        name: systemd-resolved
+        state: restarted
+      when:
+        - not already_joined | bool
+        - ansible_service_mgr == 'systemd'
+
+    - name: Wait for DNS to settle
+      pause:
+        seconds: 3
+      when: not already_joined | bool
+
+    - name: Verify DNS can resolve domain controller
+      command: nslookup {{ ad_domain }} {{ dns_server }}
+      register: dns_check
+      changed_when: false
+      failed_when: false
+      when: not already_joined | bool
+
+    - name: Show DNS resolution result
+      debug:
+        msg: "DNS check: {{ 'OK' if dns_check.rc | default(1) == 0 else 'FAILED — check dns_server=' + dns_server }}"
+      when: not already_joined | bool
 
     - name: Discover the AD domain
       command: realm discover {{ ad_domain }}
@@ -148,9 +169,4 @@
           {{ 'Joined to ' + ad_domain if ad_domain | lower in (verify_realm.stdout | default('') | lower)
              else 'FAILED - not joined. Check realm discover output.' }}
 
-  handlers:
-    - name: restart resolved
-      systemd:
-        name: systemd-resolved
-        state: restarted
-      failed_when: false
+
