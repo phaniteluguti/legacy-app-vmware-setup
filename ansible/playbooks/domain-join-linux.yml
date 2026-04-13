@@ -104,6 +104,9 @@
         - not already_joined | bool
         - ansible_os_family == "RedHat"
 
+    - name: Apply DNS changes now
+      meta: flush_handlers
+
     - name: Discover the AD domain
       command: realm discover {{ ad_domain }}
       register: realm_discover
