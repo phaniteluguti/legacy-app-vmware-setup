@@ -20,13 +20,16 @@ Choose which **apps** to deploy (Java, .NET, PHP, or all), which **OS** (Linux, 
    - [Step 3b: Prepare a Windows Template (Optional)](#step-3b-prepare-a-windows-template-optional)
    - [Step 4: Run the Interactive Setup Wizard](#step-4-run-the-interactive-setup-wizard)
    - [Step 5: Verify Deployment](#step-5-verify-deployment)
-5. [Manual Setup (Alternative to Wizard)](#manual-setup-alternative-to-wizard)
-6. [What Gets Deployed](#what-gets-deployed)
-7. [Directory Structure](#directory-structure)
-8. [Configuration Reference](#configuration-reference)
-9. [Azure Migrate — Next Steps](#azure-migrate--next-steps)
-10. [Troubleshooting](#troubleshooting)
-11. [Cleanup](#cleanup)
+5. [DNS Registration & Domain Join](#dns-registration--domain-join)
+   - [DNS Registration (Standalone)](#dns-registration-standalone)
+   - [Domain Join (Active Directory)](#domain-join-active-directory)
+6. [Manual Setup (Alternative to Wizard)](#manual-setup-alternative-to-wizard)
+7. [What Gets Deployed](#what-gets-deployed)
+8. [Directory Structure](#directory-structure)
+9. [Configuration Reference](#configuration-reference)
+10. [Azure Migrate — Next Steps](#azure-migrate--next-steps)
+11. [Troubleshooting](#troubleshooting)
+12. [Cleanup](#cleanup)
 
 ---
 
@@ -38,6 +41,8 @@ Choose which **apps** to deploy (Java, .NET, PHP, or all), which **OS** (Linux, 
 | **Provision** | Terraform | Clones VM templates in vSphere into VMs with static IPs |
 | **Deploy** | Ansible | Installs selected app stacks on each VM |
 | **Prepare** | Ansible | Enables SSH/WinRM, sysstat, firewall rules, and optional Azure Migrate Dependency Agent |
+| **DNS** | Ansible | Registers forward/reverse DNS records on a DNS server for all deployed VMs |
+| **Domain Join** | Ansible | Joins VMs to an Active Directory domain (includes DNS registration) |
 | **Assess** | Azure Migrate | You point the Azure Migrate appliance at your vCenter and discover all VMs |
 
 ---
@@ -514,6 +519,123 @@ systemctl status apache2           # on php-vm
 
 ---
 
+## DNS Registration & Domain Join
+
+After VMs are deployed, you can optionally register them in DNS and/or join them to an Active Directory domain. The wizard offers these as **post-deployment options**, or you can run them standalone via CLI flags.
+
+### DNS Registration (Standalone)
+
+Registers forward (A) and reverse (PTR) DNS records for all deployed VMs on a Windows AD-integrated DNS server. This does **not** join machines to the domain — it only creates DNS entries.
+
+**When to use:** You have a Windows DNS server and want VMs resolvable by hostname (e.g., `3t-java-fe.azurecmf.org`) without domain-joining them.
+
+**Via CLI flag:**
+```bash
+bash scripts/setup-interactive.sh --dns
+```
+
+**Via wizard menu:**
+- Quick menu: **Option 4** — DNS Registration
+- Main menu: **Option 7** — DNS Registration
+
+The wizard prompts for:
+
+| Prompt | Description | Example |
+|--------|-------------|---------|
+| DNS Zone | The DNS zone to register records in | `azurecmf.org` |
+| DNS Server IP | IP of the Windows DNS server | `10.20.1.4` |
+| DNS Admin User | Account with permission to create DNS records | `Administrator` |
+| DNS Admin Password | Password for the DNS admin account | *(masked input)* |
+| Scope | Linux only, Windows only, or Both | `3` (Both) |
+
+**What it does:**
+1. Gathers hostname + IP from each deployed VM
+2. Adds the DNS server as an Ansible delegate host (connects via WinRM)
+3. Runs `Add-DnsServerResourceRecordA` on the DNS server for each VM (creates A records with `-AllowUpdateAny`)
+4. Creates reverse PTR records via `Add-DnsServerResourceRecordPtr`
+5. Verifies with `Resolve-DnsName` queries
+
+**Playbooks used:**
+
+| Scope | Playbook |
+|-------|----------|
+| Linux VMs | `ansible/playbooks/dns-register-linux.yml` |
+| Windows VMs | `ansible/playbooks/dns-register-windows.yml` |
+| Both | `ansible/playbooks/dns-register-all.yml` |
+
+### Domain Join (Active Directory)
+
+Joins VMs to an Active Directory domain. DNS registration happens automatically when machines join the domain — this is a superset of DNS Registration.
+
+**When to use:** You have an AD domain controller and want VMs to be fully domain-joined (AD authentication, GPO, SSO, etc.).
+
+**Via CLI flag:**
+```bash
+bash scripts/setup-interactive.sh --domainjoin
+```
+
+**Via wizard menu:**
+- Quick menu: **Option 5** — Domain Join
+- Main menu: **Option 8** — Domain Join
+
+**Post-deployment prompt:** After a successful deploy, the wizard offers:
+```
+  1) DNS Registration only
+  2) Domain Join (includes DNS)
+  3) Skip
+```
+
+The wizard prompts for:
+
+| Prompt | Description | Example |
+|--------|-------------|---------|
+| AD Domain | The Active Directory domain to join | `azurecmf.org` |
+| Domain Controller IP | IP of the domain controller / DNS server | `10.20.1.4` |
+| Domain Admin User | Account with permission to join machines | `Administrator` |
+| Domain Admin Password | Password for the admin account | *(masked input)* |
+| Scope | Linux only, Windows only, or Both | `3` (Both) |
+
+**What it does — Linux VMs (`domain-join-linux.yml`):**
+1. Checks if already joined via `realm list`
+2. Configures `systemd-resolved` to use the DC as DNS server (writes `/etc/systemd/resolved.conf.d/ad-dns.conf`)
+3. Restarts `systemd-resolved` and verifies DNS with `nslookup`
+4. Installs required packages: `realmd`, `sssd`, `adcli`, `krb5-user`, `packagekit`, `samba-common-bin`
+5. Discovers the domain via `realm discover`
+6. Joins the domain via `realm join` with the admin credentials
+7. Configures PAM (`pam_mkhomedir`) for automatic home directory creation
+8. Verifies membership with `realm list`
+
+**What it does — Windows VMs (`domain-join-windows.yml`):**
+1. Checks current domain membership via `Win32_ComputerSystem`
+2. Sets DNS to point to the domain controller
+3. Joins the domain via `Add-Computer` PowerShell cmdlet
+4. Reboots the VM and waits for WinRM to come back
+5. Verifies domain membership
+
+**Retry/Resume:** If domain join fails on some hosts, the script automatically offers to retry:
+```
+  Domain join failed on some hosts.
+  Retry file: /path/to/domain-join-all.retry
+  Failed hosts:
+    10.1.3.2
+    10.1.3.5
+  Resume domain join for failed hosts? (y/n) [y]:
+```
+
+Choosing **y** reruns the playbook with `--limit @retry_file`, targeting only the failed hosts.
+
+**Playbooks used:**
+
+| Scope | Playbook |
+|-------|----------|
+| Linux VMs | `ansible/playbooks/domain-join-linux.yml` |
+| Windows VMs | `ansible/playbooks/domain-join-windows.yml` |
+| Both | `ansible/playbooks/domain-join-all.yml` |
+
+**Batch processing:** Both domain join playbooks use `serial: 3` to process VMs in batches of 3, avoiding overwhelming the domain controller with simultaneous join requests.
+
+---
+
 ## Manual Setup (Alternative to Wizard)
 
 If you prefer to configure files manually instead of using the wizard:
@@ -629,6 +751,12 @@ legacy-app-vmware-setup/
 │       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server
 │       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
 │       ├── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
+│       ├── dns-register-linux.yml     # DNS: register Linux VMs in Windows DNS
+│       ├── dns-register-windows.yml   # DNS: register Windows VMs in Windows DNS
+│       ├── dns-register-all.yml       # DNS: register all VMs (wrapper)
+│       ├── domain-join-linux.yml      # AD: join Linux VMs via realmd/SSSD
+│       ├── domain-join-windows.yml    # AD: join Windows VMs via Add-Computer
+│       ├── domain-join-all.yml        # AD: join all VMs (wrapper)
 │       └── 3tier/                     # 3-Tier architecture playbooks
 │           ├── site-3tier.yml         # Master playbook — Linux 3-tier
 │           ├── site-3tier-win.yml     # Master playbook — Windows 3-tier
@@ -891,6 +1019,37 @@ UNREACHABLE! => {"msg": "winrm connection error"}
 - Ensure the Windows VM can reach `go.microsoft.com` and `download.microsoft.com`
 - If behind a proxy, configure the proxy in the Windows template before templating
 
+### DNS Registration: "No such zone" error
+```
+Add-DnsServerResourceRecordA : The zone azurecmf.org was not found on server
+```
+- The DNS zone must already exist on the DNS server — the playbook creates records, not zones
+- Create the zone in DNS Manager or via: `Add-DnsServerPrimaryZone -Name "azurecmf.org" -ReplicationScope Domain`
+
+### Domain Join: "No such realm found" on Linux
+```
+realm: No such realm found: azurecmf.org
+```
+- DNS is not resolving the AD domain. The VM's DNS must point to the domain controller
+- The playbook configures `/etc/systemd/resolved.conf.d/ad-dns.conf` and restarts `systemd-resolved`
+- Verify manually: `nslookup azurecmf.org 10.20.1.4` — should return the DC's IP
+- If re-running after a previous attempt, ensure the systemd-resolved service is restarted
+
+### Domain Join: realm join fails (censored output)
+```
+fatal: [10.1.3.2]: FAILED! => {"censored": "the output has been hidden due to the fact that 'no_log: true' was specified for this result"}
+```
+- Pull the latest code (`git pull`) — the updated playbook shows the actual error message while keeping the password hidden
+- Common causes: wrong admin password, account lacks "Add workstations to domain" permission, Kerberos clock skew (>5 minutes), or network connectivity to DC
+
+### Domain Join: Kerberos pre-authentication failed
+```
+realm: Couldn't join realm: Failed to enroll machine in realm
+```
+- Verify admin credentials: `kinit Administrator@AZURECMF.ORG` (realm must be uppercase)
+- Check time sync: Kerberos requires clocks within 5 minutes — run `ntpdate <dc-ip>` or configure NTP
+- Ensure the admin account has permission to join machines to the domain
+
 ---
 
 ## Cleanup
@@ -902,6 +1061,8 @@ UNREACHABLE! => {"msg": "winrm connection error"}
 | *(none)* | Full interactive wizard — prompts for everything |
 | `--quick` | Reuse saved config from previous run, only prompt for passwords |
 | `--resume` | Retry failed Ansible hosts without re-running Terraform |
+| `--dns` | Register all deployed VMs in DNS (standalone, no domain join) |
+| `--domainjoin` | Join all deployed VMs to an Active Directory domain (includes DNS) |
 | `--destroy` | Destroy all VMs across all workspaces |
 
 ### Quick destroy via wizard
