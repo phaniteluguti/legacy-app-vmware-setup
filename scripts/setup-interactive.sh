@@ -1564,6 +1564,9 @@ run_domain_join() {
 
     popd > /dev/null
 }
+
+# ---------------------------------------------------------------------------
+main() {
     # Handle --destroy flag for quick cleanup
     if [[ "${1:-}" == "--destroy" || "${1:-}" == "destroy" ]]; then
         echo ""
