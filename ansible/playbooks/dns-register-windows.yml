@@ -2,21 +2,22 @@
 # =============================================================================
 # DNS Registration — Windows VMs
 # Registers all Windows VMs (single-VM + 3-tier) as A records in a
-# Windows DNS Server (AD-integrated) using PowerShell Add-DnsServerResourceRecordA.
+# Windows DNS Server (AD-integrated).
+#
+# Delegates the Add-DnsServerResourceRecordA call directly to the DNS
+# server via WinRM, avoiding double-hop Invoke-Command issues.
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-windows.yml -v
-#
-# Required variables in group_vars/all.yml:
-#   dns_server: "10.1.3.1"     # Windows DNS server IP
-#   dns_zone:   "lab.local"    # Forward lookup zone
+#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-windows.yml \
+#     -e "dns_server=10.20.1.4" -e "dns_zone=azurecmf.org" \
+#     -e "dns_admin_user=Administrator" -e "dns_admin_password=SECRET" -v
 # =============================================================================
-- name: Register Windows VMs in DNS
+
+# Play 1: Gather facts from Windows VMs and add DNS server as delegate
+- name: Gather Windows VM info for DNS registration
   hosts: win_servers:win_servers_3tier
   gather_facts: true
   become: false
-  vars_files:
-    - ../group_vars/all.yml
 
   tasks:
     - name: Validate DNS variables are set
@@ -24,50 +25,57 @@
         that:
           - dns_server is defined and dns_server | length > 0
           - dns_zone is defined and dns_zone | length > 0
-        fail_msg: "dns_server and dns_zone must be set in group_vars/all.yml"
+          - dns_admin_user is defined and dns_admin_user | length > 0
+          - dns_admin_password is defined and dns_admin_password | length > 0
+        fail_msg: "dns_server, dns_zone, dns_admin_user, and dns_admin_password must be provided"
 
-    - name: Build DNS hostname
+    - name: Add DNS server as a WinRM delegate host
+      add_host:
+        name: dns_delegate
+        ansible_host: "{{ dns_server }}"
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_winrm_scheme: http
+        ansible_port: 5985
+        ansible_user: "{{ dns_admin_user }}"
+        ansible_password: "{{ dns_admin_password }}"
+      run_once: true
+      no_log: true
+
+    - name: Collect VM registration info
       set_fact:
-        dns_hostname: "{{ ansible_hostname | lower }}"
-        dns_ip: "{{ ansible_host }}"
+        dns_record:
+          hostname: "{{ ansible_hostname | lower }}"
+          ip: "{{ ansible_host }}"
 
-    - name: Register A record in Windows DNS
+# Play 2: Register each Windows VM on the DNS server
+- name: Register Windows VMs in DNS
+  hosts: win_servers:win_servers_3tier
+  gather_facts: false
+  serial: 1
+
+  tasks:
+    - name: Register A record on DNS server
       win_shell: |
-        $dns = "{{ dns_server }}"
         $zone = "{{ dns_zone }}"
-        $name = "{{ dns_hostname }}"
-        $ip   = "{{ dns_ip }}"
+        $name = "{{ dns_record.hostname }}"
+        $ip   = "{{ dns_record.ip }}"
 
-        # Build credential for DNS server
-        $secpasswd = ConvertTo-SecureString "{{ dns_admin_password }}" -AsPlainText -Force
-        $cred = New-Object System.Management.Automation.PSCredential ("{{ dns_admin_user }}", $secpasswd)
-
-        # Try to remove existing record first (ignore errors)
-        try {
-          Invoke-Command -ComputerName $dns -Credential $cred -ScriptBlock {
-            param($z,$n)
-            $existing = Get-DnsServerResourceRecord -ZoneName $z -Name $n -RRType A -ErrorAction SilentlyContinue
-            if ($existing) {
-              Remove-DnsServerResourceRecord -ZoneName $z -Name $n -RRType A -Force -ErrorAction Stop
-            }
-          } -ArgumentList $zone, $name -ErrorAction Stop
-        } catch {
-          Write-Warning "Could not remove old record: $_"
+        # Remove existing record if any
+        $existing = Get-DnsServerResourceRecord -ZoneName $zone -Name $name -RRType A -ErrorAction SilentlyContinue
+        if ($existing) {
+          Remove-DnsServerResourceRecord -ZoneName $zone -Name $name -RRType A -Force -ErrorAction Stop
         }
 
         # Add new A record
-        Invoke-Command -ComputerName $dns -Credential $cred -ScriptBlock {
-          param($z,$n,$i)
-          Add-DnsServerResourceRecordA -ZoneName $z -Name $n -IPv4Address $i -TimeToLive 01:00:00 -ErrorAction Stop
-        } -ArgumentList $zone, $name, $ip
-
-        Write-Host "Registered $name.$zone -> $ip on $dns"
+        Add-DnsServerResourceRecordA -ZoneName $zone -Name $name -IPv4Address $ip -TimeToLive 01:00:00 -ErrorAction Stop
+        Write-Host "Registered $name.$zone -> $ip"
+      delegate_to: dns_delegate
       register: dns_result
-      no_log: true
 
     - name: Verify DNS registration
       win_shell: |
-        nslookup {{ dns_hostname }}.{{ dns_zone }} {{ dns_server }}
+        nslookup {{ dns_record.hostname }}.{{ dns_zone }} {{ dns_server }}
       register: nslookup_result
       changed_when: false
       failed_when: false
@@ -75,6 +83,6 @@
     - name: Show registration result
       debug:
         msg: >-
-          {{ dns_hostname }}.{{ dns_zone }} -> {{ dns_ip }}:
-          {{ 'OK' if dns_ip in (nslookup_result.stdout | default(''))
-             else 'FAILED - check dns_result output' }}
+          {{ dns_record.hostname }}.{{ dns_zone }} -> {{ dns_record.ip }}:
+          {{ 'OK' if dns_record.ip in (nslookup_result.stdout | default(''))
+             else 'FAILED - ' + (dns_result.stderr | default('unknown error')) }}
