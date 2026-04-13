@@ -1421,6 +1421,17 @@ run_dns_register() {
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
+    # Load previous DNS registration settings if available
+    local dns_conf="$ANSIBLE_DIR/.dnsregister.conf"
+    local prev_dns_srv="" prev_dns_zone="" prev_dns_user="" prev_dns_scope=""
+    if [[ -f "$dns_conf" ]]; then
+        step "Found previous DNS registration config — loading as defaults"
+        prev_dns_srv=$(grep '^DNS_SERVER=' "$dns_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dns_zone=$(grep '^DNS_ZONE=' "$dns_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dns_user=$(grep '^DNS_USER=' "$dns_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dns_scope=$(grep '^DNS_SCOPE=' "$dns_conf" 2>/dev/null | cut -d= -f2-)
+    fi
+
     # Show discovered VMs from inventory
     echo ""
     echo -e "  ${Y}Discovered VMs from inventory:${NC}"
@@ -1431,21 +1442,22 @@ run_dns_register() {
     fi
 
     # Prompt for DNS server address
-    local prev_dns="${VM_DNS%%,*}"
-    prev_dns="${prev_dns:-10.1.3.1}"
-    read -rp "  DNS Server IP [$prev_dns]: " dns_srv
-    dns_srv="${dns_srv:-$prev_dns}"
+    local def_dns="${prev_dns_srv:-${VM_DNS%%,*}}"
+    def_dns="${def_dns:-10.1.3.1}"
+    read -rp "  DNS Server IP [$def_dns]: " dns_srv
+    dns_srv="${dns_srv:-$def_dns}"
 
     # Prompt for DNS zone
-    local prev_zone="${VM_DOMAIN:-lab.local}"
-    read -rp "  DNS Zone [$prev_zone]: " dns_z
-    dns_z="${dns_z:-$prev_zone}"
+    local def_zone="${prev_dns_zone:-${VM_DOMAIN:-lab.local}}"
+    read -rp "  DNS Zone [$def_zone]: " dns_z
+    dns_z="${dns_z:-$def_zone}"
 
     # Prompt for domain admin credentials (required for AD-integrated DNS)
     echo ""
     echo -e "  ${Y}Domain admin credentials (required to update DNS records):${NC}"
-    read -rp "  Domain admin username [Administrator]: " dns_admin_user
-    dns_admin_user="${dns_admin_user:-Administrator}"
+    local def_user="${prev_dns_user:-Administrator}"
+    read -rp "  Domain admin username [$def_user]: " dns_admin_user
+    dns_admin_user="${dns_admin_user:-$def_user}"
     read -srp "  Domain admin password: " dns_admin_pass
     echo ""
     if [[ -z "$dns_admin_pass" ]]; then
@@ -1460,16 +1472,20 @@ run_dns_register() {
     if $DNS_HAS_WINDOWS; then
         echo -e "    ${G}2)${NC} Windows only"
     fi
+    local def_scope="${prev_dns_scope:-}"
     if $DNS_HAS_LINUX && $DNS_HAS_WINDOWS; then
         echo -e "    ${G}3)${NC} Both (all deployed VMs)"
-        read -rp "  Choice [3]: " dns_choice
-        dns_choice="${dns_choice:-3}"
+        def_scope="${def_scope:-3}"
+        read -rp "  Choice [$def_scope]: " dns_choice
+        dns_choice="${dns_choice:-$def_scope}"
     elif $DNS_HAS_LINUX; then
-        read -rp "  Choice [1]: " dns_choice
-        dns_choice="${dns_choice:-1}"
+        def_scope="${def_scope:-1}"
+        read -rp "  Choice [$def_scope]: " dns_choice
+        dns_choice="${dns_choice:-$def_scope}"
     else
-        read -rp "  Choice [2]: " dns_choice
-        dns_choice="${dns_choice:-2}"
+        def_scope="${def_scope:-2}"
+        read -rp "  Choice [$def_scope]: " dns_choice
+        dns_choice="${dns_choice:-$def_scope}"
     fi
 
     local playbook=""
@@ -1479,6 +1495,16 @@ run_dns_register() {
         3) playbook="playbooks/dns-register-all.yml" ;;
         *) err "Invalid choice"; popd > /dev/null; return 1 ;;
     esac
+
+    # Save DNS registration settings for next run (passwords are NEVER saved)
+    cat > "$dns_conf" <<EOF
+# DNS Registration settings — auto-saved by setup-interactive.sh
+# Passwords are never saved.
+DNS_SERVER=$dns_srv
+DNS_ZONE=$dns_z
+DNS_USER=$dns_admin_user
+DNS_SCOPE=$dns_choice
+EOF
 
     step "Registering VMs — DNS server=$dns_srv zone=$dns_z user=$dns_admin_user"
     ansible-playbook -i inventory/hosts.ini "$playbook" \
@@ -1499,6 +1525,17 @@ run_domain_join() {
     chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
     export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
 
+    # Load previous domain join settings if available
+    local dj_conf="$ANSIBLE_DIR/.domainjoin.conf"
+    local prev_dj_domain="" prev_dj_dc="" prev_dj_user="" prev_dj_scope=""
+    if [[ -f "$dj_conf" ]]; then
+        step "Found previous domain join config — loading as defaults"
+        prev_dj_domain=$(grep '^DJ_DOMAIN=' "$dj_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dj_dc=$(grep '^DJ_DC=' "$dj_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dj_user=$(grep '^DJ_USER=' "$dj_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dj_scope=$(grep '^DJ_SCOPE=' "$dj_conf" 2>/dev/null | cut -d= -f2-)
+    fi
+
     # Show discovered VMs from inventory
     echo -e "  ${Y}Discovered VMs from inventory:${NC}"
     echo ""
@@ -1507,22 +1544,23 @@ run_domain_join() {
         return 1
     fi
 
-    # Prompt for AD domain
-    local prev_zone="${VM_DOMAIN:-lab.local}"
-    read -rp "  AD Domain to join [$prev_zone]: " ad_domain
-    ad_domain="${ad_domain:-$prev_zone}"
+    # Prompt for AD domain (use saved value, fall back to VM_DOMAIN)
+    local def_domain="${prev_dj_domain:-${VM_DOMAIN:-lab.local}}"
+    read -rp "  AD Domain to join [$def_domain]: " ad_domain
+    ad_domain="${ad_domain:-$def_domain}"
 
     # Prompt for DNS server (domain controller)
-    local prev_dns="${VM_DNS%%,*}"
-    prev_dns="${prev_dns:-10.1.3.1}"
-    read -rp "  Domain Controller / DNS Server IP [$prev_dns]: " dc_ip
-    dc_ip="${dc_ip:-$prev_dns}"
+    local def_dc="${prev_dj_dc:-${VM_DNS%%,*}}"
+    def_dc="${def_dc:-10.1.3.1}"
+    read -rp "  Domain Controller / DNS Server IP [$def_dc]: " dc_ip
+    dc_ip="${dc_ip:-$def_dc}"
 
     # Prompt for domain admin credentials
     echo ""
     echo -e "  ${Y}Domain admin credentials (must have permission to join machines):${NC}"
-    read -rp "  Domain admin username [Administrator]: " ad_user
-    ad_user="${ad_user:-Administrator}"
+    local def_user="${prev_dj_user:-Administrator}"
+    read -rp "  Domain admin username [$def_user]: " ad_user
+    ad_user="${ad_user:-$def_user}"
     read -srp "  Domain admin password: " ad_pass
     echo ""
     if [[ -z "$ad_pass" ]]; then
@@ -1537,16 +1575,20 @@ run_domain_join() {
     if $DNS_HAS_WINDOWS; then
         echo -e "    ${G}2)${NC} Windows only"
     fi
+    local def_scope="${prev_dj_scope:-}"
     if $DNS_HAS_LINUX && $DNS_HAS_WINDOWS; then
         echo -e "    ${G}3)${NC} Both (all deployed VMs)"
-        read -rp "  Choice [3]: " dj_choice
-        dj_choice="${dj_choice:-3}"
+        def_scope="${def_scope:-3}"
+        read -rp "  Choice [$def_scope]: " dj_choice
+        dj_choice="${dj_choice:-$def_scope}"
     elif $DNS_HAS_LINUX; then
-        read -rp "  Choice [1]: " dj_choice
-        dj_choice="${dj_choice:-1}"
+        def_scope="${def_scope:-1}"
+        read -rp "  Choice [$def_scope]: " dj_choice
+        dj_choice="${dj_choice:-$def_scope}"
     else
-        read -rp "  Choice [2]: " dj_choice
-        dj_choice="${dj_choice:-2}"
+        def_scope="${def_scope:-2}"
+        read -rp "  Choice [$def_scope]: " dj_choice
+        dj_choice="${dj_choice:-$def_scope}"
     fi
 
     local playbook=""
@@ -1556,6 +1598,16 @@ run_domain_join() {
         3) playbook="playbooks/domain-join-all.yml" ;;
         *) err "Invalid choice"; popd > /dev/null; return 1 ;;
     esac
+
+    # Save domain join settings for next run (passwords are NEVER saved)
+    cat > "$dj_conf" <<EOF
+# Domain Join settings — auto-saved by setup-interactive.sh
+# Passwords are never saved.
+DJ_DOMAIN=$ad_domain
+DJ_DC=$dc_ip
+DJ_USER=$ad_user
+DJ_SCOPE=$dj_choice
+EOF
 
     # Derive retry file path from playbook name
     local retry_file="${ANSIBLE_DIR}/${playbook%.yml}.retry"

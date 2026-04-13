@@ -8,6 +8,8 @@ terraform/.terraform.lock.hcl
 # Ansible
 ansible/group_vars/all.yml
 ansible/*.retry
+ansible/.domainjoin.conf
+ansible/.dnsregister.conf
 
 # Secrets
 *.pem
