@@ -1441,6 +1441,17 @@ run_dns_register() {
     read -rp "  DNS Zone [$prev_zone]: " dns_z
     dns_z="${dns_z:-$prev_zone}"
 
+    # Prompt for domain admin credentials (required for AD-integrated DNS)
+    echo ""
+    echo -e "  ${Y}Domain admin credentials (required to update DNS records):${NC}"
+    read -rp "  Domain admin username [Administrator]: " dns_admin_user
+    dns_admin_user="${dns_admin_user:-Administrator}"
+    read -srp "  Domain admin password: " dns_admin_pass
+    echo ""
+    if [[ -z "$dns_admin_pass" ]]; then
+        err "Password cannot be empty"; popd > /dev/null; return 1
+    fi
+
     echo ""
     echo -e "  ${Y}Which VMs to register?${NC}"
     if $DNS_HAS_LINUX; then
@@ -1469,9 +1480,10 @@ run_dns_register() {
         *) err "Invalid choice"; popd > /dev/null; return 1 ;;
     esac
 
-    step "Registering VMs — DNS server=$dns_srv zone=$dns_z playbook=$playbook"
+    step "Registering VMs — DNS server=$dns_srv zone=$dns_z user=$dns_admin_user"
     ansible-playbook -i inventory/hosts.ini "$playbook" \
-        -e "dns_server=$dns_srv" -e "dns_zone=$dns_z" -v
+        -e "dns_server=$dns_srv" -e "dns_zone=$dns_z" \
+        -e "dns_admin_user=$dns_admin_user" -e "dns_admin_password=$dns_admin_pass" -v
 
     popd > /dev/null
 }

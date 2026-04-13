@@ -38,9 +38,13 @@
         $name = "{{ dns_hostname }}"
         $ip   = "{{ dns_ip }}"
 
+        # Build credential for DNS server
+        $secpasswd = ConvertTo-SecureString "{{ dns_admin_password }}" -AsPlainText -Force
+        $cred = New-Object System.Management.Automation.PSCredential ("{{ dns_admin_user }}", $secpasswd)
+
         # Try to remove existing record first (ignore errors)
         try {
-          Invoke-Command -ComputerName $dns -ScriptBlock {
+          Invoke-Command -ComputerName $dns -Credential $cred -ScriptBlock {
             param($z,$n)
             $existing = Get-DnsServerResourceRecord -ZoneName $z -Name $n -RRType A -ErrorAction SilentlyContinue
             if ($existing) {
@@ -52,13 +56,14 @@
         }
 
         # Add new A record
-        Invoke-Command -ComputerName $dns -ScriptBlock {
+        Invoke-Command -ComputerName $dns -Credential $cred -ScriptBlock {
           param($z,$n,$i)
           Add-DnsServerResourceRecordA -ZoneName $z -Name $n -IPv4Address $i -TimeToLive 01:00:00 -ErrorAction Stop
         } -ArgumentList $zone, $name, $ip
 
         Write-Host "Registered $name.$zone -> $ip on $dns"
       register: dns_result
+      no_log: true
 
     - name: Verify DNS registration
       win_shell: |

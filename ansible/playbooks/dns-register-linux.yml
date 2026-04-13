@@ -2,21 +2,23 @@
 # =============================================================================
 # DNS Registration — Linux VMs
 # Registers all Linux VMs (single-VM + 3-tier) as A records in a
-# Windows DNS Server (AD-integrated) using nsupdate dynamic DNS updates.
+# Windows DNS Server (AD-integrated).
+#
+# Since the DNS server is Windows/AD-integrated, we delegate the
+# PowerShell Add-DnsServerResourceRecordA call to the DNS server
+# itself via WinRM using domain admin credentials.
 #
 # Usage:
-#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-linux.yml -v
-#
-# Required variables in group_vars/all.yml:
-#   dns_server: "10.1.3.1"     # Windows DNS server IP
-#   dns_zone:   "lab.local"    # Forward lookup zone
+#   ansible-playbook -i inventory/hosts.ini playbooks/dns-register-linux.yml \
+#     -e "dns_server=10.1.3.1" -e "dns_zone=lab.local" \
+#     -e "dns_admin_user=Administrator" -e "dns_admin_password=SECRET" -v
 # =============================================================================
-- name: Register Linux VMs in DNS
+
+# Play 1: Gather facts from Linux VMs and add DNS server as a delegate host
+- name: Gather Linux VM facts for DNS registration
   hosts: legacy_apps:legacy_apps_3tier
   gather_facts: true
   become: false
-  vars_files:
-    - ../group_vars/all.yml
 
   tasks:
     - name: Validate DNS variables are set
@@ -24,43 +26,56 @@
         that:
           - dns_server is defined and dns_server | length > 0
           - dns_zone is defined and dns_zone | length > 0
-        fail_msg: "dns_server and dns_zone must be set in group_vars/all.yml"
+          - dns_admin_user is defined and dns_admin_user | length > 0
+          - dns_admin_password is defined and dns_admin_password | length > 0
+        fail_msg: "dns_server, dns_zone, dns_admin_user, and dns_admin_password must be provided"
 
-    - name: Install dnsutils for nsupdate
-      become: true
-      apt:
-        name: dnsutils
-        state: present
-        update_cache: true
-      when: ansible_os_family == "Debian"
+    - name: Add DNS server as a WinRM delegate host
+      add_host:
+        name: dns_delegate
+        ansible_host: "{{ dns_server }}"
+        ansible_connection: winrm
+        ansible_winrm_transport: ntlm
+        ansible_winrm_scheme: http
+        ansible_port: 5985
+        ansible_user: "{{ dns_admin_user }}"
+        ansible_password: "{{ dns_admin_password }}"
+      run_once: true
+      no_log: true
 
-    - name: Install bind-utils for nsupdate
-      become: true
-      yum:
-        name: bind-utils
-        state: present
-      when: ansible_os_family == "RedHat"
-
-    - name: Build DNS hostname
+    - name: Collect VM registration info
       set_fact:
-        dns_hostname: "{{ ansible_hostname | lower }}"
-        dns_ip: "{{ ansible_host }}"
+        dns_record:
+          hostname: "{{ ansible_hostname | lower }}"
+          ip: "{{ ansible_host }}"
 
-    - name: Register A record via nsupdate
-      shell: |
-        nsupdate <<NSEOF
-        server {{ dns_server }}
-        zone {{ dns_zone }}
-        update delete {{ dns_hostname }}.{{ dns_zone }}. A
-        update add {{ dns_hostname }}.{{ dns_zone }}. 3600 A {{ dns_ip }}
-        send
-        NSEOF
-      register: nsupdate_result
-      changed_when: nsupdate_result.rc == 0
-      failed_when: false
+# Play 2: Register each Linux VM on the DNS server
+- name: Register Linux VMs in Windows DNS
+  hosts: legacy_apps:legacy_apps_3tier
+  gather_facts: false
+  serial: 1
+
+  tasks:
+    - name: Register A record on DNS server
+      win_shell: |
+        $zone = "{{ dns_zone }}"
+        $name = "{{ dns_record.hostname }}"
+        $ip   = "{{ dns_record.ip }}"
+
+        # Remove existing record if any
+        $existing = Get-DnsServerResourceRecord -ZoneName $zone -Name $name -RRType A -ErrorAction SilentlyContinue
+        if ($existing) {
+          Remove-DnsServerResourceRecord -ZoneName $zone -Name $name -RRType A -Force -ErrorAction Stop
+        }
+
+        # Add new A record
+        Add-DnsServerResourceRecordA -ZoneName $zone -Name $name -IPv4Address $ip -TimeToLive 01:00:00 -ErrorAction Stop
+        Write-Host "Registered $name.$zone -> $ip"
+      delegate_to: dns_delegate
+      no_log: true
 
     - name: Verify DNS registration
-      command: nslookup {{ dns_hostname }}.{{ dns_zone }} {{ dns_server }}
+      command: nslookup {{ dns_record.hostname }}.{{ dns_zone }} {{ dns_server }}
       register: nslookup_result
       changed_when: false
       failed_when: false
@@ -68,6 +83,6 @@
     - name: Show registration result
       debug:
         msg: >-
-          {{ dns_hostname }}.{{ dns_zone }} -> {{ dns_ip }}:
-          {{ 'OK' if dns_ip in (nslookup_result.stdout | default(''))
-             else 'FAILED - ' + (nsupdate_result.stderr | default('unknown error')) }}
+          {{ dns_record.hostname }}.{{ dns_zone }} -> {{ dns_record.ip }}:
+          {{ 'OK' if dns_record.ip in (nslookup_result.stdout | default(''))
+             else 'FAILED - check DNS server logs' }}
