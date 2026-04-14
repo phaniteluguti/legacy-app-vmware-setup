@@ -170,7 +170,18 @@
       args:
         executable: /bin/bash
       changed_when: false
-      no_log: true
+      failed_when: false
+      register: mysql_create_result
+
+    - name: Show MySQL user creation error
+      debug:
+        msg: "MySQL error: {{ mysql_create_result.stderr }}"
+      when: mysql_create_result.rc != 0
+
+    - name: Fail if MySQL user creation failed
+      fail:
+        msg: "Failed to create Azure Migrate MySQL user. See error above."
+      when: mysql_create_result.rc != 0
 
     - name: Verify Azure Migrate MySQL user privileges
       shell: |
@@ -208,6 +219,18 @@
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "FLUSH PRIVILEGES;"
       changed_when: false
+      failed_when: false
+      register: win_mysql_create_result
+
+    - name: Show MySQL user creation error (Windows)
+      debug:
+        msg: "MySQL error: {{ win_mysql_create_result.stderr }}"
+      when: win_mysql_create_result.rc != 0
+
+    - name: Fail if MySQL user creation failed (Windows)
+      fail:
+        msg: "Failed to create Azure Migrate MySQL user. See error above."
+      when: win_mysql_create_result.rc != 0
       no_log: true
 
     - name: Verify Azure Migrate MySQL user privileges (Windows)
