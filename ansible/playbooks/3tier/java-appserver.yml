@@ -1,9 +1,10 @@
 ---
 # =============================================================================
-# Java 3-Tier — App Server VM: Spring PetClinic REST API (port 9966)
+# Java 3-Tier — App Server VM: Spring PetClinic REST API on Standalone Tomcat
 # Connects to PostgreSQL on the database VM
+# Standalone Tomcat deployment for Azure Migrate web app discovery
 # =============================================================================
-- name: Deploy Spring PetClinic REST API (Java 3-Tier)
+- name: Deploy Spring PetClinic REST on Standalone Tomcat (Java 3-Tier)
   hosts: java_appserver
   become: true
   vars_files:
@@ -11,8 +12,13 @@
   vars:
     db_host: "{{ hostvars[groups['java_database'][0]]['ansible_host'] | default(groups['java_database'][0]) }}"
     petclinic_rest_port: 9966
+    tomcat_version: "10.1.28"
+    tomcat_major: "10"
+    tomcat_install_dir: /opt/tomcat
+    tomcat_user: tomcat
 
   tasks:
+    # ---- Base Packages & JDK ----
     - name: Update apt cache
       apt:
         update_cache: true
@@ -34,7 +40,73 @@
         regexp: '^JAVA_HOME='
         line: "JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
 
-    - name: Create app directory
+    # ---- Standalone Apache Tomcat Installation ----
+    - name: Create tomcat system group
+      group:
+        name: "{{ tomcat_user }}"
+        system: true
+
+    - name: Create tomcat system user
+      user:
+        name: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        system: true
+        create_home: false
+        shell: /bin/false
+
+    - name: Download Apache Tomcat {{ tomcat_version }}
+      get_url:
+        url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+
+    - name: Create Tomcat install directory
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+
+    - name: Extract Tomcat
+      unarchive:
+        src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "{{ tomcat_install_dir }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+        creates: "{{ tomcat_install_dir }}/bin/catalina.sh"
+
+    - name: Set Tomcat directory ownership
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        recurse: true
+
+    - name: Configure Tomcat port to {{ petclinic_rest_port }}
+      replace:
+        path: "{{ tomcat_install_dir }}/conf/server.xml"
+        regexp: 'Connector port="8080"'
+        replace: 'Connector port="{{ petclinic_rest_port }}"'
+
+    - name: Remove default Tomcat webapps
+      file:
+        path: "{{ tomcat_install_dir }}/webapps/{{ item }}"
+        state: absent
+      loop: [ROOT, docs, examples, host-manager, manager]
+
+    - name: Create setenv.sh for Spring profiles
+      copy:
+        dest: "{{ tomcat_install_dir }}/bin/setenv.sh"
+        content: |
+          #!/bin/sh
+          export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+          export CATALINA_OPTS="-Dspring.profiles.active=postgresql,spring-data-jpa"
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        mode: "0755"
+
+    # ---- Clone & Configure PetClinic REST ----
+    - name: Create app build directory
       file:
         path: /opt/petclinic-rest
         state: directory
@@ -59,7 +131,7 @@
         group: "{{ ansible_user }}"
         recurse: true
 
-    - name: Configure PostgreSQL connection in application-postgresql.properties
+    - name: Configure PostgreSQL connection
       copy:
         dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
@@ -74,59 +146,115 @@
           spring.sql.init.continue-on-error=true
         owner: "{{ ansible_user }}"
 
-    - name: Build PetClinic REST API with Maven (skip tests)
+    # ---- Convert to WAR packaging ----
+    - name: Set WAR packaging in pom.xml
+      lineinfile:
+        path: /opt/petclinic-rest/repo/pom.xml
+        insertafter: '<artifactId>spring-petclinic-rest</artifactId>'
+        line: '    <packaging>war</packaging>'
+        regexp: '<packaging>'
+
+    - name: Add provided-scope Tomcat dependency
+      blockinfile:
+        path: /opt/petclinic-rest/repo/pom.xml
+        insertafter: '<dependencies>'
+        marker: "<!-- {mark} ANSIBLE MANAGED - Tomcat provided for WAR -->"
+        block: |2
+              <dependency>
+                  <groupId>org.springframework.boot</groupId>
+                  <artifactId>spring-boot-starter-tomcat</artifactId>
+                  <scope>provided</scope>
+              </dependency>
+
+    - name: Detect application class package path
+      shell: >
+        find /opt/petclinic-rest/repo/src/main/java -name '*Application*.java' -type f
+        | head -1 | sed 's|.*/src/main/java/||; s|/[^/]*$||'
+      register: app_pkg_path
+      changed_when: false
+
+    - name: Detect application class name
+      shell: >
+        find /opt/petclinic-rest/repo/src/main/java -name '*Application*.java' -type f
+        | head -1 | xargs basename | sed 's|\.java$||'
+      register: app_class
+      changed_when: false
+
+    - name: Create ServletInitializer for WAR deployment
+      copy:
+        dest: "/opt/petclinic-rest/repo/src/main/java/{{ app_pkg_path.stdout }}/ServletInitializer.java"
+        content: |
+          package {{ app_pkg_path.stdout | replace('/', '.') }};
+
+          import org.springframework.boot.builder.SpringApplicationBuilder;
+          import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
+
+          public class ServletInitializer extends SpringBootServletInitializer {
+              @Override
+              protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
+                  return application.sources({{ app_class.stdout }}.class);
+              }
+          }
+        owner: "{{ ansible_user }}"
+
+    # ---- Build & Deploy WAR ----
+    - name: Build PetClinic REST as WAR (skip tests)
       shell: |
         cd /opt/petclinic-rest/repo
-        sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests'
+        sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests -Djacoco.skip=true'
       args:
         executable: /bin/bash
 
-    - name: Find built JAR
+    - name: Find built WAR file
       find:
         paths: /opt/petclinic-rest/repo/target
-        patterns: "spring-petclinic-rest*.jar"
-        excludes: "*-sources.jar,*-javadoc.jar,original-*.jar,*.original"
-      register: jar_files
+        patterns: "*.war"
+      register: war_files
 
-    - name: Copy JAR to /opt/petclinic-rest
+    - name: Deploy WAR to Tomcat
       copy:
-        src: "{{ jar_files.files[0].path }}"
-        dest: /opt/petclinic-rest/petclinic-rest.jar
+        src: "{{ war_files.files[0].path }}"
+        dest: "{{ tomcat_install_dir }}/webapps/ROOT.war"
         remote_src: true
-        owner: "{{ ansible_user }}"
-      when: jar_files.files | length > 0
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+      when: war_files.files | length > 0
+      notify: Restart Tomcat
 
-    - name: Create PetClinic REST systemd service
+    # ---- Tomcat systemd Service ----
+    - name: Create Tomcat systemd service
       copy:
-        dest: /etc/systemd/system/petclinic-rest.service
+        dest: /etc/systemd/system/tomcat.service
         content: |
           [Unit]
-          Description=Spring PetClinic REST API
+          Description=Apache Tomcat Web Application Container
           After=network.target
 
           [Service]
-          Type=simple
-          User={{ ansible_user }}
-          WorkingDirectory=/opt/petclinic-rest
-          ExecStart=/usr/bin/java -jar /opt/petclinic-rest/petclinic-rest.jar --spring.profiles.active=postgresql,spring-data-jpa --server.port={{ petclinic_rest_port }}
-          Restart=on-failure
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
+          Type=forking
+          User={{ tomcat_user }}
+          Group={{ tomcat_user }}
           Environment=JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+          Environment=CATALINA_HOME={{ tomcat_install_dir }}
+          Environment=CATALINA_BASE={{ tomcat_install_dir }}
+          Environment=CATALINA_PID={{ tomcat_install_dir }}/temp/catalina.pid
+          ExecStart={{ tomcat_install_dir }}/bin/startup.sh
+          ExecStop={{ tomcat_install_dir }}/bin/shutdown.sh
+          RestartSec=10
+          Restart=on-failure
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart PetClinic REST
+      notify: Restart Tomcat
 
-    - name: Enable and start PetClinic REST service
+    - name: Enable and start Tomcat service
       systemd:
-        name: petclinic-rest
+        name: tomcat
         daemon_reload: true
         enabled: true
         state: started
 
-    - name: Allow PetClinic REST port through UFW
+    - name: Allow Tomcat port through UFW
       ufw:
         rule: allow
         port: "{{ petclinic_rest_port }}"
@@ -134,7 +262,7 @@
       ignore_errors: true
 
   handlers:
-    - name: Restart PetClinic REST
+    - name: Restart Tomcat
       systemd:
-        name: petclinic-rest
+        name: tomcat
         state: restarted
