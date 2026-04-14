@@ -1,0 +1,223 @@
+---
+# =============================================================================
+# Azure Migrate — Create least-privilege database users for discovery
+#
+# Creates dedicated 'azmigrateuser' accounts on PostgreSQL and MySQL
+# with the minimum permissions Azure Migrate needs for deep discovery.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
+#     -e "az_migrate_user=azmigrateuser" \
+#     -e "az_migrate_password=<PASSWORD>" \
+#     -e "appliance_ip=10.20.1.x"
+# =============================================================================
+
+# ─── Play 1: PostgreSQL — Linux DB VMs ──────────────────────────────────────
+- name: Create Azure Migrate user on PostgreSQL (Linux)
+  hosts: java_database
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - az_migrate_user is defined and az_migrate_user | length > 0
+          - az_migrate_password is defined and az_migrate_password | length > 0
+          - appliance_ip is defined and appliance_ip | length > 0
+        fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
+
+    - name: Create Azure Migrate PostgreSQL user with least privileges
+      shell: |
+        sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'" | grep -q 1 || \
+        sudo -u postgres psql -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
+        sudo -u postgres psql -c "ALTER USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}';"
+        # Grant CONNECT on all non-template databases
+        for db in $(sudo -u postgres psql -tAc "SELECT datname FROM pg_database WHERE datistemplate = false;"); do
+          sudo -u postgres psql -c "GRANT CONNECT ON DATABASE \"$db\" TO {{ az_migrate_user }};"
+        done
+        # Grant monitoring roles required by Azure Migrate
+        sudo -u postgres psql -c "GRANT pg_read_all_settings TO {{ az_migrate_user }};"
+        sudo -u postgres psql -c "GRANT pg_read_all_stats TO {{ az_migrate_user }};"
+        sudo -u postgres psql -c "GRANT pg_monitor TO {{ az_migrate_user }};"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Allow Azure Migrate appliance in pg_hba.conf
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        insertafter: '^# IPv4 local connections'
+        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   md5"
+      notify: Reload PostgreSQL
+
+    - name: Verify Azure Migrate user roles
+      shell: |
+        sudo -u postgres psql -tAc "
+          SELECT r.rolname
+          FROM pg_auth_members m
+          JOIN pg_roles r ON m.roleid = r.oid
+          WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = '{{ az_migrate_user }}');"
+      register: pg_roles_check
+      changed_when: false
+
+    - name: Show PostgreSQL user roles
+      debug:
+        msg: "User '{{ az_migrate_user }}' has roles: {{ pg_roles_check.stdout_lines }}"
+
+  handlers:
+    - name: Reload PostgreSQL
+      systemd:
+        name: postgresql
+        state: reloaded
+
+# ─── Play 2: PostgreSQL — Windows DB VMs ────────────────────────────────────
+- name: Create Azure Migrate user on PostgreSQL (Windows)
+  hosts: win_java_database
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - az_migrate_user is defined and az_migrate_user | length > 0
+          - az_migrate_password is defined and az_migrate_password | length > 0
+          - appliance_ip is defined and appliance_ip | length > 0
+        fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
+
+    - name: Create Azure Migrate PostgreSQL user with least privileges (Windows)
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        $psql = "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe"
+
+        # Create user if not exists
+        $exists = & $psql -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'"
+        if ($exists -ne '1') {
+          & $psql -U postgres -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
+        }
+        & $psql -U postgres -c "ALTER USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}';"
+
+        # Grant CONNECT on all non-template databases
+        $dbs = & $psql -U postgres -tAc "SELECT datname FROM pg_database WHERE datistemplate = false;"
+        foreach ($db in $dbs) {
+          $db = $db.Trim()
+          if ($db) {
+            & $psql -U postgres -c "GRANT CONNECT ON DATABASE `"$db`" TO {{ az_migrate_user }};"
+          }
+        }
+
+        # Grant monitoring roles
+        & $psql -U postgres -c "GRANT pg_read_all_settings TO {{ az_migrate_user }};"
+        & $psql -U postgres -c "GRANT pg_read_all_stats TO {{ az_migrate_user }};"
+        & $psql -U postgres -c "GRANT pg_monitor TO {{ az_migrate_user }};"
+      changed_when: false
+
+    - name: Allow Azure Migrate appliance in pg_hba.conf (Windows)
+      win_lineinfile:
+        path: 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\pg_hba.conf'
+        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   md5"
+        insertafter: "^# IPv4 local connections"
+
+    - name: Reload PostgreSQL service (Windows)
+      win_shell: |
+        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\pg_ctl.exe" reload -D "C:\Program Files\PostgreSQL\{{ postgres_version }}\data"
+      changed_when: false
+
+    - name: Verify Azure Migrate user roles (Windows)
+      win_shell: |
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "
+          SELECT r.rolname
+          FROM pg_auth_members m
+          JOIN pg_roles r ON m.roleid = r.oid
+          WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = '{{ az_migrate_user }}');"
+      register: win_pg_roles_check
+      changed_when: false
+
+    - name: Show PostgreSQL user roles (Windows)
+      debug:
+        msg: "User '{{ az_migrate_user }}' has roles: {{ win_pg_roles_check.stdout_lines }}"
+
+# ─── Play 3: MySQL — Linux DB VMs ──────────────────────────────────────────
+- name: Create Azure Migrate user on MySQL (Linux)
+  hosts: php_database
+  become: true
+  gather_facts: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - az_migrate_user is defined and az_migrate_user | length > 0
+          - az_migrate_password is defined and az_migrate_password | length > 0
+        fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
+
+    - name: Create Azure Migrate MySQL user with discovery privileges
+      shell: |
+        mysql -u root -p'{{ mysql_root_password }}' -e "
+          CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
+          GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';
+          GRANT SELECT ON information_schema.* TO '{{ az_migrate_user }}'@'%';
+          GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
+          FLUSH PRIVILEGES;"
+      args:
+        executable: /bin/bash
+      changed_when: false
+      no_log: true
+
+    - name: Verify Azure Migrate MySQL user privileges
+      shell: |
+        mysql -u root -p'{{ mysql_root_password }}' -e "SHOW GRANTS FOR '{{ az_migrate_user }}'@'%';" 2>/dev/null
+      register: mysql_grants_check
+      changed_when: false
+
+    - name: Show MySQL user privileges
+      debug:
+        msg: "{{ mysql_grants_check.stdout_lines }}"
+
+# ─── Play 4: MySQL — Windows DB VMs ────────────────────────────────────────
+- name: Create Azure Migrate user on MySQL (Windows)
+  hosts: win_php_database
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+
+  tasks:
+    - name: Validate required variables
+      assert:
+        that:
+          - az_migrate_user is defined and az_migrate_user | length > 0
+          - az_migrate_password is defined and az_migrate_password | length > 0
+        fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
+
+    - name: Create Azure Migrate MySQL user with discovery privileges (Windows)
+      win_shell: |
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON information_schema.* TO '{{ az_migrate_user }}'@'%';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "FLUSH PRIVILEGES;"
+      changed_when: false
+      no_log: true
+
+    - name: Verify Azure Migrate MySQL user privileges (Windows)
+      win_shell: |
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "SHOW GRANTS FOR '{{ az_migrate_user }}'@'%';"
+      register: win_mysql_grants_check
+      changed_when: false
+
+    - name: Show MySQL user privileges (Windows)
+      debug:
+        msg: "{{ win_mysql_grants_check.stdout_lines }}"

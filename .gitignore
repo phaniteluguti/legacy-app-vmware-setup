@@ -10,6 +10,7 @@ ansible/group_vars/all.yml
 ansible/*.retry
 ansible/.domainjoin.conf
 ansible/.dnsregister.conf
+ansible/.azmigrate-db.conf
 
 # Secrets
 *.pem

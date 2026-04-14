@@ -1649,6 +1649,73 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+run_azmigrate_db() {
+    header "Azure Migrate — Create DB Discovery Users"
+    echo -e "  ${C}Creates least-privilege users on PostgreSQL and MySQL${NC}"
+    echo -e "  ${C}for Azure Migrate database discovery & assessment.${NC}"
+    echo ""
+    pushd "$ANSIBLE_DIR" > /dev/null
+
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
+    # Load previous settings if available
+    local azmig_conf="$ANSIBLE_DIR/.azmigrate-db.conf"
+    local prev_az_user="" prev_appliance_ip=""
+    if [[ -f "$azmig_conf" ]]; then
+        step "Found previous Azure Migrate DB config — loading as defaults"
+        prev_az_user=$(grep '^AZ_MIGRATE_USER=' "$azmig_conf" 2>/dev/null | cut -d= -f2-)
+        prev_appliance_ip=$(grep '^APPLIANCE_IP=' "$azmig_conf" 2>/dev/null | cut -d= -f2-)
+    fi
+
+    # Prompt for Azure Migrate user
+    local def_user="${prev_az_user:-azmigrateuser}"
+    read -rp "  Azure Migrate DB username [$def_user]: " az_user
+    az_user="${az_user:-$def_user}"
+
+    # Prompt for password
+    read -srp "  Password for $az_user: " az_pass
+    echo ""
+    if [[ -z "$az_pass" ]]; then
+        err "Password cannot be empty"; popd > /dev/null; return 1
+    fi
+
+    # Prompt for appliance IP (needed for pg_hba.conf)
+    local def_ip="${prev_appliance_ip:-}"
+    read -rp "  Azure Migrate appliance IP [$def_ip]: " app_ip
+    app_ip="${app_ip:-$def_ip}"
+    if [[ -z "$app_ip" ]]; then
+        err "Appliance IP is required for PostgreSQL pg_hba.conf access"; popd > /dev/null; return 1
+    fi
+
+    # Save settings for next run (passwords are NEVER saved)
+    cat > "$azmig_conf" <<EOF
+# Azure Migrate DB settings — auto-saved by setup-interactive.sh
+# Passwords are never saved.
+AZ_MIGRATE_USER=$az_user
+APPLIANCE_IP=$app_ip
+EOF
+
+    step "Creating Azure Migrate DB users — user=$az_user appliance=$app_ip"
+    ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
+        -e "az_migrate_user=$az_user" -e "az_migrate_password=$az_pass" \
+        -e "appliance_ip=$app_ip" -v
+
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
+        echo ""
+        echo -e "  ${G}Azure Migrate DB users created successfully.${NC}"
+        echo -e "  ${C}Use these credentials in the Azure Migrate appliance:${NC}"
+        echo -e "    ${Y}PostgreSQL:${NC} $az_user (port 5432)"
+        echo -e "    ${Y}MySQL:${NC}      $az_user (port 3306)"
+    else
+        echo -e "  ${R}Some tasks failed. Check the output above.${NC}"
+    fi
+
+    popd > /dev/null
+}
+
+# ---------------------------------------------------------------------------
 main() {
     # Handle --destroy flag for quick cleanup
     if [[ "${1:-}" == "--destroy" || "${1:-}" == "destroy" ]]; then
@@ -1843,6 +1910,94 @@ main() {
         exit 0
     fi
 
+    # Handle --azmigrate-db flag for creating Azure Migrate DB users
+    if [[ "${1:-}" == "--azmigrate-db" || "${1:-}" == "azmigrate-db" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Azure Migrate — Create DB Discovery Users${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        local all_workspaces
+        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
+        popd > /dev/null
+
+        if [[ -z "$all_workspaces" ]]; then
+            err "No Terraform workspaces found. Deploy VMs first."
+            exit 1
+        fi
+
+        DEPLOY_MODES=()
+        while IFS= read -r ws; do
+            DEPLOY_MODES+=("$ws")
+        done <<< "$all_workspaces"
+        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true
+            [[ "$m" == windows* ]] && need_windows=true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        fi
+
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform state for workspace: $DEPLOY_MODE"
+            pushd "$TF_DIR" > /dev/null
+            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                popd > /dev/null
+                continue
+            }
+            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_PHP" == "true" ]]; then
+                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+            else
+                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            fi
+            popd > /dev/null
+            write_inventory
+        done
+
+        step "Inventory rebuilt from Terraform state"
+        run_azmigrate_db
+        exit 0
+    fi
+
     # Handle --resume flag to retry failed Ansible hosts
     if [[ "${1:-}" == "--resume" || "${1:-}" == "resume" ]]; then
         echo ""
@@ -2009,6 +2164,7 @@ main() {
         echo -e "    ${G}3)${NC} Stop here — I'll run Terraform & Ansible myself later"
         echo -e "    ${G}4)${NC} DNS Registration only (create A records — no domain join)"
         echo -e "    ${G}5)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+        echo -e "    ${G}6)${NC} Azure Migrate DB Users (create discovery accounts on PostgreSQL/MySQL)"
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
@@ -2045,6 +2201,8 @@ main() {
             run_dns_register
         elif [[ "$qchoice" == "5" ]]; then
             run_domain_join
+        elif [[ "$qchoice" == "6" ]]; then
+            run_azmigrate_db
         else
             step "Config saved. Run manually when ready."
         fi
@@ -2204,6 +2362,7 @@ main() {
     echo -e "    ${G}6)${NC} ${R}Destroy all VMs${NC} (terraform destroy)"
     echo -e "    ${G}7)${NC} DNS Registration only (create A records — no domain join)"
     echo -e "    ${G}8)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+    echo -e "    ${G}9)${NC} Azure Migrate DB Users (create discovery accounts on PostgreSQL/MySQL)"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -2254,6 +2413,7 @@ main() {
         6) run_destroy ;;
         7) run_dns_register ;;
         8) run_domain_join ;;
+        9) run_azmigrate_db ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }
