@@ -438,6 +438,16 @@ collect_vms() {
         PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
     fi
 
+    # Populate WIN_ variables from saved values for "both" mode (used by summary + write_tfvars)
+    if [[ "$OS_CHOICE" == "both" ]]; then
+        WIN_JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"; WIN_JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"; WIN_JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"
+        WIN_DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"; WIN_DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"; WIN_DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
+        WIN_PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; WIN_PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; WIN_PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
+        WIN_JAVA_FE_IP="${PREV_WIN_JAVA_FE_IP:-10.1.3.30}"; WIN_JAVA_APP_IP="${PREV_WIN_JAVA_APP_IP:-10.1.3.31}"; WIN_JAVA_DB_IP="${PREV_WIN_JAVA_DB_IP:-10.1.3.32}"
+        WIN_DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-10.1.3.33}"; WIN_DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-10.1.3.34}"; WIN_DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-10.1.3.35}"
+        WIN_PHP_FE_IP="${PREV_WIN_PHP_FE_IP:-10.1.3.36}"; WIN_PHP_APP_IP="${PREV_WIN_PHP_APP_IP:-10.1.3.37}"; WIN_PHP_DB_IP="${PREV_WIN_PHP_DB_IP:-10.1.3.38}"
+    fi
+
     if $QUICK_MODE; then
         step "Using saved VM sizing, hostnames and IPs from previous run"
         return
