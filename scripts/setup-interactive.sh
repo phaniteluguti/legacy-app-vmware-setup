@@ -1238,6 +1238,101 @@ run_terraform() {
                 done
             fi
         fi
+
+        # ── Preserve hostnames & domain from state for ALL existing VMs ──
+        # The vSphere provider treats host_name and domain inside
+        # clone.customize as ForceNew — any change destroys & recreates the VM.
+        # Pull the actual values from state and patch tfvars so Terraform
+        # sees no diff on these immutable attributes.
+        _preserve_vm_attrs() {
+            local resource="$1" vm_key="$2" prefix="$3"
+            local state_block
+            state_block=$(terraform state show "${resource}[\"${vm_key}\"]" 2>/dev/null || true)
+            [[ -z "$state_block" ]] && return
+
+            # Extract hostname (= the VM name vSphere used at clone time)
+            local cur_name
+            cur_name=$(echo "$state_block" | grep '^\s*name\s*=' | head -1 \
+                       | sed 's/.*= *"\(.*\)"/\1/')
+            if [[ -n "$cur_name" ]]; then
+                local tf_var="${prefix}${vm_key//-/_}_hostname"
+                sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_name}\"|" terraform.tfvars
+                step "  Preserved $vm_key hostname: $cur_name"
+            fi
+
+            # Extract IP
+            local cur_ip
+            cur_ip=$(echo "$state_block" | grep 'default_ip_address' | head -1 \
+                     | sed 's/.*= *"\(.*\)"/\1/')
+            if [[ -n "$cur_ip" ]]; then
+                local tf_var="${prefix}${vm_key//-/_}_ip"
+                sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_ip}\"|" terraform.tfvars
+                step "  Preserved $vm_key IP: $cur_ip"
+            fi
+        }
+
+        # Preserve domain from state (also ForceNew in linux_options)
+        local state_domain
+        local first_vm
+        first_vm=$(echo "$existing_resources" | grep 'vm_3tier\[\|vm\[' | head -1 || true)
+        if [[ -n "$first_vm" ]]; then
+            state_domain=$(terraform state show "$first_vm" 2>/dev/null \
+                          | grep '^\s*domain\s*=' | head -1 \
+                          | sed 's/.*= *"\(.*\)"/\1/')
+            if [[ -n "$state_domain" ]]; then
+                sed -i "s|^vm_domain .*=.*|vm_domain              = \"${state_domain}\"|" terraform.tfvars
+                step "  Preserved domain: $state_domain"
+            fi
+        fi
+
+        # Linux 3-tier VMs
+        if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
+            for vm_key in java-fe java-app java-db dotnet-fe dotnet-app dotnet-db php-fe php-app php-db; do
+                echo "$existing_resources" | grep -q "vm_3tier\[\"${vm_key}\"\]" || continue
+                _preserve_vm_attrs "vsphere_virtual_machine.vm_3tier" "$vm_key" ""
+            done
+        fi
+
+        # Windows 3-tier VMs
+        if [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
+            for vm_key in win-java-fe win-java-app win-java-db win-dotnet-fe win-dotnet-app win-dotnet-db win-php-fe win-php-app win-php-db; do
+                echo "$existing_resources" | grep -q "win_vm_3tier\[\"${vm_key}\"\]" || continue
+                _preserve_vm_attrs "vsphere_virtual_machine.win_vm_3tier" "$vm_key" ""
+            done
+        fi
+
+        # Linux single-VM
+        if [[ "$DEPLOY_MODE" == "linux" ]]; then
+            for vm_key in java-vm dotnet-vm php-vm; do
+                echo "$existing_resources" | grep -q "vm\[\"${vm_key}\"\]" || continue
+                _preserve_vm_attrs "vsphere_virtual_machine.vm" "$vm_key" ""
+            done
+        fi
+
+        # Windows single-VM (shares java_vm/dotnet_vm/php_vm hostname vars)
+        if [[ "$DEPLOY_MODE" == "windows" ]]; then
+            for vm_key in win-java-vm win-dotnet-vm win-php-vm; do
+                echo "$existing_resources" | grep -q "win_vm\[\"${vm_key}\"\]" || continue
+                local state_block
+                state_block=$(terraform state show "vsphere_virtual_machine.win_vm[\"${vm_key}\"]" 2>/dev/null || true)
+                [[ -z "$state_block" ]] && continue
+                local cur_name
+                cur_name=$(echo "$state_block" | grep '^\s*name\s*=' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                if [[ -n "$cur_name" ]]; then
+                    # win-java-vm -> java_vm_hostname (strip win- prefix)
+                    local tf_var="${vm_key#win-}"; tf_var="${tf_var//-/_}_hostname"
+                    sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_name}\"|" terraform.tfvars
+                    step "  Preserved $vm_key hostname: $cur_name"
+                fi
+                local cur_ip
+                cur_ip=$(echo "$state_block" | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
+                if [[ -n "$cur_ip" ]]; then
+                    local tf_var="${vm_key#win-}"; tf_var="${tf_var//-/_}_ip"
+                    sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_ip}\"|" terraform.tfvars
+                    step "  Preserved $vm_key IP: $cur_ip"
+                fi
+            done
+        fi
     fi
 
     step "terraform plan ..."
