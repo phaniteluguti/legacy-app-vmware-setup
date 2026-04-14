@@ -160,7 +160,6 @@ load_previous() {
         fi
         PREV_VSPHERE_SERVER="$(tfval vsphere_server "")"
         PREV_VSPHERE_USER="$(tfval vsphere_user "administrator@vsphere.local")"
-        PREV_VSPHERE_PASSWORD="$(tfval vsphere_password "")"
         PREV_VSPHERE_SSL="$(tfval vsphere_allow_unverified_ssl "true")"
         PREV_VSPHERE_DC="$(tfval vsphere_datacenter "Datacenter1")"
         PREV_VSPHERE_CLUSTER="$(tfval vsphere_cluster "Cluster1")"
@@ -176,8 +175,6 @@ load_previous() {
         PREV_SSH_USER="$(tfval vm_ssh_user "ubuntu")"
         PREV_SSH_AUTH_METHOD="$(tfval vm_ssh_auth_method "password")"
         PREV_SSH_KEY="$(tfval vm_ssh_private_key_path "\$HOME/.ssh/id_rsa")"
-        PREV_SSH_PASSWORD="$(tfval vm_ssh_password "")"
-        PREV_WIN_ADMIN_PASS="$(tfval win_admin_password "")"
         PREV_JAVA_IP="$(tfval java_vm_ip "192.168.1.101")"
         PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
         PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
@@ -2263,7 +2260,7 @@ main() {
         OS_CHOICE="$r_os"
         ARCH_CHOICE="$r_arch"
         VSPHERE_USER="${PREV_VSPHERE_USER:-administrator@vsphere.local}"
-        VSPHERE_PASSWORD="${PREV_VSPHERE_PASSWORD:-}"
+        VSPHERE_PASSWORD=""
         VSPHERE_SSL="${PREV_VSPHERE_SSL:-true}"
         VSPHERE_DC="${PREV_VSPHERE_DC:-Datacenter1}"
         VSPHERE_CLUSTER="${PREV_VSPHERE_CLUSTER:-Cluster1}"
@@ -2320,25 +2317,17 @@ main() {
         PHP_VER="${PREV_PHP_VER:-8.1}"; PHP_REPO="${PREV_PHP_REPO:-}"; PHP_BRANCH="${PREV_PHP_BRANCH:-10.x}"
         AZ_AGENT="${PREV_AZ_AGENT:-false}"
 
-        # Prompt for credentials once (skip if already loaded from tfvars)
+        # Prompt for credentials (passwords are never saved)
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
             [[ "$m" == linux* ]] && need_linux=true
             [[ "$m" == windows* ]] && need_windows=true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
-            if [[ -n "${PREV_SSH_PASSWORD:-}" ]]; then
-                SSH_PASSWORD="$PREV_SSH_PASSWORD"
-            else
-                prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
-            fi
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
         fi
         if $need_windows; then
-            if [[ -n "${PREV_WIN_ADMIN_PASS:-}" ]]; then
-                WIN_ADMIN_PASS="$PREV_WIN_ADMIN_PASS"
-            else
-                prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
-            fi
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
         # Resume each mode
