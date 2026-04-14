@@ -1688,6 +1688,14 @@ run_azmigrate_db() {
         err "Appliance IP is required for PostgreSQL pg_hba.conf access"; popd > /dev/null; return 1
     fi
 
+    # Prompt for DB admin passwords (needed for Windows VMs where peer auth isn't available)
+    echo ""
+    echo -e "  ${Y}Database admin passwords (needed for Windows DB VMs):${NC}"
+    read -srp "  PostgreSQL superuser (postgres) password: " pg_admin_pass
+    echo ""
+    read -srp "  MySQL root password: " mysql_admin_pass
+    echo ""
+
     # Save settings for next run (passwords are NEVER saved)
     cat > "$azmig_conf" <<EOF
 # Azure Migrate DB settings — auto-saved by setup-interactive.sh
@@ -1699,7 +1707,9 @@ EOF
     step "Creating Azure Migrate DB users — user=$az_user appliance=$app_ip"
     ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
         -e "az_migrate_user=$az_user" -e "az_migrate_password=$az_pass" \
-        -e "appliance_ip=$app_ip" -v
+        -e "appliance_ip=$app_ip" \
+        -e "postgres_password=$pg_admin_pass" \
+        -e "mysql_root_password=$mysql_admin_pass" -v
 
     local rc=$?
     if [[ $rc -eq 0 ]]; then
