@@ -89,7 +89,7 @@
       win_shell: |
         Expand-Archive -Path "C:\Temp\apache-tomcat-{{ tomcat_version }}.zip" -DestinationPath "C:\Temp\tomcat-extract" -Force
         New-Item -Path "{{ tomcat_install_dir }}" -ItemType Directory -Force | Out-Null
-        Copy-Item -Path "C:\Temp\tomcat-extract\apache-tomcat-{{ tomcat_version }}\*" -Destination "{{ tomcat_install_dir }}\" -Recurse -Force
+        Copy-Item -Path "C:\Temp\tomcat-extract\apache-tomcat-{{ tomcat_version }}\*" -Destination "{{ tomcat_install_dir }}" -Recurse -Force
         Remove-Item -Path "C:\Temp\tomcat-extract" -Recurse -Force
       args:
         creates: '{{ tomcat_install_dir }}\bin\catalina.bat'
