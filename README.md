@@ -23,6 +23,7 @@ Choose which **apps** to deploy (Java, .NET, PHP, or all), which **OS** (Linux, 
 5. [DNS Registration & Domain Join](#dns-registration--domain-join)
    - [DNS Registration (Standalone)](#dns-registration-standalone)
    - [Domain Join (Active Directory)](#domain-join-active-directory)
+   - [Azure Migrate Database Discovery Users](#azure-migrate-database-discovery-users)
 6. [Manual Setup (Alternative to Wizard)](#manual-setup-alternative-to-wizard)
 7. [What Gets Deployed](#what-gets-deployed)
 8. [Directory Structure](#directory-structure)
@@ -634,6 +635,49 @@ Choosing **y** reruns the playbook with `--limit @retry_file`, targeting only th
 
 **Batch processing:** Both domain join playbooks use `serial: 3` to process VMs in batches of 3, avoiding overwhelming the domain controller with simultaneous join requests.
 
+### Azure Migrate Database Discovery Users
+
+If you plan to use **Azure Migrate** to discover and assess your PostgreSQL and MySQL databases, you need to create dedicated database users with the minimum required permissions. Without this step, Azure Migrate will report authentication or privilege errors during database discovery.
+
+**Via CLI flag:**
+```bash
+bash scripts/setup-interactive.sh --azmigrate-db
+```
+
+**Via wizard menu:**
+- Quick menu: **Option 6** — Azure Migrate DB Users
+- Main menu: **Option 9** — Azure Migrate DB Users
+
+The wizard prompts for:
+
+| Prompt | Description | Example |
+|--------|-------------|---------|
+| Azure Migrate DB username | The discovery user to create (or custom name) | `azmigrateuser` |
+| Password | Password for the discovery user | *(masked input)* |
+| Appliance IP | IP of the Azure Migrate appliance (needed for PostgreSQL `pg_hba.conf`) | `10.20.1.10` |
+| PostgreSQL superuser password | Password for the `postgres` user (Windows VMs only — Linux uses peer auth) | *(masked input)* |
+| MySQL root password | Password for the `root` user | *(masked input)* |
+
+**What it creates:**
+
+| Database | Permissions Granted | Why |
+|----------|-------------------|-----|
+| PostgreSQL | `CONNECT` on all databases, `pg_read_all_settings`, `pg_read_all_stats`, `pg_monitor` roles | Per [Microsoft's least-privilege spec](https://aka.ms/Least-credentials-postgresql) |
+| MySQL | `PROCESS` on `*.*`, `SELECT` on `performance_schema.*` | `information_schema` is readable by all users by default |
+
+**Target VMs:**
+
+| Play | Inventory Group | Example IP |
+|------|----------------|------------|
+| PostgreSQL (Linux) | `java_database` | 10.1.3.4 |
+| PostgreSQL (Windows) | `win_java_database` | 10.1.3.13 |
+| MySQL (Linux) | `php_database` | 10.1.3.7 |
+| MySQL (Windows) | `win_php_database` | 10.1.3.19 |
+
+**Playbook:** `ansible/playbooks/azure-migrate-db-users.yml`
+
+> **Note:** After running this, use the username and password you chose (e.g., `azmigrateuser` / your password) in the Azure Migrate appliance under **Add credentials → Database** for both PostgreSQL (port 5432) and MySQL (port 3306) discovery sources. Settings are saved to `.azmigrate-db.conf` for re-runs (passwords are never saved).
+
 ---
 
 ## Manual Setup (Alternative to Wizard)
@@ -757,6 +801,7 @@ legacy-app-vmware-setup/
 │       ├── domain-join-linux.yml      # AD: join Linux VMs via realmd/SSSD
 │       ├── domain-join-windows.yml    # AD: join Windows VMs via Add-Computer
 │       ├── domain-join-all.yml        # AD: join all VMs (wrapper)
+│       ├── azure-migrate-db-users.yml # Azure Migrate: create DB discovery users
 │       └── 3tier/                     # 3-Tier architecture playbooks
 │           ├── site-3tier.yml         # Master playbook — Linux 3-tier
 │           ├── site-3tier-win.yml     # Master playbook — Windows 3-tier
@@ -1063,6 +1108,7 @@ realm: Couldn't join realm: Failed to enroll machine in realm
 | `--resume` | Retry failed Ansible hosts without re-running Terraform |
 | `--dns` | Register all deployed VMs in DNS (standalone, no domain join) |
 | `--domainjoin` | Join all deployed VMs to an Active Directory domain (includes DNS) |
+| `--azmigrate-db` | Create least-privilege database users for Azure Migrate discovery |
 | `--destroy` | Destroy all VMs across all workspaces |
 
 ### Quick destroy via wizard
