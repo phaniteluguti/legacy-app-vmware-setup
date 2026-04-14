@@ -715,7 +715,7 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Embedded Tomcat | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Standalone Apache Tomcat 10 | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
@@ -723,7 +723,7 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | NSSM service | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | Standalone Apache Tomcat 10 | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
 | **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
@@ -733,7 +733,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
-| **Java** | Angular + Nginx (:80) | REST API Spring Boot (:9966) | PostgreSQL 15 (:5432) |
+| **Java** | Angular + Nginx (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
 | **.NET** | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
 | **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
 
@@ -741,7 +741,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
-| **Java** | IIS + ARR reverse proxy (:80) | NSSM service (:9966) | PostgreSQL 15 (:5432) |
+| **Java** | IIS + ARR reverse proxy (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
 | **.NET** | IIS + ARR reverse proxy (:80) | IIS ASP.NET (:80) | SQL Server Express (:1433) |
 | **PHP** | IIS + ARR reverse proxy (:80) | IIS + PHP FastCGI (:80) | MySQL (:3306) |
 
@@ -806,7 +806,7 @@ legacy-app-vmware-setup/
 │           ├── site-3tier.yml         # Master playbook — Linux 3-tier
 │           ├── site-3tier-win.yml     # Master playbook — Windows 3-tier
 │           ├── java-frontend.yml      # Linux: Angular + Nginx frontend
-│           ├── java-appserver.yml     # Linux: REST API Spring Boot
+│           ├── java-appserver.yml     # Linux: Standalone Tomcat + WAR
 │           ├── java-database.yml      # Linux: PostgreSQL server
 │           ├── dotnet-frontend.yml    # Linux: Nginx reverse proxy
 │           ├── dotnet-appserver.yml   # Linux: eShopOnWeb ASP.NET Core 8.0 Kestrel
@@ -815,7 +815,7 @@ legacy-app-vmware-setup/
 │           ├── php-appserver.yml      # Linux: Laravel artisan
 │           ├── php-database.yml       # Linux: MySQL server
 │           ├── win-java-frontend.yml  # Windows: IIS + ARR
-│           ├── win-java-appserver.yml # Windows: NSSM Java service
+│           ├── win-java-appserver.yml # Windows: Standalone Tomcat + WAR
 │           ├── win-java-database.yml  # Windows: PostgreSQL
 │           ├── win-dotnet-frontend.yml # Windows: IIS + ARR
 │           ├── win-dotnet-appserver.yml # Windows: IIS ASP.NET
@@ -937,7 +937,7 @@ Azure Migrate will discover these cross-VM network connections and map them as *
 
 | Stack | Application | Source | Notes |
 |-------|-------------|--------|-------|
-| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: Spring Boot :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
+| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: WAR deployed on standalone Apache Tomcat 10 :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
 | **.NET** | eShopOnWeb (ASP.NET Core 8.0) | [`eShopOnWeb`](https://github.com/dotnet-architecture/eShopOnWeb) (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
 | **PHP** | Laravel sample app | [`laravel`](https://github.com/laravel/laravel) | PHP-FPM behind Nginx; MySQL remote DB |
 
