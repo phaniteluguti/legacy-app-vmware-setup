@@ -243,7 +243,7 @@ variable "java_fe_ip" {
 variable "java_fe_hostname" {
   description = "Hostname for Java frontend VM"
   type        = string
-  default     = "3t-java-fe"
+  default     = "java-fe"
 }
 variable "java_app_ip" {
   description = "Static IP for Java app server VM (Spring Boot REST)"
@@ -253,7 +253,7 @@ variable "java_app_ip" {
 variable "java_app_hostname" {
   description = "Hostname for Java app server VM"
   type        = string
-  default     = "3t-java-app"
+  default     = "java-app"
 }
 variable "java_db_ip" {
   description = "Static IP for Java database VM (PostgreSQL)"
@@ -263,7 +263,7 @@ variable "java_db_ip" {
 variable "java_db_hostname" {
   description = "Hostname for Java database VM"
   type        = string
-  default     = "3t-java-db"
+  default     = "java-db"
 }
 variable "dotnet_fe_ip" {
   description = "Static IP for .NET frontend VM (Nginx + Blazor)"
@@ -273,7 +273,7 @@ variable "dotnet_fe_ip" {
 variable "dotnet_fe_hostname" {
   description = "Hostname for .NET frontend VM"
   type        = string
-  default     = "3t-dotnet-fe"
+  default     = "dotnet-fe"
 }
 variable "dotnet_app_ip" {
   description = "Static IP for .NET app server VM (ASP.NET Core)"
@@ -283,7 +283,7 @@ variable "dotnet_app_ip" {
 variable "dotnet_app_hostname" {
   description = "Hostname for .NET app server VM"
   type        = string
-  default     = "3t-dotnet-app"
+  default     = "dotnet-app"
 }
 variable "dotnet_db_ip" {
   description = "Static IP for .NET database VM (SQL Server)"
@@ -293,7 +293,7 @@ variable "dotnet_db_ip" {
 variable "dotnet_db_hostname" {
   description = "Hostname for .NET database VM"
   type        = string
-  default     = "3t-dotnet-db"
+  default     = "dotnet-db"
 }
 variable "php_fe_ip" {
   description = "Static IP for PHP frontend VM (Nginx + Vue.js)"
@@ -303,7 +303,7 @@ variable "php_fe_ip" {
 variable "php_fe_hostname" {
   description = "Hostname for PHP frontend VM"
   type        = string
-  default     = "3t-php-fe"
+  default     = "php-fe"
 }
 variable "php_app_ip" {
   description = "Static IP for PHP app server VM (Laravel API)"
@@ -313,7 +313,7 @@ variable "php_app_ip" {
 variable "php_app_hostname" {
   description = "Hostname for PHP app server VM"
   type        = string
-  default     = "3t-php-app"
+  default     = "php-app"
 }
 variable "php_db_ip" {
   description = "Static IP for PHP database VM (MySQL)"
@@ -323,7 +323,7 @@ variable "php_db_ip" {
 variable "php_db_hostname" {
   description = "Hostname for PHP database VM"
   type        = string
-  default     = "3t-php-db"
+  default     = "php-db"
 }
 
 # =============================================================================
@@ -337,7 +337,7 @@ variable "win_java_fe_ip" {
 variable "win_java_fe_hostname" {
   description = "Hostname for Windows Java frontend VM"
   type        = string
-  default     = "3t-win-java-fe"
+  default     = "win-java-fe"
 }
 variable "win_java_app_ip" {
   description = "Static IP for Windows Java app server VM"
@@ -347,7 +347,7 @@ variable "win_java_app_ip" {
 variable "win_java_app_hostname" {
   description = "Hostname for Windows Java app server VM"
   type        = string
-  default     = "3t-win-java-app"
+  default     = "win-java-app"
 }
 variable "win_java_db_ip" {
   description = "Static IP for Windows Java database VM"
@@ -357,7 +357,7 @@ variable "win_java_db_ip" {
 variable "win_java_db_hostname" {
   description = "Hostname for Windows Java database VM"
   type        = string
-  default     = "3t-win-java-db"
+  default     = "win-java-db"
 }
 variable "win_dotnet_fe_ip" {
   description = "Static IP for Windows .NET frontend VM"
@@ -367,7 +367,7 @@ variable "win_dotnet_fe_ip" {
 variable "win_dotnet_fe_hostname" {
   description = "Hostname for Windows .NET frontend VM"
   type        = string
-  default     = "3t-win-dotnet-fe"
+  default     = "win-dotnet-fe"
 }
 variable "win_dotnet_app_ip" {
   description = "Static IP for Windows .NET app server VM"
@@ -377,7 +377,7 @@ variable "win_dotnet_app_ip" {
 variable "win_dotnet_app_hostname" {
   description = "Hostname for Windows .NET app server VM"
   type        = string
-  default     = "3t-win-dotnet-app"
+  default     = "win-dotnet-app"
 }
 variable "win_dotnet_db_ip" {
   description = "Static IP for Windows .NET database VM"
@@ -387,7 +387,7 @@ variable "win_dotnet_db_ip" {
 variable "win_dotnet_db_hostname" {
   description = "Hostname for Windows .NET database VM"
   type        = string
-  default     = "3t-win-dotnet-db"
+  default     = "win-dotnet-db"
 }
 variable "win_php_fe_ip" {
   description = "Static IP for Windows PHP frontend VM"
@@ -397,7 +397,7 @@ variable "win_php_fe_ip" {
 variable "win_php_fe_hostname" {
   description = "Hostname for Windows PHP frontend VM"
   type        = string
-  default     = "3t-win-php-fe"
+  default     = "win-php-fe"
 }
 variable "win_php_app_ip" {
   description = "Static IP for Windows PHP app server VM"
@@ -407,7 +407,7 @@ variable "win_php_app_ip" {
 variable "win_php_app_hostname" {
   description = "Hostname for Windows PHP app server VM"
   type        = string
-  default     = "3t-win-php-app"
+  default     = "win-php-app"
 }
 variable "win_php_db_ip" {
   description = "Static IP for Windows PHP database VM"
@@ -417,7 +417,7 @@ variable "win_php_db_ip" {
 variable "win_php_db_hostname" {
   description = "Hostname for Windows PHP database VM"
   type        = string
-  default     = "3t-win-php-db"
+  default     = "win-php-db"
 }
 
 # =============================================================================

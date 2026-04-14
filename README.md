@@ -528,7 +528,7 @@ After VMs are deployed, you can optionally register them in DNS and/or join them
 
 Registers forward (A) and reverse (PTR) DNS records for all deployed VMs on a Windows AD-integrated DNS server. This does **not** join machines to the domain — it only creates DNS entries.
 
-**When to use:** You have a Windows DNS server and want VMs resolvable by hostname (e.g., `3t-java-fe.azurecmf.org`) without domain-joining them.
+**When to use:** You have a Windows DNS server and want VMs resolvable by hostname (e.g., `java-fe.azurecmf.org`) without domain-joining them.
 
 **Via CLI flag:**
 ```bash
@@ -857,15 +857,15 @@ legacy-app-vmware-setup/
 | `deploy_php` | Deploy PHP app VMs | `true` |
 | `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
 | `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
-| `java_fe_hostname` | Hostname for Java frontend VM (3-tier) | `3t-java-fe` |
-| `java_app_hostname` | Hostname for Java app server VM (3-tier) | `3t-java-app` |
-| `java_db_hostname` | Hostname for Java database VM (3-tier) | `3t-java-db` |
-| `dotnet_fe_hostname` | Hostname for .NET frontend VM (3-tier) | `3t-dotnet-fe` |
-| `dotnet_app_hostname` | Hostname for .NET app server VM (3-tier) | `3t-dotnet-app` |
-| `dotnet_db_hostname` | Hostname for .NET database VM (3-tier) | `3t-dotnet-db` |
-| `php_fe_hostname` | Hostname for PHP frontend VM (3-tier) | `3t-php-fe` |
-| `php_app_hostname` | Hostname for PHP app server VM (3-tier) | `3t-php-app` |
-| `php_db_hostname` | Hostname for PHP database VM (3-tier) | `3t-php-db` |
+| `java_fe_hostname` | Hostname for Java frontend VM (3-tier) | `java-fe` |
+| `java_app_hostname` | Hostname for Java app server VM (3-tier) | `java-app` |
+| `java_db_hostname` | Hostname for Java database VM (3-tier) | `java-db` |
+| `dotnet_fe_hostname` | Hostname for .NET frontend VM (3-tier) | `dotnet-fe` |
+| `dotnet_app_hostname` | Hostname for .NET app server VM (3-tier) | `dotnet-app` |
+| `dotnet_db_hostname` | Hostname for .NET database VM (3-tier) | `dotnet-db` |
+| `php_fe_hostname` | Hostname for PHP frontend VM (3-tier) | `php-fe` |
+| `php_app_hostname` | Hostname for PHP app server VM (3-tier) | `php-app` |
+| `php_db_hostname` | Hostname for PHP database VM (3-tier) | `php-db` |
 
 ### ansible/group_vars/all.yml
 
