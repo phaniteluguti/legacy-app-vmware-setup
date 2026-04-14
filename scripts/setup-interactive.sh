@@ -160,6 +160,7 @@ load_previous() {
         fi
         PREV_VSPHERE_SERVER="$(tfval vsphere_server "")"
         PREV_VSPHERE_USER="$(tfval vsphere_user "administrator@vsphere.local")"
+        PREV_VSPHERE_PASSWORD="$(tfval vsphere_password "")"
         PREV_VSPHERE_SSL="$(tfval vsphere_allow_unverified_ssl "true")"
         PREV_VSPHERE_DC="$(tfval vsphere_datacenter "Datacenter1")"
         PREV_VSPHERE_CLUSTER="$(tfval vsphere_cluster "Cluster1")"
@@ -175,6 +176,8 @@ load_previous() {
         PREV_SSH_USER="$(tfval vm_ssh_user "ubuntu")"
         PREV_SSH_AUTH_METHOD="$(tfval vm_ssh_auth_method "password")"
         PREV_SSH_KEY="$(tfval vm_ssh_private_key_path "\$HOME/.ssh/id_rsa")"
+        PREV_SSH_PASSWORD="$(tfval vm_ssh_password "")"
+        PREV_WIN_ADMIN_PASS="$(tfval win_admin_password "")"
         PREV_JAVA_IP="$(tfval java_vm_ip "192.168.1.101")"
         PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
         PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
@@ -2254,17 +2257,88 @@ main() {
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        # Prompt for credentials once
+        # Restore all config variables from saved tfvars so write_tfvars()
+        # can regenerate a complete file without prompting the user.
+        APP_SELECTION="${PREV_APP_SELECTION:-all}"
+        OS_CHOICE="$r_os"
+        ARCH_CHOICE="$r_arch"
+        VSPHERE_USER="${PREV_VSPHERE_USER:-administrator@vsphere.local}"
+        VSPHERE_PASSWORD="${PREV_VSPHERE_PASSWORD:-}"
+        VSPHERE_SSL="${PREV_VSPHERE_SSL:-true}"
+        VSPHERE_DC="${PREV_VSPHERE_DC:-Datacenter1}"
+        VSPHERE_CLUSTER="${PREV_VSPHERE_CLUSTER:-Cluster1}"
+        VSPHERE_DS="${PREV_VSPHERE_DS:-datastore1}"
+        VSPHERE_NET="${PREV_VSPHERE_NET:-VM Network}"
+        VSPHERE_FOLDER="${PREV_VSPHERE_FOLDER:-}"
+        VM_TEMPLATE="${PREV_VM_TEMPLATE:-ubuntu-2204-template}"
+        VM_GW="${PREV_VM_GW:-192.168.1.1}"
+        VM_MASK="${PREV_VM_MASK:-24}"
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8,8.8.4.4}"
+        WIN_TEMPLATE="${PREV_WIN_TEMPLATE:-windows-2019-template}"
+        # Single-VM variables
+        JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-legacy-java-vm}"
+        JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
+        DOTNET_IP="${PREV_DOTNET_IP:-}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-legacy-dotnet-vm}"
+        DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
+        PHP_IP="${PREV_PHP_IP:-}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-legacy-php-vm}"
+        PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
+        # 3-Tier hostnames
+        JAVA_FE_HOSTNAME="${PREV_JAVA_FE_HOSTNAME:-java-fe}"
+        JAVA_APP_HOSTNAME="${PREV_JAVA_APP_HOSTNAME:-java-app}"
+        JAVA_DB_HOSTNAME="${PREV_JAVA_DB_HOSTNAME:-java-db}"
+        DOTNET_FE_HOSTNAME="${PREV_DOTNET_FE_HOSTNAME:-dotnet-fe}"
+        DOTNET_APP_HOSTNAME="${PREV_DOTNET_APP_HOSTNAME:-dotnet-app}"
+        DOTNET_DB_HOSTNAME="${PREV_DOTNET_DB_HOSTNAME:-dotnet-db}"
+        PHP_FE_HOSTNAME="${PREV_PHP_FE_HOSTNAME:-php-fe}"
+        PHP_APP_HOSTNAME="${PREV_PHP_APP_HOSTNAME:-php-app}"
+        PHP_DB_HOSTNAME="${PREV_PHP_DB_HOSTNAME:-php-db}"
+        WIN_JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"
+        WIN_JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"
+        WIN_JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"
+        WIN_DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"
+        WIN_DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"
+        WIN_DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
+        WIN_PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"
+        WIN_PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"
+        WIN_PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
+        # 3-Tier IPs (fallback — overridden from terraform state below)
+        JAVA_FE_IP="${PREV_JAVA_FE_IP:-}"; JAVA_APP_IP="${PREV_JAVA_APP_IP:-}"; JAVA_DB_IP="${PREV_JAVA_DB_IP:-}"
+        DOTNET_FE_IP="${PREV_DOTNET_FE_IP:-}"; DOTNET_APP_IP="${PREV_DOTNET_APP_IP:-}"; DOTNET_DB_IP="${PREV_DOTNET_DB_IP:-}"
+        PHP_FE_IP="${PREV_PHP_FE_IP:-}"; PHP_APP_IP="${PREV_PHP_APP_IP:-}"; PHP_DB_IP="${PREV_PHP_DB_IP:-}"
+        WIN_JAVA_FE_IP="${PREV_WIN_JAVA_FE_IP:-}"; WIN_JAVA_APP_IP="${PREV_WIN_JAVA_APP_IP:-}"; WIN_JAVA_DB_IP="${PREV_WIN_JAVA_DB_IP:-}"
+        WIN_DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-}"; WIN_DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-}"; WIN_DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-}"
+        WIN_PHP_FE_IP="${PREV_WIN_PHP_FE_IP:-}"; WIN_PHP_APP_IP="${PREV_WIN_PHP_APP_IP:-}"; WIN_PHP_DB_IP="${PREV_WIN_PHP_DB_IP:-}"
+        # 3-Tier VM sizing
+        FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"; FE_DISK="${PREV_FE_DISK:-20}"
+        APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
+        DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
+        # App config
+        PETCLINIC_REPO="${PREV_PETCLINIC_REPO:-}"; PETCLINIC_BRANCH="${PREV_PETCLINIC_BRANCH:-main}"
+        JAVA_VER="${PREV_JAVA_VER:-17}"
+        DOTNET_SDK="${PREV_DOTNET_SDK:-6.0}"; DOTNET_REPO="${PREV_DOTNET_REPO:-}"; DOTNET_BRANCH="${PREV_DOTNET_BRANCH:-main}"
+        PHP_VER="${PREV_PHP_VER:-8.1}"; PHP_REPO="${PREV_PHP_REPO:-}"; PHP_BRANCH="${PREV_PHP_BRANCH:-10.x}"
+        AZ_AGENT="${PREV_AZ_AGENT:-false}"
+
+        # Prompt for credentials once (skip if already loaded from tfvars)
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
             [[ "$m" == linux* ]] && need_linux=true
             [[ "$m" == windows* ]] && need_windows=true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
-            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+            if [[ -n "${PREV_SSH_PASSWORD:-}" ]]; then
+                SSH_PASSWORD="$PREV_SSH_PASSWORD"
+            else
+                prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+            fi
         fi
         if $need_windows; then
-            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+            if [[ -n "${PREV_WIN_ADMIN_PASS:-}" ]]; then
+                WIN_ADMIN_PASS="$PREV_WIN_ADMIN_PASS"
+            else
+                prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+            fi
         fi
 
         # Resume each mode
