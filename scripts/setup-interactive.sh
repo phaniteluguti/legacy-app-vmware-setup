@@ -405,9 +405,8 @@ collect_vms() {
     APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
     DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
     # Initialize 3-tier hostnames
-    # When PREV_ hostnames contain "win-" (from a previous windows-only run that
-    # polluted the Linux fields), discard them so Linux gets clean defaults
-    _lh() { local v="$1"; [[ "$v" == *win-* ]] && echo "" || echo "$v"; }
+    # Discard stale Linux hostnames that lack the "lin-" prefix (or contain "win-")
+    _lh() { local v="$1"; [[ "$v" != lin-* ]] && echo "" || echo "$v"; }
     JAVA_FE_HOSTNAME="$(_lh "$PREV_JAVA_FE_HOSTNAME")"; JAVA_FE_HOSTNAME="${JAVA_FE_HOSTNAME:-lin-java-fe}"
     JAVA_APP_HOSTNAME="$(_lh "$PREV_JAVA_APP_HOSTNAME")"; JAVA_APP_HOSTNAME="${JAVA_APP_HOSTNAME:-lin-java-app}"
     JAVA_DB_HOSTNAME="$(_lh "$PREV_JAVA_DB_HOSTNAME")"; JAVA_DB_HOSTNAME="${JAVA_DB_HOSTNAME:-lin-java-db}"
