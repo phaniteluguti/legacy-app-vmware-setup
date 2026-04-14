@@ -528,7 +528,7 @@ After VMs are deployed, you can optionally register them in DNS and/or join them
 
 Registers forward (A) and reverse (PTR) DNS records for all deployed VMs on a Windows AD-integrated DNS server. This does **not** join machines to the domain — it only creates DNS entries.
 
-**When to use:** You have a Windows DNS server and want VMs resolvable by hostname (e.g., `java-fe.azurecmf.org`) without domain-joining them.
+**When to use:** You have a Windows DNS server and want VMs resolvable by hostname (e.g., `lin-java-fe.azurecmf.org`) without domain-joining them.
 
 **Via CLI flag:**
 ```bash
@@ -857,15 +857,15 @@ legacy-app-vmware-setup/
 | `deploy_php` | Deploy PHP app VMs | `true` |
 | `win_template_name` | Windows Server template name in vCenter | `windows-2019-template` |
 | `win_admin_password` | Windows Administrator password | `MyP@ssw0rd` |
-| `java_fe_hostname` | Hostname for Java frontend VM (3-tier) | `java-fe` |
-| `java_app_hostname` | Hostname for Java app server VM (3-tier) | `java-app` |
-| `java_db_hostname` | Hostname for Java database VM (3-tier) | `java-db` |
-| `dotnet_fe_hostname` | Hostname for .NET frontend VM (3-tier) | `dotnet-fe` |
-| `dotnet_app_hostname` | Hostname for .NET app server VM (3-tier) | `dotnet-app` |
-| `dotnet_db_hostname` | Hostname for .NET database VM (3-tier) | `dotnet-db` |
-| `php_fe_hostname` | Hostname for PHP frontend VM (3-tier) | `php-fe` |
-| `php_app_hostname` | Hostname for PHP app server VM (3-tier) | `php-app` |
-| `php_db_hostname` | Hostname for PHP database VM (3-tier) | `php-db` |
+| `java_fe_hostname` | Hostname for Java frontend VM (3-tier) | `lin-java-fe` |
+| `java_app_hostname` | Hostname for Java app server VM (3-tier) | `lin-java-app` |
+| `java_db_hostname` | Hostname for Java database VM (3-tier) | `lin-java-db` |
+| `dotnet_fe_hostname` | Hostname for .NET frontend VM (3-tier) | `lin-dotnet-fe` |
+| `dotnet_app_hostname` | Hostname for .NET app server VM (3-tier) | `lin-dotnet-app` |
+| `dotnet_db_hostname` | Hostname for .NET database VM (3-tier) | `lin-dotnet-db` |
+| `php_fe_hostname` | Hostname for PHP frontend VM (3-tier) | `lin-php-fe` |
+| `php_app_hostname` | Hostname for PHP app server VM (3-tier) | `lin-php-app` |
+| `php_db_hostname` | Hostname for PHP database VM (3-tier) | `lin-php-db` |
 
 ### ansible/group_vars/all.yml
 
@@ -927,9 +927,9 @@ Azure Portal → Azure Migrate → Create project
 
 | Frontend VM | Depends On | App Server VM | Depends On | Database VM |
 |------------|-----------|---------------|-----------|-------------|
-| java-fe (Nginx :80) | → | java-app (:9966) | → | java-db (PostgreSQL :5432) |
-| dotnet-fe (Nginx :80) | → | dotnet-app (:5000) | → | dotnet-db (SQL Server :1433) |
-| php-fe (Nginx :80) | → | php-app (:8000) | → | php-db (MySQL :3306) |
+| lin-java-fe (Nginx :80) | → | lin-java-app (:9966) | → | lin-java-db (PostgreSQL :5432) |
+| lin-dotnet-fe (Nginx :80) | → | lin-dotnet-app (:5000) | → | lin-dotnet-db (SQL Server :1433) |
+| lin-php-fe (Nginx :80) | → | lin-php-app (:8000) | → | lin-php-db (MySQL :3306) |
 
 Azure Migrate will discover these cross-VM network connections and map them as **application dependencies** — critical for planning which VMs must migrate together.
 

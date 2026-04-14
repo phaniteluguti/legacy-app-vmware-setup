@@ -243,7 +243,7 @@ variable "java_fe_ip" {
 variable "java_fe_hostname" {
   description = "Hostname for Java frontend VM"
   type        = string
-  default     = "java-fe"
+  default     = "lin-java-fe"
 }
 variable "java_app_ip" {
   description = "Static IP for Java app server VM (Spring Boot REST)"
@@ -253,7 +253,7 @@ variable "java_app_ip" {
 variable "java_app_hostname" {
   description = "Hostname for Java app server VM"
   type        = string
-  default     = "java-app"
+  default     = "lin-java-app"
 }
 variable "java_db_ip" {
   description = "Static IP for Java database VM (PostgreSQL)"
@@ -263,7 +263,7 @@ variable "java_db_ip" {
 variable "java_db_hostname" {
   description = "Hostname for Java database VM"
   type        = string
-  default     = "java-db"
+  default     = "lin-java-db"
 }
 variable "dotnet_fe_ip" {
   description = "Static IP for .NET frontend VM (Nginx + Blazor)"
@@ -273,7 +273,7 @@ variable "dotnet_fe_ip" {
 variable "dotnet_fe_hostname" {
   description = "Hostname for .NET frontend VM"
   type        = string
-  default     = "dotnet-fe"
+  default     = "lin-dotnet-fe"
 }
 variable "dotnet_app_ip" {
   description = "Static IP for .NET app server VM (ASP.NET Core)"
@@ -283,7 +283,7 @@ variable "dotnet_app_ip" {
 variable "dotnet_app_hostname" {
   description = "Hostname for .NET app server VM"
   type        = string
-  default     = "dotnet-app"
+  default     = "lin-dotnet-app"
 }
 variable "dotnet_db_ip" {
   description = "Static IP for .NET database VM (SQL Server)"
@@ -293,7 +293,7 @@ variable "dotnet_db_ip" {
 variable "dotnet_db_hostname" {
   description = "Hostname for .NET database VM"
   type        = string
-  default     = "dotnet-db"
+  default     = "lin-dotnet-db"
 }
 variable "php_fe_ip" {
   description = "Static IP for PHP frontend VM (Nginx + Vue.js)"
@@ -303,7 +303,7 @@ variable "php_fe_ip" {
 variable "php_fe_hostname" {
   description = "Hostname for PHP frontend VM"
   type        = string
-  default     = "php-fe"
+  default     = "lin-php-fe"
 }
 variable "php_app_ip" {
   description = "Static IP for PHP app server VM (Laravel API)"
@@ -313,7 +313,7 @@ variable "php_app_ip" {
 variable "php_app_hostname" {
   description = "Hostname for PHP app server VM"
   type        = string
-  default     = "php-app"
+  default     = "lin-php-app"
 }
 variable "php_db_ip" {
   description = "Static IP for PHP database VM (MySQL)"
@@ -323,7 +323,7 @@ variable "php_db_ip" {
 variable "php_db_hostname" {
   description = "Hostname for PHP database VM"
   type        = string
-  default     = "php-db"
+  default     = "lin-php-db"
 }
 
 # =============================================================================

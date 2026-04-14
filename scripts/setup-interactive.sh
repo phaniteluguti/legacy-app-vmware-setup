@@ -124,9 +124,9 @@ load_previous() {
     PREV_DOTNET_FE_IP="10.1.2.23"; PREV_DOTNET_APP_IP="10.1.2.24"; PREV_DOTNET_DB_IP="10.1.2.25"
     PREV_PHP_FE_IP="10.1.2.26"; PREV_PHP_APP_IP="10.1.2.27"; PREV_PHP_DB_IP="10.1.2.28"
     # 3-Tier hostname defaults
-    PREV_JAVA_FE_HOSTNAME="java-fe"; PREV_JAVA_APP_HOSTNAME="java-app"; PREV_JAVA_DB_HOSTNAME="java-db"
-    PREV_DOTNET_FE_HOSTNAME="dotnet-fe"; PREV_DOTNET_APP_HOSTNAME="dotnet-app"; PREV_DOTNET_DB_HOSTNAME="dotnet-db"
-    PREV_PHP_FE_HOSTNAME="php-fe"; PREV_PHP_APP_HOSTNAME="php-app"; PREV_PHP_DB_HOSTNAME="php-db"
+    PREV_JAVA_FE_HOSTNAME="lin-java-fe"; PREV_JAVA_APP_HOSTNAME="lin-java-app"; PREV_JAVA_DB_HOSTNAME="lin-java-db"
+    PREV_DOTNET_FE_HOSTNAME="lin-dotnet-fe"; PREV_DOTNET_APP_HOSTNAME="lin-dotnet-app"; PREV_DOTNET_DB_HOSTNAME="lin-dotnet-db"
+    PREV_PHP_FE_HOSTNAME="lin-php-fe"; PREV_PHP_APP_HOSTNAME="lin-php-app"; PREV_PHP_DB_HOSTNAME="lin-php-db"
 
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
@@ -212,15 +212,15 @@ load_previous() {
         PREV_PHP_APP_IP="$(tfval php_app_ip "10.1.2.27")"
         PREV_PHP_DB_IP="$(tfval php_db_ip "10.1.2.28")"
         # 3-Tier hostnames (Linux)
-        PREV_JAVA_FE_HOSTNAME="$(tfval java_fe_hostname "java-fe")"
-        PREV_JAVA_APP_HOSTNAME="$(tfval java_app_hostname "java-app")"
-        PREV_JAVA_DB_HOSTNAME="$(tfval java_db_hostname "java-db")"
-        PREV_DOTNET_FE_HOSTNAME="$(tfval dotnet_fe_hostname "dotnet-fe")"
-        PREV_DOTNET_APP_HOSTNAME="$(tfval dotnet_app_hostname "dotnet-app")"
-        PREV_DOTNET_DB_HOSTNAME="$(tfval dotnet_db_hostname "dotnet-db")"
-        PREV_PHP_FE_HOSTNAME="$(tfval php_fe_hostname "php-fe")"
-        PREV_PHP_APP_HOSTNAME="$(tfval php_app_hostname "php-app")"
-        PREV_PHP_DB_HOSTNAME="$(tfval php_db_hostname "php-db")"
+        PREV_JAVA_FE_HOSTNAME="$(tfval java_fe_hostname "lin-java-fe")"
+        PREV_JAVA_APP_HOSTNAME="$(tfval java_app_hostname "lin-java-app")"
+        PREV_JAVA_DB_HOSTNAME="$(tfval java_db_hostname "lin-java-db")"
+        PREV_DOTNET_FE_HOSTNAME="$(tfval dotnet_fe_hostname "lin-dotnet-fe")"
+        PREV_DOTNET_APP_HOSTNAME="$(tfval dotnet_app_hostname "lin-dotnet-app")"
+        PREV_DOTNET_DB_HOSTNAME="$(tfval dotnet_db_hostname "lin-dotnet-db")"
+        PREV_PHP_FE_HOSTNAME="$(tfval php_fe_hostname "lin-php-fe")"
+        PREV_PHP_APP_HOSTNAME="$(tfval php_app_hostname "lin-php-app")"
+        PREV_PHP_DB_HOSTNAME="$(tfval php_db_hostname "lin-php-db")"
         # 3-Tier IPs & hostnames (Windows) — used when OS is Windows
         PREV_WIN_JAVA_FE_IP="$(tfval win_java_fe_ip "")"
         PREV_WIN_JAVA_APP_IP="$(tfval win_java_app_ip "")"
@@ -408,15 +408,15 @@ collect_vms() {
     # When PREV_ hostnames contain "win-" (from a previous windows-only run that
     # polluted the Linux fields), discard them so Linux gets clean defaults
     _lh() { local v="$1"; [[ "$v" == *win-* ]] && echo "" || echo "$v"; }
-    JAVA_FE_HOSTNAME="$(_lh "$PREV_JAVA_FE_HOSTNAME")"; JAVA_FE_HOSTNAME="${JAVA_FE_HOSTNAME:-java-fe}"
-    JAVA_APP_HOSTNAME="$(_lh "$PREV_JAVA_APP_HOSTNAME")"; JAVA_APP_HOSTNAME="${JAVA_APP_HOSTNAME:-java-app}"
-    JAVA_DB_HOSTNAME="$(_lh "$PREV_JAVA_DB_HOSTNAME")"; JAVA_DB_HOSTNAME="${JAVA_DB_HOSTNAME:-java-db}"
-    DOTNET_FE_HOSTNAME="$(_lh "$PREV_DOTNET_FE_HOSTNAME")"; DOTNET_FE_HOSTNAME="${DOTNET_FE_HOSTNAME:-dotnet-fe}"
-    DOTNET_APP_HOSTNAME="$(_lh "$PREV_DOTNET_APP_HOSTNAME")"; DOTNET_APP_HOSTNAME="${DOTNET_APP_HOSTNAME:-dotnet-app}"
-    DOTNET_DB_HOSTNAME="$(_lh "$PREV_DOTNET_DB_HOSTNAME")"; DOTNET_DB_HOSTNAME="${DOTNET_DB_HOSTNAME:-dotnet-db}"
-    PHP_FE_HOSTNAME="$(_lh "$PREV_PHP_FE_HOSTNAME")"; PHP_FE_HOSTNAME="${PHP_FE_HOSTNAME:-php-fe}"
-    PHP_APP_HOSTNAME="$(_lh "$PREV_PHP_APP_HOSTNAME")"; PHP_APP_HOSTNAME="${PHP_APP_HOSTNAME:-php-app}"
-    PHP_DB_HOSTNAME="$(_lh "$PREV_PHP_DB_HOSTNAME")"; PHP_DB_HOSTNAME="${PHP_DB_HOSTNAME:-php-db}"
+    JAVA_FE_HOSTNAME="$(_lh "$PREV_JAVA_FE_HOSTNAME")"; JAVA_FE_HOSTNAME="${JAVA_FE_HOSTNAME:-lin-java-fe}"
+    JAVA_APP_HOSTNAME="$(_lh "$PREV_JAVA_APP_HOSTNAME")"; JAVA_APP_HOSTNAME="${JAVA_APP_HOSTNAME:-lin-java-app}"
+    JAVA_DB_HOSTNAME="$(_lh "$PREV_JAVA_DB_HOSTNAME")"; JAVA_DB_HOSTNAME="${JAVA_DB_HOSTNAME:-lin-java-db}"
+    DOTNET_FE_HOSTNAME="$(_lh "$PREV_DOTNET_FE_HOSTNAME")"; DOTNET_FE_HOSTNAME="${DOTNET_FE_HOSTNAME:-lin-dotnet-fe}"
+    DOTNET_APP_HOSTNAME="$(_lh "$PREV_DOTNET_APP_HOSTNAME")"; DOTNET_APP_HOSTNAME="${DOTNET_APP_HOSTNAME:-lin-dotnet-app}"
+    DOTNET_DB_HOSTNAME="$(_lh "$PREV_DOTNET_DB_HOSTNAME")"; DOTNET_DB_HOSTNAME="${DOTNET_DB_HOSTNAME:-lin-dotnet-db}"
+    PHP_FE_HOSTNAME="$(_lh "$PREV_PHP_FE_HOSTNAME")"; PHP_FE_HOSTNAME="${PHP_FE_HOSTNAME:-lin-php-fe}"
+    PHP_APP_HOSTNAME="$(_lh "$PREV_PHP_APP_HOSTNAME")"; PHP_APP_HOSTNAME="${PHP_APP_HOSTNAME:-lin-php-app}"
+    PHP_DB_HOSTNAME="$(_lh "$PREV_PHP_DB_HOSTNAME")"; PHP_DB_HOSTNAME="${PHP_DB_HOSTNAME:-lin-php-db}"
 
     # Override with Windows 3-tier values when deploying Windows
     if [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
