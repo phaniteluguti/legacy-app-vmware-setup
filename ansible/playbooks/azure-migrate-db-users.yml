@@ -164,7 +164,6 @@
         mysql -u root -p'{{ mysql_root_password }}' -e "
           CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
           GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';
-          GRANT SELECT ON information_schema.* TO '{{ az_migrate_user }}'@'%';
           GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
           FLUSH PRIVILEGES;"
       args:
@@ -215,7 +214,6 @@
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON information_schema.* TO '{{ az_migrate_user }}'@'%';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "FLUSH PRIVILEGES;"
       changed_when: false
