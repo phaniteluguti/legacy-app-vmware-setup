@@ -93,6 +93,12 @@
         creates: '{{ angular_src }}\node_modules'
       timeout: 600
 
+    - name: Patch Angular environment to use reverse proxy for API
+      win_shell: |
+        Get-ChildItem "{{ angular_src }}\src\environments" -Filter "environment*.ts" | ForEach-Object {
+          (Get-Content $_.FullName -Raw) -replace "http://localhost:9966/petclinic/api/", "/petclinic/api/" | Set-Content $_.FullName
+        }
+
     - name: Build Angular app for production
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")

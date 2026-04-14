@@ -51,6 +51,14 @@
         chdir: /opt/petclinic-angular
         creates: /opt/petclinic-angular/node_modules
 
+    - name: Patch Angular environment to use Nginx reverse proxy for API
+      shell: |
+        # Change REST_API_URL from http://localhost:9966/petclinic/api/ to relative /petclinic/api/
+        find /opt/petclinic-angular/src -name 'environment*.ts' -exec \
+          sed -i "s|http://localhost:9966/petclinic/api/|/petclinic/api/|g" {} +
+      args:
+        chdir: /opt/petclinic-angular
+
     - name: Build Angular app for production
       shell: npx ng build --configuration production
       args:
