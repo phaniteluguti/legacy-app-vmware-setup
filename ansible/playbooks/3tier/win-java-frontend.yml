@@ -95,8 +95,16 @@
 
     - name: Patch Angular environment to use reverse proxy for API
       win_shell: |
+        $changed = $false
         Get-ChildItem "{{ angular_src }}\src\environments" -Filter "environment*.ts" | ForEach-Object {
-          (Get-Content $_.FullName -Raw) -replace "http://localhost:9966/petclinic/api/", "/petclinic/api/" | Set-Content $_.FullName
+          $content = Get-Content $_.FullName -Raw
+          if ($content -match "http://localhost:9966/petclinic/api/") {
+            $content -replace "http://localhost:9966/petclinic/api/", "/petclinic/api/" | Set-Content $_.FullName
+            $changed = $true
+          }
+        }
+        if ($changed -and (Test-Path "{{ angular_src }}\dist")) {
+          Remove-Item "{{ angular_src }}\dist" -Recurse -Force
         }
 
     - name: Build Angular app for production

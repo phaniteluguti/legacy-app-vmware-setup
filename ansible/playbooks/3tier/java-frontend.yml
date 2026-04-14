@@ -54,10 +54,15 @@
     - name: Patch Angular environment to use Nginx reverse proxy for API
       shell: |
         # Change REST_API_URL from http://localhost:9966/petclinic/api/ to relative /petclinic/api/
-        find /opt/petclinic-angular/src -name 'environment*.ts' -exec \
-          sed -i "s|http://localhost:9966/petclinic/api/|/petclinic/api/|g" {} +
+        grep -rl 'http://localhost:9966/petclinic/api/' /opt/petclinic-angular/src/environments/ && \
+          find /opt/petclinic-angular/src -name 'environment*.ts' -exec \
+            sed -i "s|http://localhost:9966/petclinic/api/|/petclinic/api/|g" {} + && \
+          rm -rf /opt/petclinic-angular/dist
       args:
         chdir: /opt/petclinic-angular
+      register: patch_result
+      changed_when: patch_result.rc == 0
+      failed_when: false
 
     - name: Build Angular app for production
       shell: npx ng build --configuration production
