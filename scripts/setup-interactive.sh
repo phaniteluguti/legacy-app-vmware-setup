@@ -124,9 +124,9 @@ load_previous() {
     PREV_DOTNET_FE_IP="10.1.2.23"; PREV_DOTNET_APP_IP="10.1.2.24"; PREV_DOTNET_DB_IP="10.1.2.25"
     PREV_PHP_FE_IP="10.1.2.26"; PREV_PHP_APP_IP="10.1.2.27"; PREV_PHP_DB_IP="10.1.2.28"
     # 3-Tier hostname defaults
-    PREV_JAVA_FE_HOSTNAME="3t-java-fe"; PREV_JAVA_APP_HOSTNAME="3t-java-app"; PREV_JAVA_DB_HOSTNAME="3t-java-db"
-    PREV_DOTNET_FE_HOSTNAME="3t-dotnet-fe"; PREV_DOTNET_APP_HOSTNAME="3t-dotnet-app"; PREV_DOTNET_DB_HOSTNAME="3t-dotnet-db"
-    PREV_PHP_FE_HOSTNAME="3t-php-fe"; PREV_PHP_APP_HOSTNAME="3t-php-app"; PREV_PHP_DB_HOSTNAME="3t-php-db"
+    PREV_JAVA_FE_HOSTNAME="java-fe"; PREV_JAVA_APP_HOSTNAME="java-app"; PREV_JAVA_DB_HOSTNAME="java-db"
+    PREV_DOTNET_FE_HOSTNAME="dotnet-fe"; PREV_DOTNET_APP_HOSTNAME="dotnet-app"; PREV_DOTNET_DB_HOSTNAME="dotnet-db"
+    PREV_PHP_FE_HOSTNAME="php-fe"; PREV_PHP_APP_HOSTNAME="php-app"; PREV_PHP_DB_HOSTNAME="php-db"
 
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
@@ -212,15 +212,15 @@ load_previous() {
         PREV_PHP_APP_IP="$(tfval php_app_ip "10.1.2.27")"
         PREV_PHP_DB_IP="$(tfval php_db_ip "10.1.2.28")"
         # 3-Tier hostnames (Linux)
-        PREV_JAVA_FE_HOSTNAME="$(tfval java_fe_hostname "3t-java-fe")"
-        PREV_JAVA_APP_HOSTNAME="$(tfval java_app_hostname "3t-java-app")"
-        PREV_JAVA_DB_HOSTNAME="$(tfval java_db_hostname "3t-java-db")"
-        PREV_DOTNET_FE_HOSTNAME="$(tfval dotnet_fe_hostname "3t-dotnet-fe")"
-        PREV_DOTNET_APP_HOSTNAME="$(tfval dotnet_app_hostname "3t-dotnet-app")"
-        PREV_DOTNET_DB_HOSTNAME="$(tfval dotnet_db_hostname "3t-dotnet-db")"
-        PREV_PHP_FE_HOSTNAME="$(tfval php_fe_hostname "3t-php-fe")"
-        PREV_PHP_APP_HOSTNAME="$(tfval php_app_hostname "3t-php-app")"
-        PREV_PHP_DB_HOSTNAME="$(tfval php_db_hostname "3t-php-db")"
+        PREV_JAVA_FE_HOSTNAME="$(tfval java_fe_hostname "java-fe")"
+        PREV_JAVA_APP_HOSTNAME="$(tfval java_app_hostname "java-app")"
+        PREV_JAVA_DB_HOSTNAME="$(tfval java_db_hostname "java-db")"
+        PREV_DOTNET_FE_HOSTNAME="$(tfval dotnet_fe_hostname "dotnet-fe")"
+        PREV_DOTNET_APP_HOSTNAME="$(tfval dotnet_app_hostname "dotnet-app")"
+        PREV_DOTNET_DB_HOSTNAME="$(tfval dotnet_db_hostname "dotnet-db")"
+        PREV_PHP_FE_HOSTNAME="$(tfval php_fe_hostname "php-fe")"
+        PREV_PHP_APP_HOSTNAME="$(tfval php_app_hostname "php-app")"
+        PREV_PHP_DB_HOSTNAME="$(tfval php_db_hostname "php-db")"
         # 3-Tier IPs & hostnames (Windows) — used when OS is Windows
         PREV_WIN_JAVA_FE_IP="$(tfval win_java_fe_ip "")"
         PREV_WIN_JAVA_APP_IP="$(tfval win_java_app_ip "")"
@@ -405,9 +405,18 @@ collect_vms() {
     APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
     DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
     # Initialize 3-tier hostnames
-    JAVA_FE_HOSTNAME="${PREV_JAVA_FE_HOSTNAME:-3t-java-fe}"; JAVA_APP_HOSTNAME="${PREV_JAVA_APP_HOSTNAME:-3t-java-app}"; JAVA_DB_HOSTNAME="${PREV_JAVA_DB_HOSTNAME:-3t-java-db}"
-    DOTNET_FE_HOSTNAME="${PREV_DOTNET_FE_HOSTNAME:-3t-dotnet-fe}"; DOTNET_APP_HOSTNAME="${PREV_DOTNET_APP_HOSTNAME:-3t-dotnet-app}"; DOTNET_DB_HOSTNAME="${PREV_DOTNET_DB_HOSTNAME:-3t-dotnet-db}"
-    PHP_FE_HOSTNAME="${PREV_PHP_FE_HOSTNAME:-3t-php-fe}"; PHP_APP_HOSTNAME="${PREV_PHP_APP_HOSTNAME:-3t-php-app}"; PHP_DB_HOSTNAME="${PREV_PHP_DB_HOSTNAME:-3t-php-db}"
+    # When PREV_ hostnames contain "win-" (from a previous windows-only run that
+    # polluted the Linux fields), discard them so Linux gets clean defaults
+    _lh() { local v="$1"; [[ "$v" == *win-* ]] && echo "" || echo "$v"; }
+    JAVA_FE_HOSTNAME="$(_lh "$PREV_JAVA_FE_HOSTNAME")"; JAVA_FE_HOSTNAME="${JAVA_FE_HOSTNAME:-java-fe}"
+    JAVA_APP_HOSTNAME="$(_lh "$PREV_JAVA_APP_HOSTNAME")"; JAVA_APP_HOSTNAME="${JAVA_APP_HOSTNAME:-java-app}"
+    JAVA_DB_HOSTNAME="$(_lh "$PREV_JAVA_DB_HOSTNAME")"; JAVA_DB_HOSTNAME="${JAVA_DB_HOSTNAME:-java-db}"
+    DOTNET_FE_HOSTNAME="$(_lh "$PREV_DOTNET_FE_HOSTNAME")"; DOTNET_FE_HOSTNAME="${DOTNET_FE_HOSTNAME:-dotnet-fe}"
+    DOTNET_APP_HOSTNAME="$(_lh "$PREV_DOTNET_APP_HOSTNAME")"; DOTNET_APP_HOSTNAME="${DOTNET_APP_HOSTNAME:-dotnet-app}"
+    DOTNET_DB_HOSTNAME="$(_lh "$PREV_DOTNET_DB_HOSTNAME")"; DOTNET_DB_HOSTNAME="${DOTNET_DB_HOSTNAME:-dotnet-db}"
+    PHP_FE_HOSTNAME="$(_lh "$PREV_PHP_FE_HOSTNAME")"; PHP_FE_HOSTNAME="${PHP_FE_HOSTNAME:-php-fe}"
+    PHP_APP_HOSTNAME="$(_lh "$PREV_PHP_APP_HOSTNAME")"; PHP_APP_HOSTNAME="${PHP_APP_HOSTNAME:-php-app}"
+    PHP_DB_HOSTNAME="$(_lh "$PREV_PHP_DB_HOSTNAME")"; PHP_DB_HOSTNAME="${PHP_DB_HOSTNAME:-php-db}"
 
     # Override with Windows 3-tier values when deploying Windows
     if [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
@@ -425,9 +434,9 @@ collect_vms() {
         [[ "$PREV_WIN_PHP_FE_HOSTNAME" == "$PREV_PHP_FE_HOSTNAME" ]] && PREV_WIN_PHP_FE_HOSTNAME=""
         [[ "$PREV_WIN_PHP_APP_HOSTNAME" == "$PREV_PHP_APP_HOSTNAME" ]] && PREV_WIN_PHP_APP_HOSTNAME=""
         [[ "$PREV_WIN_PHP_DB_HOSTNAME" == "$PREV_PHP_DB_HOSTNAME" ]] && PREV_WIN_PHP_DB_HOSTNAME=""
-        JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-3t-win-java-fe}"; JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-3t-win-java-app}"; JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-3t-win-java-db}"
-        DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-3t-win-dotnet-fe}"; DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-3t-win-dotnet-app}"; DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-3t-win-dotnet-db}"
-        PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-3t-win-php-fe}"; PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-3t-win-php-app}"; PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-3t-win-php-db}"
+        JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"; JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"; JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"
+        DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"; DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"; DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
+        PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
     fi
 
     if $QUICK_MODE; then
@@ -483,37 +492,38 @@ collect_vms() {
 
         if [[ "$OS_CHOICE" == "both" ]]; then
             # --- Prompt separately for Linux VMs ---
+            # Use sanitized JAVA_FE_HOSTNAME etc. (set above, win- names stripped)
             echo -e "  ${C}=== Linux VMs ===${NC}\n"
 
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 echo -e "  ${Y}--- Java Stack (Linux) ---${NC}"
-                prompt "  Java Frontend hostname" "${PREV_JAVA_FE_HOSTNAME:-3t-java-fe}"; JAVA_FE_HOSTNAME="$REPLY"
+                prompt "  Java Frontend hostname" "$JAVA_FE_HOSTNAME"; JAVA_FE_HOSTNAME="$REPLY"
                 prompt_ip "  Java Frontend IP" "${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_FE_IP="$REPLY"
-                prompt "  Java App Server hostname" "${PREV_JAVA_APP_HOSTNAME:-3t-java-app}"; JAVA_APP_HOSTNAME="$REPLY"
+                prompt "  Java App Server hostname" "$JAVA_APP_HOSTNAME"; JAVA_APP_HOSTNAME="$REPLY"
                 prompt_ip "  Java App Server IP" "${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_APP_IP="$REPLY"
-                prompt "  Java Database hostname" "${PREV_JAVA_DB_HOSTNAME:-3t-java-db}"; JAVA_DB_HOSTNAME="$REPLY"
+                prompt "  Java Database hostname" "$JAVA_DB_HOSTNAME"; JAVA_DB_HOSTNAME="$REPLY"
                 prompt_ip "  Java Database IP" "${PREV_JAVA_DB_IP:-10.1.2.22}"; JAVA_DB_IP="$REPLY"
                 echo ""
             fi
 
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
                 echo -e "  ${Y}--- .NET Stack (Linux) ---${NC}"
-                prompt "  .NET Frontend hostname" "${PREV_DOTNET_FE_HOSTNAME:-3t-dotnet-fe}"; DOTNET_FE_HOSTNAME="$REPLY"
+                prompt "  .NET Frontend hostname" "$DOTNET_FE_HOSTNAME"; DOTNET_FE_HOSTNAME="$REPLY"
                 prompt_ip "  .NET Frontend IP" "${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_FE_IP="$REPLY"
-                prompt "  .NET App Server hostname" "${PREV_DOTNET_APP_HOSTNAME:-3t-dotnet-app}"; DOTNET_APP_HOSTNAME="$REPLY"
+                prompt "  .NET App Server hostname" "$DOTNET_APP_HOSTNAME"; DOTNET_APP_HOSTNAME="$REPLY"
                 prompt_ip "  .NET App Server IP" "${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_APP_IP="$REPLY"
-                prompt "  .NET Database hostname" "${PREV_DOTNET_DB_HOSTNAME:-3t-dotnet-db}"; DOTNET_DB_HOSTNAME="$REPLY"
+                prompt "  .NET Database hostname" "$DOTNET_DB_HOSTNAME"; DOTNET_DB_HOSTNAME="$REPLY"
                 prompt_ip "  .NET Database IP" "${PREV_DOTNET_DB_IP:-10.1.2.25}"; DOTNET_DB_IP="$REPLY"
                 echo ""
             fi
 
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "  ${Y}--- PHP Stack (Linux) ---${NC}"
-                prompt "  PHP Frontend hostname" "${PREV_PHP_FE_HOSTNAME:-3t-php-fe}"; PHP_FE_HOSTNAME="$REPLY"
+                prompt "  PHP Frontend hostname" "$PHP_FE_HOSTNAME"; PHP_FE_HOSTNAME="$REPLY"
                 prompt_ip "  PHP Frontend IP" "${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_FE_IP="$REPLY"
-                prompt "  PHP App Server hostname" "${PREV_PHP_APP_HOSTNAME:-3t-php-app}"; PHP_APP_HOSTNAME="$REPLY"
+                prompt "  PHP App Server hostname" "$PHP_APP_HOSTNAME"; PHP_APP_HOSTNAME="$REPLY"
                 prompt_ip "  PHP App Server IP" "${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_APP_IP="$REPLY"
-                prompt "  PHP Database hostname" "${PREV_PHP_DB_HOSTNAME:-3t-php-db}"; PHP_DB_HOSTNAME="$REPLY"
+                prompt "  PHP Database hostname" "$PHP_DB_HOSTNAME"; PHP_DB_HOSTNAME="$REPLY"
                 prompt_ip "  PHP Database IP" "${PREV_PHP_DB_IP:-10.1.2.28}"; PHP_DB_IP="$REPLY"
             fi
 
@@ -522,33 +532,33 @@ collect_vms() {
 
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 echo -e "  ${Y}--- Java Stack (Windows) ---${NC}"
-                prompt "  Java Frontend hostname" "${PREV_WIN_JAVA_FE_HOSTNAME:-3t-win-java-fe}"; WIN_JAVA_FE_HOSTNAME="$REPLY"
+                prompt "  Java Frontend hostname" "${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"; WIN_JAVA_FE_HOSTNAME="$REPLY"
                 prompt_ip "  Java Frontend IP" "${PREV_WIN_JAVA_FE_IP:-10.1.2.30}"; WIN_JAVA_FE_IP="$REPLY"
-                prompt "  Java App Server hostname" "${PREV_WIN_JAVA_APP_HOSTNAME:-3t-win-java-app}"; WIN_JAVA_APP_HOSTNAME="$REPLY"
+                prompt "  Java App Server hostname" "${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"; WIN_JAVA_APP_HOSTNAME="$REPLY"
                 prompt_ip "  Java App Server IP" "${PREV_WIN_JAVA_APP_IP:-10.1.2.31}"; WIN_JAVA_APP_IP="$REPLY"
-                prompt "  Java Database hostname" "${PREV_WIN_JAVA_DB_HOSTNAME:-3t-win-java-db}"; WIN_JAVA_DB_HOSTNAME="$REPLY"
+                prompt "  Java Database hostname" "${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"; WIN_JAVA_DB_HOSTNAME="$REPLY"
                 prompt_ip "  Java Database IP" "${PREV_WIN_JAVA_DB_IP:-10.1.2.32}"; WIN_JAVA_DB_IP="$REPLY"
                 echo ""
             fi
 
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
                 echo -e "  ${Y}--- .NET Stack (Windows) ---${NC}"
-                prompt "  .NET Frontend hostname" "${PREV_WIN_DOTNET_FE_HOSTNAME:-3t-win-dotnet-fe}"; WIN_DOTNET_FE_HOSTNAME="$REPLY"
+                prompt "  .NET Frontend hostname" "${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"; WIN_DOTNET_FE_HOSTNAME="$REPLY"
                 prompt_ip "  .NET Frontend IP" "${PREV_WIN_DOTNET_FE_IP:-10.1.2.33}"; WIN_DOTNET_FE_IP="$REPLY"
-                prompt "  .NET App Server hostname" "${PREV_WIN_DOTNET_APP_HOSTNAME:-3t-win-dotnet-app}"; WIN_DOTNET_APP_HOSTNAME="$REPLY"
+                prompt "  .NET App Server hostname" "${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"; WIN_DOTNET_APP_HOSTNAME="$REPLY"
                 prompt_ip "  .NET App Server IP" "${PREV_WIN_DOTNET_APP_IP:-10.1.2.34}"; WIN_DOTNET_APP_IP="$REPLY"
-                prompt "  .NET Database hostname" "${PREV_WIN_DOTNET_DB_HOSTNAME:-3t-win-dotnet-db}"; WIN_DOTNET_DB_HOSTNAME="$REPLY"
+                prompt "  .NET Database hostname" "${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"; WIN_DOTNET_DB_HOSTNAME="$REPLY"
                 prompt_ip "  .NET Database IP" "${PREV_WIN_DOTNET_DB_IP:-10.1.2.35}"; WIN_DOTNET_DB_IP="$REPLY"
                 echo ""
             fi
 
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "  ${Y}--- PHP Stack (Windows) ---${NC}"
-                prompt "  PHP Frontend hostname" "${PREV_WIN_PHP_FE_HOSTNAME:-3t-win-php-fe}"; WIN_PHP_FE_HOSTNAME="$REPLY"
+                prompt "  PHP Frontend hostname" "${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; WIN_PHP_FE_HOSTNAME="$REPLY"
                 prompt_ip "  PHP Frontend IP" "${PREV_WIN_PHP_FE_IP:-10.1.2.36}"; WIN_PHP_FE_IP="$REPLY"
-                prompt "  PHP App Server hostname" "${PREV_WIN_PHP_APP_HOSTNAME:-3t-win-php-app}"; WIN_PHP_APP_HOSTNAME="$REPLY"
+                prompt "  PHP App Server hostname" "${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; WIN_PHP_APP_HOSTNAME="$REPLY"
                 prompt_ip "  PHP App Server IP" "${PREV_WIN_PHP_APP_IP:-10.1.2.37}"; WIN_PHP_APP_IP="$REPLY"
-                prompt "  PHP Database hostname" "${PREV_WIN_PHP_DB_HOSTNAME:-3t-win-php-db}"; WIN_PHP_DB_HOSTNAME="$REPLY"
+                prompt "  PHP Database hostname" "${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"; WIN_PHP_DB_HOSTNAME="$REPLY"
                 prompt_ip "  PHP Database IP" "${PREV_WIN_PHP_DB_IP:-10.1.2.38}"; WIN_PHP_DB_IP="$REPLY"
             fi
 
@@ -839,43 +849,43 @@ win_admin_password = "$WIN_ADMIN_PASS"
 
 # --- 3-Tier IPs & Hostnames (Linux) ---
 java_fe_ip       = "${JAVA_FE_IP:-10.1.2.20}"
-java_fe_hostname = "${JAVA_FE_HOSTNAME:-3t-java-fe}"
+java_fe_hostname = "${JAVA_FE_HOSTNAME:-java-fe}"
 java_app_ip       = "${JAVA_APP_IP:-10.1.2.21}"
-java_app_hostname = "${JAVA_APP_HOSTNAME:-3t-java-app}"
+java_app_hostname = "${JAVA_APP_HOSTNAME:-java-app}"
 java_db_ip       = "${JAVA_DB_IP:-10.1.2.22}"
-java_db_hostname = "${JAVA_DB_HOSTNAME:-3t-java-db}"
+java_db_hostname = "${JAVA_DB_HOSTNAME:-java-db}"
 dotnet_fe_ip       = "${DOTNET_FE_IP:-10.1.2.23}"
-dotnet_fe_hostname = "${DOTNET_FE_HOSTNAME:-3t-dotnet-fe}"
+dotnet_fe_hostname = "${DOTNET_FE_HOSTNAME:-dotnet-fe}"
 dotnet_app_ip       = "${DOTNET_APP_IP:-10.1.2.24}"
-dotnet_app_hostname = "${DOTNET_APP_HOSTNAME:-3t-dotnet-app}"
+dotnet_app_hostname = "${DOTNET_APP_HOSTNAME:-dotnet-app}"
 dotnet_db_ip       = "${DOTNET_DB_IP:-10.1.2.25}"
-dotnet_db_hostname = "${DOTNET_DB_HOSTNAME:-3t-dotnet-db}"
+dotnet_db_hostname = "${DOTNET_DB_HOSTNAME:-dotnet-db}"
 php_fe_ip       = "${PHP_FE_IP:-10.1.2.26}"
-php_fe_hostname = "${PHP_FE_HOSTNAME:-3t-php-fe}"
+php_fe_hostname = "${PHP_FE_HOSTNAME:-php-fe}"
 php_app_ip       = "${PHP_APP_IP:-10.1.2.27}"
-php_app_hostname = "${PHP_APP_HOSTNAME:-3t-php-app}"
+php_app_hostname = "${PHP_APP_HOSTNAME:-php-app}"
 php_db_ip       = "${PHP_DB_IP:-10.1.2.28}"
-php_db_hostname = "${PHP_DB_HOSTNAME:-3t-php-db}"
+php_db_hostname = "${PHP_DB_HOSTNAME:-php-db}"
 
 # --- 3-Tier IPs & Hostnames (Windows) ---
 win_java_fe_ip       = "${WIN_JAVA_FE_IP:-10.1.2.30}"
-win_java_fe_hostname = "${WIN_JAVA_FE_HOSTNAME:-3t-win-java-fe}"
+win_java_fe_hostname = "${WIN_JAVA_FE_HOSTNAME:-win-java-fe}"
 win_java_app_ip       = "${WIN_JAVA_APP_IP:-10.1.2.31}"
-win_java_app_hostname = "${WIN_JAVA_APP_HOSTNAME:-3t-win-java-app}"
+win_java_app_hostname = "${WIN_JAVA_APP_HOSTNAME:-win-java-app}"
 win_java_db_ip       = "${WIN_JAVA_DB_IP:-10.1.2.32}"
-win_java_db_hostname = "${WIN_JAVA_DB_HOSTNAME:-3t-win-java-db}"
+win_java_db_hostname = "${WIN_JAVA_DB_HOSTNAME:-win-java-db}"
 win_dotnet_fe_ip       = "${WIN_DOTNET_FE_IP:-10.1.2.33}"
-win_dotnet_fe_hostname = "${WIN_DOTNET_FE_HOSTNAME:-3t-win-dotnet-fe}"
+win_dotnet_fe_hostname = "${WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"
 win_dotnet_app_ip       = "${WIN_DOTNET_APP_IP:-10.1.2.34}"
-win_dotnet_app_hostname = "${WIN_DOTNET_APP_HOSTNAME:-3t-win-dotnet-app}"
+win_dotnet_app_hostname = "${WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"
 win_dotnet_db_ip       = "${WIN_DOTNET_DB_IP:-10.1.2.35}"
-win_dotnet_db_hostname = "${WIN_DOTNET_DB_HOSTNAME:-3t-win-dotnet-db}"
+win_dotnet_db_hostname = "${WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
 win_php_fe_ip       = "${WIN_PHP_FE_IP:-10.1.2.36}"
-win_php_fe_hostname = "${WIN_PHP_FE_HOSTNAME:-3t-win-php-fe}"
+win_php_fe_hostname = "${WIN_PHP_FE_HOSTNAME:-win-php-fe}"
 win_php_app_ip       = "${WIN_PHP_APP_IP:-10.1.2.37}"
-win_php_app_hostname = "${WIN_PHP_APP_HOSTNAME:-3t-win-php-app}"
+win_php_app_hostname = "${WIN_PHP_APP_HOSTNAME:-win-php-app}"
 win_php_db_ip       = "${WIN_PHP_DB_IP:-10.1.2.38}"
-win_php_db_hostname = "${WIN_PHP_DB_HOSTNAME:-3t-win-php-db}"
+win_php_db_hostname = "${WIN_PHP_DB_HOSTNAME:-win-php-db}"
 
 # --- 3-Tier VM Sizing ---
 fe_cpus   = ${FE_CPU:-1}
