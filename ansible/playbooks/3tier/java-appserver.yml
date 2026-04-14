@@ -214,7 +214,7 @@
     - name: Deploy WAR to Tomcat
       copy:
         src: "{{ war_files.files[0].path }}"
-        dest: "{{ tomcat_install_dir }}/webapps/ROOT.war"
+        dest: "{{ tomcat_install_dir }}/webapps/petclinic.war"
         remote_src: true
         owner: "{{ tomcat_user }}"
         group: "{{ tomcat_user }}"
