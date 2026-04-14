@@ -64,7 +64,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
 │  │  Spring       │  │  ASP.NET Core │  │  Laravel     │                      │
 │  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │                      │
-│  │  (Java 17)    │  │  (.NET 6)     │  │  (PHP 8.1)   │                      │
+│  │  (Java 21)    │  │  (.NET 6)     │  │  (PHP 8.1)   │                      │
 │  │  PostgreSQL 15│  │  SQL Server   │  │  MySQL 8.0   │                      │
 │  │               │  │  2022 Express │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
@@ -75,7 +75,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
 │  │ Spring        │  │ ASP.NET       │  │ Laravel      │                      │
 │  │ PetClinic     │  │ Framework     │  │ + IIS        │                      │
-│  │ (Java 17)     │  │ IIS (.NET 4.5)│  │ (PHP + CGI)  │                      │
+│  │ (Java 21)     │  │ IIS (.NET 4.5)│  │ (PHP + CGI)  │                      │
 │  │ PostgreSQL 15 │  │ SQL Server    │  │ MySQL        │                      │
 │  │               │  │ 2019 Express  │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
@@ -715,7 +715,7 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 17, Spring Boot) | Standalone Apache Tomcat 10 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Java VM** | legacy-java-vm | Ubuntu 22.04 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **\.NET VM** | legacy-dotnet-vm | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | legacy-php-vm | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
@@ -723,7 +723,7 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 17, Spring Boot) | Standalone Apache Tomcat 10 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Win Java VM** | legacy-win-java-vm | Windows Server 2019 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
 | **Win .NET VM** | legacy-win-dotnet-vm | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
 | **Win PHP VM** | legacy-win-php-vm | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
@@ -788,7 +788,7 @@ legacy-app-vmware-setup/
 │   ├── group_vars/
 │   │   └── all.yml.example            # App config + DB passwords template
 │   └── playbooks/
-│       ├── java-petclinic.yml         # Linux: Java 17 + Spring PetClinic + PostgreSQL
+│       ├── java-petclinic.yml         # Linux: Java 21 + Spring PetClinic + PostgreSQL
 │       ├── dotnet-app.yml             # Linux: .NET 6 + ASP.NET MVC + SQL Server
 │       ├── php-app.yml                # Linux: PHP 8.1 + Laravel + MySQL + Apache2
 │       ├── win-java-petclinic.yml     # Windows: Java PetClinic + PostgreSQL
@@ -871,7 +871,7 @@ legacy-app-vmware-setup/
 
 | Variable | Description | Default |
 |----------|-------------|---------|
-| `java_version` | JDK version | `17` |
+| `java_version` | JDK version | `21` |
 | `postgres_password` | PostgreSQL password | *(you set this)* |
 | `dotnet_sdk_version` | .NET SDK version | `6.0` |
 | `mssql_sa_password` | SQL Server SA password (min 8 chars, needs uppercase+number+symbol) | *(you set this)* |
@@ -911,7 +911,7 @@ Azure Portal → Azure Migrate → Create project
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
-| legacy-java-vm | Java 17, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
+| legacy-java-vm | Java 21, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-dotnet-vm | .NET 8, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
 | legacy-php-vm | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
 
@@ -919,7 +919,7 @@ Azure Portal → Azure Migrate → Create project
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
-| legacy-win-java-vm | Java 17, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
+| legacy-win-java-vm | Java 21, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
 | legacy-win-dotnet-vm | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
 | legacy-win-php-vm | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
 
@@ -937,7 +937,7 @@ Azure Migrate will discover these cross-VM network connections and map them as *
 
 | Stack | Application | Source | Notes |
 |-------|-------------|--------|-------|
-| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: WAR deployed on standalone Apache Tomcat 10 :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
+| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: WAR deployed on standalone Apache Tomcat 11 :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
 | **.NET** | eShopOnWeb (ASP.NET Core 8.0) | [`eShopOnWeb`](https://github.com/dotnet-architecture/eShopOnWeb) (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
 | **PHP** | Laravel sample app | [`laravel`](https://github.com/laravel/laravel) | PHP-FPM behind Nginx; MySQL remote DB |
 

@@ -12,8 +12,8 @@
   vars:
     db_host: "{{ hostvars[groups['java_database'][0]]['ansible_host'] | default(groups['java_database'][0]) }}"
     petclinic_rest_port: 9966
-    tomcat_version: "10.1.28"
-    tomcat_major: "10"
+    tomcat_version: "11.0.21"
+    tomcat_major: "11"
     tomcat_install_dir: /opt/tomcat
     tomcat_user: tomcat
 
