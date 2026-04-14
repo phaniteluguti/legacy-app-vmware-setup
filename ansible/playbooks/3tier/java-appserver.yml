@@ -211,6 +211,14 @@
         patterns: "*.war"
       register: war_files
 
+    - name: Remove old ROOT.war deployment if present
+      file:
+        path: "{{ tomcat_install_dir }}/webapps/{{ item }}"
+        state: absent
+      loop:
+        - ROOT.war
+        - ROOT
+
     - name: Deploy WAR to Tomcat
       copy:
         src: "{{ war_files.files[0].path }}"
