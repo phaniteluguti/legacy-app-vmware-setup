@@ -108,7 +108,7 @@ load_previous() {
     PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"; PREV_DOTNET_DISK="40"
     PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"; PREV_PHP_DISK="30"
     # Single-VM hostname defaults
-    PREV_JAVA_HOSTNAME="legacy-java-vm"; PREV_DOTNET_HOSTNAME="legacy-dotnet-vm"; PREV_PHP_HOSTNAME="legacy-php-vm"
+    PREV_JAVA_HOSTNAME="1t-java"; PREV_DOTNET_HOSTNAME="1t-dotnet"; PREV_PHP_HOSTNAME="1t-php"
     PREV_WIN_TEMPLATE="windows-2019-template"
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="17"
@@ -179,17 +179,17 @@ load_previous() {
         PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
         PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
         PREV_JAVA_DISK="$(tfval java_vm_disk "40")"
-        PREV_JAVA_HOSTNAME="$(tfval java_vm_hostname "legacy-java-vm")"
+        PREV_JAVA_HOSTNAME="$(tfval java_vm_hostname "1t-java")"
         PREV_DOTNET_IP="$(tfval dotnet_vm_ip "192.168.1.102")"
         PREV_DOTNET_CPU="$(tfval dotnet_vm_cpus "2")"
         PREV_DOTNET_MEM="$(tfval dotnet_vm_memory "4096")"
         PREV_DOTNET_DISK="$(tfval dotnet_vm_disk "40")"
-        PREV_DOTNET_HOSTNAME="$(tfval dotnet_vm_hostname "legacy-dotnet-vm")"
+        PREV_DOTNET_HOSTNAME="$(tfval dotnet_vm_hostname "1t-dotnet")"
         PREV_PHP_IP="$(tfval php_vm_ip "192.168.1.103")"
         PREV_PHP_CPU="$(tfval php_vm_cpus "2")"
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
         PREV_PHP_DISK="$(tfval php_vm_disk "30")"
-        PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "legacy-php-vm")"
+        PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "1t-php")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
         # 3-Tier VM sizing
         PREV_FE_CPU="$(tfval fe_cpus "1")"
@@ -396,7 +396,7 @@ collect_vms() {
     DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
     PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
     # Initialize single-VM hostnames
-    JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-legacy-java-vm}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-legacy-dotnet-vm}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-legacy-php-vm}"
+    JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-1t-java}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-1t-dotnet}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-1t-php}"
     # Initialize 3-tier IPs & sizing
     JAVA_FE_IP="${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_APP_IP="${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_DB_IP="${PREV_JAVA_DB_IP:-10.1.2.22}"
     DOTNET_FE_IP="${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_APP_IP="${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_DB_IP="${PREV_DOTNET_DB_IP:-10.1.2.25}"
@@ -2391,11 +2391,11 @@ main() {
         VM_DNS="${PREV_VM_DNS:-8.8.8.8,8.8.4.4}"
         WIN_TEMPLATE="${PREV_WIN_TEMPLATE:-windows-2019-template}"
         # Single-VM variables
-        JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-legacy-java-vm}"
+        JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-1t-java}"
         JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
-        DOTNET_IP="${PREV_DOTNET_IP:-}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-legacy-dotnet-vm}"
+        DOTNET_IP="${PREV_DOTNET_IP:-}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-1t-dotnet}"
         DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
-        PHP_IP="${PREV_PHP_IP:-}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-legacy-php-vm}"
+        PHP_IP="${PREV_PHP_IP:-}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-1t-php}"
         PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
         # 3-Tier hostnames
         JAVA_FE_HOSTNAME="${PREV_JAVA_FE_HOSTNAME:-lin-java-fe}"
