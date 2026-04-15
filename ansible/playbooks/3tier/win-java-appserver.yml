@@ -13,8 +13,8 @@
   vars:
     db_host: "{{ hostvars[groups['win_java_database'][0]]['ansible_host'] | default(groups['win_java_database'][0]) }}"
     petclinic_rest_port: 9966
-    tomcat_version: "11.0.21"
-    tomcat_major: "11"
+    tomcat_version: "10.1.28"
+    tomcat_major: "10"
     tomcat_install_dir: 'C:\Tomcat'
 
   tasks:
@@ -146,9 +146,24 @@
         state: present
 
     # ---- Clone & Configure PetClinic REST ----
+    - name: Check current petclinic-rest version
+      win_shell: |
+        if (Test-Path C:\Apps\petclinic-rest\.git) {
+          & "C:\Program Files\Git\bin\git.exe" -C C:\Apps\petclinic-rest describe --tags --exact-match HEAD 2>$null
+        } else { Write-Output 'MISSING' }
+      register: current_petclinic_tag
+      changed_when: false
+      failed_when: false
+
+    - name: Remove stale petclinic-rest clone (wrong version)
+      win_file:
+        path: C:\Apps\petclinic-rest
+        state: absent
+      when: current_petclinic_tag.stdout | default('') | trim != 'v3.4.0'
+
     - name: Clone spring-petclinic-rest repository
       win_shell: |
-        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-petclinic/spring-petclinic-rest.git C:\Apps\petclinic-rest
+        & "C:\Program Files\Git\bin\git.exe" clone --branch v3.4.0 https://github.com/spring-petclinic/spring-petclinic-rest.git C:\Apps\petclinic-rest
       args:
         creates: C:\Apps\petclinic-rest\pom.xml
 

@@ -12,8 +12,8 @@
   vars:
     db_host: "{{ hostvars[groups['java_database'][0]]['ansible_host'] | default(groups['java_database'][0]) }}"
     petclinic_rest_port: 9966
-    tomcat_version: "11.0.21"
-    tomcat_major: "11"
+    tomcat_version: "10.1.28"
+    tomcat_major: "10"
     tomcat_install_dir: /opt/tomcat
     tomcat_user: tomcat
 
@@ -144,11 +144,23 @@
       changed_when: false
       failed_when: false
 
+    - name: Check current petclinic-rest version
+      command: git -C /opt/petclinic-rest/repo describe --tags --exact-match HEAD
+      register: current_petclinic_tag
+      changed_when: false
+      failed_when: false
+
+    - name: Remove stale petclinic-rest clone (wrong version)
+      file:
+        path: /opt/petclinic-rest/repo
+        state: absent
+      when: current_petclinic_tag.stdout | default('') != 'v3.4.0'
+
     - name: Clone spring-petclinic-rest repository
       git:
         repo: https://github.com/spring-petclinic/spring-petclinic-rest.git
         dest: /opt/petclinic-rest/repo
-        version: main
+        version: v3.4.0
         update: false
 
     - name: Fix repo ownership

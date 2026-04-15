@@ -10,7 +10,7 @@ ansible_python_interpreter: /usr/bin/python3
 # --- Java / PetClinic ---
 petclinic_repo: "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
 petclinic_branch: "main"
-java_version: "21"                    # JDK version to install (Spring Boot 4.x requires 21+)
+java_version: "21"                    # JDK version to install (17+ required for Spring Boot 3.4)
 petclinic_app_port: 8080
 
 # PostgreSQL
