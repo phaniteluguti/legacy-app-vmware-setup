@@ -2247,6 +2247,95 @@ main() {
         exit 0
     fi
 
+    # Handle --reinventory flag: rebuild inventory from Terraform state, no deploy
+    if [[ "${1:-}" == "--reinventory" || "${1:-}" == "reinventory" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Reinventory — Rebuild hosts.ini from Terraform State${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+        OS_CHOICE="${PREV_OS_CHOICE:-linux}"
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        local all_workspaces
+        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
+        popd > /dev/null
+
+        if [[ -z "$all_workspaces" ]]; then
+            err "No Terraform workspaces found. Deploy VMs first."
+            exit 1
+        fi
+
+        DEPLOY_MODES=()
+        while IFS= read -r ws; do
+            DEPLOY_MODES+=("$ws")
+        done <<< "$all_workspaces"
+        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true
+            [[ "$m" == windows* ]] && need_windows=true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        fi
+
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform state for workspace: $DEPLOY_MODE"
+            pushd "$TF_DIR" > /dev/null
+            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                popd > /dev/null
+                continue
+            }
+            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+                if [[ "$DEPLOY_PHP" == "true" ]]; then
+                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                fi
+            else
+                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            fi
+            popd > /dev/null
+            write_inventory
+        done
+
+        step "Inventory rebuilt: $ANSIBLE_DIR/inventory/hosts.ini"
+        echo -e "  ${G}Done. You can now run ansible manually or use --resume.${NC}"
+        exit 0
+    fi
+
     # Handle --resume flag to retry failed Ansible hosts
     if [[ "${1:-}" == "--resume" || "${1:-}" == "resume" ]]; then
         echo ""
@@ -2359,6 +2448,7 @@ main() {
         fi
 
         # Resume each mode
+        INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
             echo ""
@@ -2480,6 +2570,7 @@ main() {
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
+            INVENTORY_INITIALIZED=""
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 write_tfvars; write_inventory
@@ -2495,6 +2586,7 @@ main() {
             [[ "$post_choice" == "1" ]] && run_dns_register
             [[ "$post_choice" == "2" ]] && run_domain_join
         elif [[ "$qchoice" == "2" ]]; then
+            INVENTORY_INITIALIZED=""
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 write_tfvars; write_inventory
@@ -2679,7 +2771,8 @@ main() {
     choice="${choice:-2}"
 
     case "$choice" in
-        1) for mode in "${DEPLOY_MODES[@]}"; do
+        1) INVENTORY_INITIALIZED=""
+           for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_terraform; run_ansible; run_verify
@@ -2699,12 +2792,14 @@ main() {
            done
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
            [[ "$ARCH" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" ;;
-        3) for mode in "${DEPLOY_MODES[@]}"; do
+        3) INVENTORY_INITIALIZED=""
+           for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_terraform
            done ;;
-        4) for mode in "${DEPLOY_MODES[@]}"; do
+        4) INVENTORY_INITIALIZED=""
+           for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_ansible; run_verify
@@ -2718,7 +2813,8 @@ main() {
            post_choice="${post_choice:-3}"
            [[ "$post_choice" == "1" ]] && run_dns_register
            [[ "$post_choice" == "2" ]] && run_domain_join ;;
-        5) for mode in "${DEPLOY_MODES[@]}"; do
+        5) INVENTORY_INITIALIZED=""
+           for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
                run_ansible_resume; run_verify
