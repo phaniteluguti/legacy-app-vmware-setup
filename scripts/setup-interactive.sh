@@ -104,9 +104,9 @@ load_previous() {
     PREV_VM_GW="192.168.1.1"; PREV_VM_MASK="24"; PREV_VM_DOMAIN="lab.local"
     PREV_VM_DNS="8.8.8.8,8.8.4.4"; PREV_SSH_USER="ubuntu"
     PREV_SSH_AUTH_METHOD="password"; PREV_SSH_KEY="\$HOME/.ssh/id_rsa"
-    PREV_JAVA_IP="192.168.1.101"; PREV_JAVA_CPU="2"; PREV_JAVA_MEM="4096"; PREV_JAVA_DISK="40"
-    PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"; PREV_DOTNET_DISK="40"
-    PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"; PREV_PHP_DISK="30"
+    PREV_JAVA_IP="192.168.1.101"; PREV_JAVA_CPU="2"; PREV_JAVA_MEM="4096"
+    PREV_DOTNET_IP="192.168.1.102"; PREV_DOTNET_CPU="2"; PREV_DOTNET_MEM="4096"
+    PREV_PHP_IP="192.168.1.103"; PREV_PHP_CPU="2"; PREV_PHP_MEM="2048"
     # Single-VM hostname defaults
     PREV_JAVA_HOSTNAME="lin-java"; PREV_DOTNET_HOSTNAME="lin-dotnet"; PREV_PHP_HOSTNAME="lin-php"
     PREV_WIN_TEMPLATE="windows-2019-template"
@@ -116,9 +116,9 @@ load_previous() {
     PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
     PREV_AZ_AGENT="false"
     # 3-Tier sizing defaults
-    PREV_FE_CPU="1"; PREV_FE_MEM="2048"; PREV_FE_DISK="20"
-    PREV_APP_CPU="2"; PREV_APP_MEM="4096"; PREV_APP_DISK="40"
-    PREV_DB_CPU="2"; PREV_DB_MEM="4096"; PREV_DB_DISK="60"
+    PREV_FE_CPU="1"; PREV_FE_MEM="2048"
+    PREV_APP_CPU="2"; PREV_APP_MEM="4096"
+    PREV_DB_CPU="2"; PREV_DB_MEM="4096"
     # 3-Tier IP defaults
     PREV_JAVA_FE_IP="10.1.2.20"; PREV_JAVA_APP_IP="10.1.2.21"; PREV_JAVA_DB_IP="10.1.2.22"
     PREV_DOTNET_FE_IP="10.1.2.23"; PREV_DOTNET_APP_IP="10.1.2.24"; PREV_DOTNET_DB_IP="10.1.2.25"
@@ -178,17 +178,14 @@ load_previous() {
         PREV_JAVA_IP="$(tfval java_vm_ip "192.168.1.101")"
         PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
         PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
-        PREV_JAVA_DISK="$(tfval java_vm_disk "40")"
         PREV_JAVA_HOSTNAME="$(tfval java_vm_hostname "lin-java")"
         PREV_DOTNET_IP="$(tfval dotnet_vm_ip "192.168.1.102")"
         PREV_DOTNET_CPU="$(tfval dotnet_vm_cpus "2")"
         PREV_DOTNET_MEM="$(tfval dotnet_vm_memory "4096")"
-        PREV_DOTNET_DISK="$(tfval dotnet_vm_disk "40")"
         PREV_DOTNET_HOSTNAME="$(tfval dotnet_vm_hostname "lin-dotnet")"
         PREV_PHP_IP="$(tfval php_vm_ip "192.168.1.103")"
         PREV_PHP_CPU="$(tfval php_vm_cpus "2")"
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
-        PREV_PHP_DISK="$(tfval php_vm_disk "30")"
         PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "lin-php")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
         # Single-VM Windows overrides (for "both" mode)
@@ -201,13 +198,10 @@ load_previous() {
         # 3-Tier VM sizing
         PREV_FE_CPU="$(tfval fe_cpus "1")"
         PREV_FE_MEM="$(tfval fe_memory "2048")"
-        PREV_FE_DISK="$(tfval fe_disk "20")"
         PREV_APP_CPU="$(tfval app_cpus "2")"
         PREV_APP_MEM="$(tfval app_memory "4096")"
-        PREV_APP_DISK="$(tfval app_disk "40")"
         PREV_DB_CPU="$(tfval db_cpus "2")"
         PREV_DB_MEM="$(tfval db_memory "4096")"
-        PREV_DB_DISK="$(tfval db_disk "60")"
         # 3-Tier IPs (Linux)
         PREV_JAVA_FE_IP="$(tfval java_fe_ip "10.1.2.20")"
         PREV_JAVA_APP_IP="$(tfval java_app_ip "10.1.2.21")"
@@ -399,18 +393,18 @@ collect_vms() {
     echo -e "  ${GR}Static IPs on the same subnet as gateway $VM_GW${NC}\n"
 
     # Initialize all IPs to defaults (single-VM)
-    JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
-    DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
-    PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
+    JAVA_IP="${PREV_JAVA_IP:-10.1.2.7}"; JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"
+    DOTNET_IP="${PREV_DOTNET_IP:-10.1.2.8}"; DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"
+    PHP_IP="${PREV_PHP_IP:-10.1.2.9}"; PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"
     # Initialize single-VM hostnames
     JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-lin-java}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-lin-dotnet}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-lin-php}"
     # Initialize 3-tier IPs & sizing
     JAVA_FE_IP="${PREV_JAVA_FE_IP:-10.1.2.20}"; JAVA_APP_IP="${PREV_JAVA_APP_IP:-10.1.2.21}"; JAVA_DB_IP="${PREV_JAVA_DB_IP:-10.1.2.22}"
     DOTNET_FE_IP="${PREV_DOTNET_FE_IP:-10.1.2.23}"; DOTNET_APP_IP="${PREV_DOTNET_APP_IP:-10.1.2.24}"; DOTNET_DB_IP="${PREV_DOTNET_DB_IP:-10.1.2.25}"
     PHP_FE_IP="${PREV_PHP_FE_IP:-10.1.2.26}"; PHP_APP_IP="${PREV_PHP_APP_IP:-10.1.2.27}"; PHP_DB_IP="${PREV_PHP_DB_IP:-10.1.2.28}"
-    FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"; FE_DISK="${PREV_FE_DISK:-20}"
-    APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
-    DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
+    FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"
+    APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"
+    DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"
     # Initialize 3-tier hostnames
     # Discard stale Linux hostnames that lack the "lin-" prefix (or contain "win-")
     _lh() { local v="$1"; [[ "$v" != lin-* ]] && echo "" || echo "$v"; }
@@ -469,9 +463,10 @@ collect_vms() {
         echo -e "  ${Y}--- 3-Tier Architecture ---${NC}"
         echo ""
         echo -e "  ${Y}How would you like to configure VM hardware?${NC}"
-        echo -e "    ${G}1)${NC} Same config for all VMs     — one set of CPU/RAM/Disk applied to every VM"
-        echo -e "    ${G}2)${NC} Custom config per tier       — separate CPU/RAM/Disk for Frontend, App, Database"
-        echo -e "    ${G}3)${NC} Use recommended defaults    — Frontend: 1CPU/2GB/20GB, App: 2CPU/4GB/40GB, DB: 2CPU/4GB/60GB"
+        echo -e "  ${GR}(Disk size is auto-detected from the VM template — no need to specify)${NC}"
+        echo -e "    ${G}1)${NC} Same config for all VMs     — one set of CPU/RAM applied to every VM"
+        echo -e "    ${G}2)${NC} Custom config per tier       — separate CPU/RAM for Frontend, App, Database"
+        echo -e "    ${G}3)${NC} Use recommended defaults    — Frontend: 1CPU/2GB, App: 2CPU/4GB, DB: 2CPU/4GB"
         local default_hw_choice="3"
         read -rp "  Choice [1/2/3] (default: $default_hw_choice): " HW_CHOICE
         HW_CHOICE="${HW_CHOICE:-$default_hw_choice}"
@@ -481,31 +476,27 @@ collect_vms() {
             echo -e "  ${Y}--- All VMs (Frontend + App Server + Database) ---${NC}"
             prompt "  CPUs" "${PREV_APP_CPU:-2}"; local ALL_CPU="$REPLY"
             prompt "  Memory MB" "${PREV_APP_MEM:-4096}"; local ALL_MEM="$REPLY"
-            prompt "  Disk GB" "${PREV_APP_DISK:-40}"; local ALL_DISK="$REPLY"
-            FE_CPU="$ALL_CPU"; FE_MEM="$ALL_MEM"; FE_DISK="$ALL_DISK"
-            APP_CPU="$ALL_CPU"; APP_MEM="$ALL_MEM"; APP_DISK="$ALL_DISK"
-            DB_CPU="$ALL_CPU"; DB_MEM="$ALL_MEM"; DB_DISK="$ALL_DISK"
+            FE_CPU="$ALL_CPU"; FE_MEM="$ALL_MEM"
+            APP_CPU="$ALL_CPU"; APP_MEM="$ALL_MEM"
+            DB_CPU="$ALL_CPU"; DB_MEM="$ALL_MEM"
         elif [[ "$HW_CHOICE" == "2" ]]; then
             echo ""
             echo -e "  ${Y}--- Frontend VMs (Nginx / IIS+ARR) ---${NC}"
             prompt "  Frontend CPUs" "${PREV_FE_CPU:-1}"; FE_CPU="$REPLY"
             prompt "  Frontend Memory MB" "${PREV_FE_MEM:-2048}"; FE_MEM="$REPLY"
-            prompt "  Frontend Disk GB" "${PREV_FE_DISK:-20}"; FE_DISK="$REPLY"
             echo ""
             echo -e "  ${Y}--- App Server VMs (Spring Boot / ASP.NET / Laravel) ---${NC}"
             prompt "  App Server CPUs" "${PREV_APP_CPU:-2}"; APP_CPU="$REPLY"
             prompt "  App Server Memory MB" "${PREV_APP_MEM:-4096}"; APP_MEM="$REPLY"
-            prompt "  App Server Disk GB" "${PREV_APP_DISK:-40}"; APP_DISK="$REPLY"
             echo ""
             echo -e "  ${Y}--- Database VMs (PostgreSQL / SQL Server / MySQL) ---${NC}"
             prompt "  Database CPUs" "${PREV_DB_CPU:-2}"; DB_CPU="$REPLY"
             prompt "  Database Memory MB" "${PREV_DB_MEM:-4096}"; DB_MEM="$REPLY"
-            prompt "  Database Disk GB" "${PREV_DB_DISK:-60}"; DB_DISK="$REPLY"
         else
-            FE_CPU=1; FE_MEM=2048; FE_DISK=20
-            APP_CPU=2; APP_MEM=4096; APP_DISK=40
-            DB_CPU=2; DB_MEM=4096; DB_DISK=60
-            step "Using recommended defaults: FE=${FE_CPU}CPU/${FE_MEM}MB/${FE_DISK}GB, App=${APP_CPU}CPU/${APP_MEM}MB/${APP_DISK}GB, DB=${DB_CPU}CPU/${DB_MEM}MB/${DB_DISK}GB"
+            FE_CPU=1; FE_MEM=2048
+            APP_CPU=2; APP_MEM=4096
+            DB_CPU=2; DB_MEM=4096
+            step "Using recommended defaults: FE=${FE_CPU}CPU/${FE_MEM}MB, App=${APP_CPU}CPU/${APP_MEM}MB, DB=${DB_CPU}CPU/${DB_MEM}MB"
         fi
 
         echo ""
@@ -630,7 +621,6 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
                 prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
                 echo ""
             fi
 
@@ -640,7 +630,6 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
                 prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
                 echo ""
             fi
 
@@ -650,12 +639,11 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
                 prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
                 echo ""
             fi
 
             echo -e "  ${C}=== Windows VMs ===${NC}\n"
-            echo -e "  ${GR}(CPU/Memory/Disk shared with Linux — only hostname & IP differ)${NC}\n"
+            echo -e "  ${GR}(CPU/Memory shared with Linux — only hostname & IP differ. Disk auto-detected from template.)${NC}\n"
 
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) — Windows ---${NC}"
@@ -687,7 +675,6 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
                 prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
                 echo ""
             fi
 
@@ -699,7 +686,6 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
                 prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
                 echo ""
             fi
 
@@ -711,7 +697,6 @@ collect_vms() {
                 prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
                 prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
-                prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
             fi
         fi
     fi
@@ -827,21 +812,21 @@ show_summary() {
             fi
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 echo -e "    ${Y}Java Stack:${NC}"
-                echo -e "      Frontend    $d_java_fe_h  $d_java_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
-                echo -e "      App Server  $d_java_app_h  $d_java_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
-                echo -e "      Database    $d_java_db_h  $d_java_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
+                echo -e "      Frontend    $d_java_fe_h  $d_java_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB"
+                echo -e "      App Server  $d_java_app_h  $d_java_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB"
+                echo -e "      Database    $d_java_db_h  $d_java_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
                 echo -e "    ${Y}.NET Stack:${NC}"
-                echo -e "      Frontend    $d_dotnet_fe_h  $d_dotnet_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
-                echo -e "      App Server  $d_dotnet_app_h  $d_dotnet_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
-                echo -e "      Database    $d_dotnet_db_h  $d_dotnet_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
+                echo -e "      Frontend    $d_dotnet_fe_h  $d_dotnet_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB"
+                echo -e "      App Server  $d_dotnet_app_h  $d_dotnet_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB"
+                echo -e "      Database    $d_dotnet_db_h  $d_dotnet_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "    ${Y}PHP Stack:${NC}"
-                echo -e "      Frontend    $d_php_fe_h  $d_php_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB / ${FE_DISK}GB"
-                echo -e "      App Server  $d_php_app_h  $d_php_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB / ${APP_DISK}GB"
-                echo -e "      Database    $d_php_db_h  $d_php_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
+                echo -e "      Frontend    $d_php_fe_h  $d_php_fe_ip   ${FE_CPU}CPU / ${FE_MEM}MB"
+                echo -e "      App Server  $d_php_app_h  $d_php_app_ip  ${APP_CPU}CPU / ${APP_MEM}MB"
+                echo -e "      Database    $d_php_db_h  $d_php_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB"
             fi
         else
             # Single-VM: use WIN_ values for Windows display in "both" mode
@@ -854,13 +839,13 @@ show_summary() {
                 d_php_h="${WIN_PHP_HOSTNAME:-$PHP_HOSTNAME}"; d_php_ip="${WIN_PHP_IP:-$PHP_IP}"
             fi
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                echo -e "    Java  $d_java_h  $d_java_ip   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
+                echo -e "    Java  $d_java_h  $d_java_ip   ${JAVA_CPU}CPU / ${JAVA_MEM}MB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
+                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
-                echo -e "    PHP   $d_php_h  $d_php_ip    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
+                echo -e "    PHP   $d_php_h  $d_php_ip    ${PHP_CPU}CPU / ${PHP_MEM}MB"
             fi
         fi
         echo ""
@@ -927,19 +912,16 @@ java_vm_ip       = "$JAVA_IP"
 java_vm_hostname = "$JAVA_HOSTNAME"
 java_vm_cpus     = $JAVA_CPU
 java_vm_memory   = $JAVA_MEM
-java_vm_disk     = $JAVA_DISK
 
 dotnet_vm_ip       = "$DOTNET_IP"
 dotnet_vm_hostname = "$DOTNET_HOSTNAME"
 dotnet_vm_cpus     = $DOTNET_CPU
 dotnet_vm_memory   = $DOTNET_MEM
-dotnet_vm_disk     = $DOTNET_DISK
 
 php_vm_ip       = "$PHP_IP"
 php_vm_hostname = "$PHP_HOSTNAME"
 php_vm_cpus     = $PHP_CPU
 php_vm_memory   = $PHP_MEM
-php_vm_disk     = $PHP_DISK
 
 win_template_name  = "$WIN_TEMPLATE"
 win_admin_password = "$WIN_ADMIN_PASS"
@@ -995,13 +977,10 @@ win_php_db_hostname = "${WIN_PHP_DB_HOSTNAME:-win-php-db}"
 # --- 3-Tier VM Sizing ---
 fe_cpus   = ${FE_CPU:-1}
 fe_memory = ${FE_MEM:-2048}
-fe_disk   = ${FE_DISK:-20}
 app_cpus   = ${APP_CPU:-2}
 app_memory = ${APP_MEM:-4096}
-app_disk   = ${APP_DISK:-40}
 db_cpus   = ${DB_CPU:-2}
 db_memory = ${DB_MEM:-4096}
-db_disk   = ${DB_DISK:-60}
 EOF
     step "Created: terraform/terraform.tfvars"
 }
@@ -2495,11 +2474,11 @@ main() {
         WIN_TEMPLATE="${PREV_WIN_TEMPLATE:-windows-2019-template}"
         # Single-VM variables
         JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-lin-java}"
-        JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"; JAVA_DISK="${PREV_JAVA_DISK:-40}"
+        JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"
         DOTNET_IP="${PREV_DOTNET_IP:-}"; DOTNET_HOSTNAME="${PREV_DOTNET_HOSTNAME:-lin-dotnet}"
-        DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
+        DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"
         PHP_IP="${PREV_PHP_IP:-}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-lin-php}"
-        PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
+        PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"
         # Single-VM Windows overrides (used when OS_CHOICE=both)
         WIN_JAVA_IP="${PREV_WIN_JAVA_IP:-}"; WIN_JAVA_HOSTNAME="${PREV_WIN_JAVA_HOSTNAME:-win-java}"
         WIN_DOTNET_IP="${PREV_WIN_DOTNET_IP:-}"; WIN_DOTNET_HOSTNAME="${PREV_WIN_DOTNET_HOSTNAME:-win-dotnet}"
@@ -2531,9 +2510,9 @@ main() {
         WIN_DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-}"; WIN_DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-}"; WIN_DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-}"
         WIN_PHP_FE_IP="${PREV_WIN_PHP_FE_IP:-}"; WIN_PHP_APP_IP="${PREV_WIN_PHP_APP_IP:-}"; WIN_PHP_DB_IP="${PREV_WIN_PHP_DB_IP:-}"
         # 3-Tier VM sizing
-        FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"; FE_DISK="${PREV_FE_DISK:-20}"
-        APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"; APP_DISK="${PREV_APP_DISK:-40}"
-        DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"; DB_DISK="${PREV_DB_DISK:-60}"
+        FE_CPU="${PREV_FE_CPU:-1}"; FE_MEM="${PREV_FE_MEM:-2048}"
+        APP_CPU="${PREV_APP_CPU:-2}"; APP_MEM="${PREV_APP_MEM:-4096}"
+        DB_CPU="${PREV_DB_CPU:-2}"; DB_MEM="${PREV_DB_MEM:-4096}"
         # App config
         PETCLINIC_REPO="${PREV_PETCLINIC_REPO:-}"; PETCLINIC_BRANCH="${PREV_PETCLINIC_BRANCH:-main}"
         JAVA_VER="${PREV_JAVA_VER:-17}"
