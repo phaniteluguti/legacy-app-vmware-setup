@@ -290,7 +290,7 @@ resource "vsphere_virtual_machine" "vm" {
 
   disk {
     label            = "disk0"
-    size             = each.value.disk
+    size             = max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
     thin_provisioned = true
   }
 
@@ -344,7 +344,7 @@ resource "vsphere_virtual_machine" "win_vm" {
 
   disk {
     label            = "disk0"
-    size             = each.value.disk
+    size             = max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
     thin_provisioned = true
   }
 
@@ -407,7 +407,7 @@ resource "vsphere_virtual_machine" "vm_3tier" {
 
   disk {
     label            = "disk0"
-    size             = each.value.disk
+    size             = max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
     thin_provisioned = true
   }
 
@@ -459,7 +459,7 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
 
   disk {
     label            = "disk0"
-    size             = each.value.disk
+    size             = max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
     thin_provisioned = true
   }
 
