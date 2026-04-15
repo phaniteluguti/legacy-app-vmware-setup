@@ -100,12 +100,9 @@
         angular_dist: "{{ dist_dir_result.stdout | trim }}"
 
     - name: Copy built Angular app to Nginx web root
-      synchronize:
-        src: "{{ angular_dist }}/"
-        dest: /var/www/petclinic/
-        delete: true
-        recursive: true
-      delegate_to: "{{ inventory_hostname }}"
+      shell: cp -a {{ angular_dist }}/. /var/www/petclinic/
+      args:
+        creates: /var/www/petclinic/index.html
 
     - name: Set Nginx web root ownership
       file:

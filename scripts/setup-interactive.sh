@@ -1420,6 +1420,12 @@ run_ansible() {
     local max_retries=3
     local attempt=1
     local retry_file=""
+    # Ansible generates retry files based on the playbook basename (e.g. site-3tier.retry)
+    local retry_name
+    retry_name="$(basename "${master_playbook}" .yml).retry"
+
+    # Remove stale retry files from previous runs
+    rm -f *.retry 2>/dev/null || true
 
     while [[ $attempt -le $max_retries ]]; do
         if [[ $attempt -eq 1 && -z "$retry_file" ]]; then
@@ -1427,12 +1433,12 @@ run_ansible() {
             ansible-playbook -i inventory/hosts.ini "$master_playbook" -v $limit_arg && break
         else
             step "Retrying failed tasks (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v --limit @site.retry && break
+            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v --limit "@$retry_name" && break
         fi
 
-        if [[ -f "site.retry" ]]; then
-            retry_file="site.retry"
-            warn "Attempt $attempt failed. Hosts with failures: $(cat site.retry)"
+        if [[ -f "$retry_name" ]]; then
+            retry_file="$retry_name"
+            warn "Attempt $attempt failed. Hosts with failures: $(cat "$retry_name")"
         fi
 
         if [[ $attempt -lt $max_retries ]]; then
@@ -1446,8 +1452,8 @@ run_ansible() {
         err "Ansible failed after $max_retries attempts."
         echo -e "  ${Y}To resume later, run:${NC}"
         echo -e "    ${GR}cd ansible${NC}"
-        if [[ -f "site.retry" ]]; then
-            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini $master_playbook -v --limit @site.retry${NC}"
+        if [[ -f "$retry_name" ]]; then
+            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini $master_playbook -v --limit @$retry_name${NC}"
         else
             echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini $master_playbook -v${NC}"
         fi
