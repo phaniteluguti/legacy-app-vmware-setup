@@ -1,15 +1,20 @@
 ---
 # =============================================================================
-# Windows Java VM — Spring PetClinic + PostgreSQL
-# Installs JDK, PostgreSQL, builds and runs PetClinic as a Windows service
-# Requires WinRM configured in the Windows template
+# Windows Java VM — Spring PetClinic REST on Standalone Tomcat + PostgreSQL
+# Same deployment strategy as 3-tier (external Tomcat + WAR) on a single VM
 # =============================================================================
-- name: Deploy Java PetClinic + PostgreSQL on Windows
+- name: Deploy PetClinic REST on Standalone Tomcat + PostgreSQL (Windows 1-Tier)
   hosts: win_java_servers
   gather_facts: true
   become: false
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    db_host: localhost
+    petclinic_rest_port: 9966
+    tomcat_version: "10.1.28"
+    tomcat_major: "10"
+    tomcat_install_dir: 'C:\Tomcat'
 
   tasks:
     # ---------------------------------------------------------------
@@ -75,7 +80,7 @@
         state: present
 
     # ---------------------------------------------------------------
-    # PostgreSQL
+    # PostgreSQL (local — same VM)
     # ---------------------------------------------------------------
     - name: Install PostgreSQL {{ postgres_version }} via Chocolatey
       win_chocolatey:
@@ -115,96 +120,305 @@
         $result = & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'"
         if ($result -ne '1') {
           & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}'"
-          & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }}"
         }
+        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }}"
+        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -d {{ postgres_db }} -c "GRANT ALL ON SCHEMA public TO {{ postgres_user }}"
       changed_when: false
 
     # ---------------------------------------------------------------
-    # Clone & Build PetClinic
+    # Download & Install Standalone Tomcat
     # ---------------------------------------------------------------
-    - name: Clone setup repository
+    - name: Download Apache Tomcat {{ tomcat_version }}
       win_shell: |
-        if (!(Test-Path "C:\Apps\petclinic\.git")) {
-          & "C:\Program Files\Git\bin\git.exe" clone --branch {{ petclinic_branch }} {{ petclinic_repo }} C:\Apps\petclinic
-        } else {
-          Set-Location C:\Apps\petclinic
-          & "C:\Program Files\Git\bin\git.exe" pull
-        }
+        New-Item -Path "C:\Temp" -ItemType Directory -Force | Out-Null
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-WebRequest -Uri "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.zip" -OutFile "C:\Temp\apache-tomcat-{{ tomcat_version }}.zip" -UseBasicParsing
       args:
-        creates: C:\Apps\petclinic\setup-local-lab-infra.sh
+        creates: 'C:\Temp\apache-tomcat-{{ tomcat_version }}.zip'
 
-    - name: Clone spring-petclinic inside setup repo
+    - name: Check current Tomcat version
       win_shell: |
-        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-projects/spring-petclinic.git C:\Apps\petclinic\spring-petclinic
+        if (Test-Path "{{ tomcat_install_dir }}\RELEASE-NOTES") {
+          $notes = Get-Content "{{ tomcat_install_dir }}\RELEASE-NOTES" -Raw
+          if ($notes -match 'Apache Tomcat Version ([0-9.]+)') { $Matches[1] } else { "unknown" }
+        } else { "none" }
+      register: current_tomcat_version
+      changed_when: false
+
+    - name: Remove old Tomcat if version has changed
+      win_file:
+        path: '{{ tomcat_install_dir }}'
+        state: absent
+      when: current_tomcat_version.stdout | trim != tomcat_version
+
+    - name: Extract and install Tomcat
+      win_shell: |
+        Expand-Archive -Path "C:\Temp\apache-tomcat-{{ tomcat_version }}.zip" -DestinationPath "C:\Temp\tomcat-extract" -Force
+        New-Item -Path "{{ tomcat_install_dir }}" -ItemType Directory -Force | Out-Null
+        Copy-Item -Path "C:\Temp\tomcat-extract\apache-tomcat-{{ tomcat_version }}\*" -Destination "{{ tomcat_install_dir }}" -Recurse -Force
+        Remove-Item -Path "C:\Temp\tomcat-extract" -Recurse -Force
       args:
-        creates: C:\Apps\petclinic\spring-petclinic\pom.xml
+        creates: '{{ tomcat_install_dir }}\bin\catalina.bat'
+
+    - name: Configure Tomcat port to {{ petclinic_rest_port }}
+      win_shell: |
+        $xml = Get-Content "{{ tomcat_install_dir }}\conf\server.xml" -Raw
+        if ($xml -match 'Connector port="{{ petclinic_rest_port }}"') {
+          Write-Output "OK"
+        } else {
+          $xml = $xml -replace 'Connector port="\d+"', 'Connector port="{{ petclinic_rest_port }}"'
+          Set-Content "{{ tomcat_install_dir }}\conf\server.xml" $xml
+          Write-Output "CHANGED"
+        }
+      register: port_config
+      changed_when: "'CHANGED' in port_config.stdout"
+
+    - name: Remove default Tomcat webapps
+      win_file:
+        path: '{{ tomcat_install_dir }}\webapps\{{ item }}'
+        state: absent
+      loop: [ROOT, docs, examples, host-manager, manager]
+
+    - name: Create setenv.bat for Spring profiles
+      win_copy:
+        dest: '{{ tomcat_install_dir }}\bin\setenv.bat'
+        content: |
+          @echo off
+          set "CATALINA_OPTS=-Dspring.profiles.active=postgresql,spring-data-jpa"
+
+    - name: Set CATALINA_HOME environment variable
+      win_environment:
+        name: CATALINA_HOME
+        value: '{{ tomcat_install_dir }}'
+        level: machine
+        state: present
+
+    # ---------------------------------------------------------------
+    # Clone & Configure PetClinic REST
+    # ---------------------------------------------------------------
+    - name: Check current petclinic-rest version
+      win_shell: |
+        if (Test-Path C:\Apps\petclinic-rest\.git) {
+          & "C:\Program Files\Git\bin\git.exe" -C C:\Apps\petclinic-rest describe --tags --exact-match HEAD 2>$null
+        } else { Write-Output 'MISSING' }
+      register: current_petclinic_tag
+      changed_when: false
+      failed_when: false
+
+    - name: Remove stale petclinic-rest clone (wrong version)
+      win_file:
+        path: C:\Apps\petclinic-rest
+        state: absent
+      when: current_petclinic_tag.stdout | default('') | trim != 'v3.4.0'
+
+    - name: Clone spring-petclinic-rest repository
+      win_shell: |
+        & "C:\Program Files\Git\bin\git.exe" clone --branch v3.4.0 https://github.com/spring-petclinic/spring-petclinic-rest.git C:\Apps\petclinic-rest
+      args:
+        creates: C:\Apps\petclinic-rest\pom.xml
 
     - name: Create PostgreSQL application properties
       win_copy:
-        dest: C:\Apps\petclinic\spring-petclinic\src\main\resources\application-postgres.properties
+        dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
         content: |
-          spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
+          database=postgresql
+          spring.sql.init.platform=postgres
+          spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
+          spring.datasource.driver-class-name=org.postgresql.Driver
+          spring.jpa.database=POSTGRESQL
+          spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+          spring.jpa.hibernate.ddl-auto=update
+          spring.jpa.generate-ddl=true
+          spring.sql.init.continue-on-error=true
+      register: props_source
 
-    - name: Build PetClinic with Maven wrapper
+    - name: Remove target to force rebuild when properties changed
+      win_file:
+        path: C:\Apps\petclinic-rest\target
+        state: absent
+      when: props_source is changed
+
+    # ---- Convert to WAR packaging ----
+    - name: Set WAR packaging in pom.xml
       win_shell: |
-        Set-Location C:\Apps\petclinic\spring-petclinic
-        $env:JAVA_HOME = "{{ java_home_path }}"
-        .\mvnw.cmd package -DskipTests -Ppostgres
-      args:
-        creates: C:\Apps\petclinic\spring-petclinic\target
-      register: mvn_build
-      timeout: 600
+        $pomPath = "C:\Apps\petclinic-rest\pom.xml"
+        $content = [System.IO.File]::ReadAllText($pomPath)
+        if ($content -notmatch '<packaging>') {
+          $content = $content -replace '(<artifactId>spring-petclinic-rest</artifactId>)', "`$1`n    <packaging>war</packaging>"
+          [System.IO.File]::WriteAllText($pomPath, $content)
+          Write-Output "CHANGED"
+        } else {
+          Write-Output "OK"
+        }
+      register: war_packaging
+      changed_when: "'CHANGED' in war_packaging.stdout"
 
-    - name: Find the built JAR file
+    - name: Add provided-scope Tomcat dependency
+      win_shell: |
+        $pomPath = "C:\Apps\petclinic-rest\pom.xml"
+        $content = [System.IO.File]::ReadAllText($pomPath)
+        if ($content -notmatch 'spring-boot-starter-tomcat') {
+          $dep = @"
+
+            <!-- Tomcat provided for WAR deployment -->
+            <dependency>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-starter-tomcat</artifactId>
+                <scope>provided</scope>
+            </dependency>
+        "@
+          $content = $content -replace '(<dependencies>\s*\r?\n)', "`$1$dep`n"
+          [System.IO.File]::WriteAllText($pomPath, $content)
+          Write-Output "CHANGED"
+        } else {
+          Write-Output "OK"
+        }
+      register: tomcat_dep
+      changed_when: "'CHANGED' in tomcat_dep.stdout"
+
+    - name: Remove target when pom.xml changed
+      win_file:
+        path: C:\Apps\petclinic-rest\target
+        state: absent
+      when: war_packaging is changed or tomcat_dep is changed
+
+    # PetClinicApplication already extends SpringBootServletInitializer — no extra
+    # ServletInitializer needed. Remove any stale one from prior runs.
+    - name: Remove stale ServletInitializer from prior runs
+      win_shell: |
+        $files = Get-ChildItem -Path "C:\Apps\petclinic-rest\src" -Recurse -Filter "ServletInitializer.java" -ErrorAction SilentlyContinue
+        if ($files) { $files | Remove-Item -Force; Write-Output "removed" } else { Write-Output "none" }
+      register: removed_si
+      changed_when: "'removed' in removed_si.stdout"
+
+    - name: Force WAR rebuild if stale ServletInitializer was removed
+      win_file:
+        path: C:\Apps\petclinic-rest\target
+        state: absent
+      when: removed_si is changed
+
+    # ---- Build & Deploy WAR ----
+    - name: Check if WAR already built
       win_find:
-        paths: C:\Apps\petclinic\spring-petclinic\target
-        patterns: "*.jar"
+        paths: C:\Apps\petclinic-rest\target
+        patterns: "*.war"
         file_type: file
-      register: jar_files
+      register: existing_war
 
-    - name: Set JAR path fact
-      set_fact:
-        petclinic_jar: "{{ jar_files.files[0].path }}"
-      when: jar_files.files | length > 0
+    - name: Build PetClinic REST as WAR
+      win_shell: |
+        Set-Location C:\Apps\petclinic-rest
+        $env:JAVA_HOME = "{{ java_home_path }}"
+        .\mvnw.cmd package "-DskipTests" "-Djacoco.skip=true"
+      timeout: 600
+      when: existing_war.files | length == 0
+
+    - name: Find built WAR file
+      win_find:
+        paths: C:\Apps\petclinic-rest\target
+        patterns: "*.war"
+        file_type: file
+      register: war_files
+
+    - name: Deploy WAR to Tomcat
+      win_copy:
+        src: "{{ war_files.files[0].path }}"
+        dest: '{{ tomcat_install_dir }}\webapps\petclinic.war'
+        remote_src: true
+      when: war_files.files | length > 0
 
     # ---------------------------------------------------------------
-    # Run PetClinic as a Windows Service (using NSSM)
+    # Tomcat Windows Service via NSSM
     # ---------------------------------------------------------------
-    - name: Install NSSM (Non-Sucking Service Manager)
+    - name: Install NSSM
       win_chocolatey:
         name: nssm
         state: present
 
-    - name: Check if PetClinic service exists
+    - name: Create logs directory
+      win_file:
+        path: '{{ tomcat_install_dir }}\logs'
+        state: directory
+
+    - name: Stop Tomcat service if it exists (for re-provisioning)
       win_service:
-        name: PetClinic
-      register: petclinic_svc
+        name: Tomcat
+        state: stopped
       ignore_errors: true
 
-    - name: Install PetClinic as a Windows service
-      win_shell: |
-        nssm install PetClinic "{{ java_home_path }}\bin\java.exe" "-jar {{ petclinic_jar }} --spring.profiles.active=postgres --server.port={{ petclinic_app_port }}"
-        nssm set PetClinic AppDirectory "C:\Apps\petclinic\spring-petclinic"
-        nssm set PetClinic DisplayName "Spring PetClinic"
-        nssm set PetClinic Description "Spring PetClinic on PostgreSQL"
-        nssm set PetClinic Start SERVICE_AUTO_START
-      when: petclinic_svc.state is not defined
+    - name: Remove existing Tomcat service (for re-provisioning)
+      win_shell: nssm remove Tomcat confirm
+      ignore_errors: true
 
-    - name: Ensure PetClinic service is running
+    - name: Install Tomcat as Windows service
+      win_shell: |
+        nssm install Tomcat "{{ tomcat_install_dir }}\bin\catalina.bat" run
+        nssm set Tomcat AppDirectory "{{ tomcat_install_dir }}"
+        nssm set Tomcat DisplayName "Apache Tomcat {{ tomcat_major }}"
+        nssm set Tomcat Description "Apache Tomcat Web Application Container"
+        nssm set Tomcat Start SERVICE_AUTO_START
+        nssm set Tomcat AppEnvironmentExtra "JAVA_HOME={{ java_home_path }}" "CATALINA_HOME={{ tomcat_install_dir }}"
+        nssm set Tomcat AppStdout "{{ tomcat_install_dir }}\logs\stdout.log"
+        nssm set Tomcat AppStderr "{{ tomcat_install_dir }}\logs\stderr.log"
+        nssm set Tomcat AppStdoutCreationDisposition 4
+        nssm set Tomcat AppStderrCreationDisposition 4
+        nssm set Tomcat AppRotateFiles 1
+        nssm set Tomcat AppRotateBytes 10485760
+
+    - name: Start Tomcat service
       win_service:
-        name: PetClinic
+        name: Tomcat
         start_mode: auto
         state: started
+
+    - name: Wait for Tomcat to be ready
+      win_wait_for:
+        port: "{{ petclinic_rest_port }}"
+        timeout: 180
+      register: wait_result
+      ignore_errors: true
+
+    - name: Show service status if startup failed
+      win_shell: |
+        Write-Output "=== Service Status ==="
+        Get-Service Tomcat | Format-List *
+        Write-Output ""
+        Write-Output "=== Last 50 lines of stderr.log ==="
+        if (Test-Path "{{ tomcat_install_dir }}\logs\stderr.log") {
+          Get-Content "{{ tomcat_install_dir }}\logs\stderr.log" -Tail 50
+        } else {
+          Write-Output "(no stderr.log found)"
+        }
+        Write-Output ""
+        Write-Output "=== Last 50 lines of catalina log ==="
+        $clog = Get-ChildItem "{{ tomcat_install_dir }}\logs" -Filter "catalina*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($clog) {
+          Get-Content $clog.FullName -Tail 50
+        } else {
+          Write-Output "(no catalina log found)"
+        }
+      register: debug_output
+      when: wait_result is failed
+
+    - name: Display service debug info
+      debug:
+        var: debug_output.stdout_lines
+      when: wait_result is failed
+
+    - name: Fail if Tomcat did not start
+      fail:
+        msg: "Tomcat service failed to start on port {{ petclinic_rest_port }}. Check logs above."
+      when: wait_result is failed
 
     # ---------------------------------------------------------------
     # Firewall
     # ---------------------------------------------------------------
-    - name: Allow PetClinic port through Windows Firewall
+    - name: Allow Tomcat port through Windows Firewall
       win_firewall_rule:
-        name: "PetClinic Inbound"
-        localport: "{{ petclinic_app_port }}"
+        name: "Apache Tomcat Inbound"
+        localport: "{{ petclinic_rest_port }}"
         protocol: tcp
         direction: in
         action: allow

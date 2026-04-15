@@ -1,13 +1,20 @@
 ---
 # =============================================================================
-# Java VM — Spring PetClinic + PostgreSQL 15
-# Deploys the PetClinic app from the AKS_APP_Mod_Demo repo as a systemd service
+# Java VM — Spring PetClinic REST on Standalone Tomcat + PostgreSQL
+# Same deployment strategy as 3-tier (external Tomcat + WAR) on a single VM
 # =============================================================================
-- name: Deploy Java PetClinic + PostgreSQL
+- name: Deploy PetClinic REST on Standalone Tomcat + PostgreSQL (1-Tier)
   hosts: java_servers
   become: true
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    db_host: localhost
+    petclinic_rest_port: 9966
+    tomcat_version: "10.1.28"
+    tomcat_major: "10"
+    tomcat_install_dir: /opt/tomcat
+    tomcat_user: tomcat
 
   tasks:
     # ---- Passwordless sudo ----
@@ -19,7 +26,7 @@
         validate: 'visudo -cf %s'
 
     # ---------------------------------------------------------------
-    # System updates
+    # System updates & base packages
     # ---------------------------------------------------------------
     - name: Update apt cache
       apt:
@@ -28,16 +35,7 @@
 
     - name: Install base packages
       apt:
-        name:
-          - git
-          - curl
-          - wget
-          - gnupg2
-          - software-properties-common
-          - apt-transport-https
-          - ca-certificates
-          - lsb-release
-          - unzip
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip]
         state: present
 
     # ---------------------------------------------------------------
@@ -55,7 +53,7 @@
         line: "JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64"
 
     # ---------------------------------------------------------------
-    # PostgreSQL 15
+    # PostgreSQL (local — same VM)
     # ---------------------------------------------------------------
     - name: Add PostgreSQL APT key
       ansible.builtin.apt_key:
@@ -101,6 +99,7 @@
         sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ postgres_user }}'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER {{ postgres_user }} WITH PASSWORD '{{ postgres_password }}';"
         sudo -u postgres psql -c "GRANT ALL PRIVILEGES ON DATABASE {{ postgres_db }} TO {{ postgres_user }};"
+        sudo -u postgres psql -d {{ postgres_db }} -c "GRANT ALL ON SCHEMA public TO {{ postgres_user }};"
       args:
         executable: /bin/bash
       changed_when: false
@@ -120,124 +119,259 @@
       notify: Restart PostgreSQL
 
     # ---------------------------------------------------------------
-    # Clone & Build PetClinic
+    # Standalone Apache Tomcat
     # ---------------------------------------------------------------
-    - name: Create app directory
+    - name: Create tomcat system group
+      group:
+        name: "{{ tomcat_user }}"
+        system: true
+
+    - name: Create tomcat system user
+      user:
+        name: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        system: true
+        create_home: false
+        shell: /bin/false
+
+    - name: Download Apache Tomcat {{ tomcat_version }}
+      get_url:
+        url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+
+    - name: Check current Tomcat version
+      shell: |
+        if [ -f "{{ tomcat_install_dir }}/RELEASE-NOTES" ]; then
+          grep -oP 'Apache Tomcat Version \K[0-9.]+' "{{ tomcat_install_dir }}/RELEASE-NOTES" || echo "unknown"
+        else
+          echo "none"
+        fi
+      register: current_tomcat_version
+      changed_when: false
+
+    - name: Remove old Tomcat if version has changed
       file:
-        path: /opt/petclinic
+        path: "{{ tomcat_install_dir }}"
+        state: absent
+      when: current_tomcat_version.stdout != tomcat_version
+
+    - name: Create Tomcat install directory
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+
+    - name: Extract Tomcat
+      unarchive:
+        src: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
+        dest: "{{ tomcat_install_dir }}"
+        remote_src: true
+        extra_opts: ["--strip-components=1"]
+        creates: "{{ tomcat_install_dir }}/bin/catalina.sh"
+
+    - name: Set Tomcat directory ownership
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: directory
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        recurse: true
+
+    - name: Configure Tomcat port to {{ petclinic_rest_port }}
+      replace:
+        path: "{{ tomcat_install_dir }}/conf/server.xml"
+        regexp: 'Connector port="(8080|{{ petclinic_rest_port }})"'
+        replace: 'Connector port="{{ petclinic_rest_port }}"'
+
+    - name: Remove default Tomcat webapps
+      file:
+        path: "{{ tomcat_install_dir }}/webapps/{{ item }}"
+        state: absent
+      loop: [ROOT, docs, examples, host-manager, manager]
+
+    - name: Create setenv.sh for Spring profiles
+      copy:
+        dest: "{{ tomcat_install_dir }}/bin/setenv.sh"
+        content: |
+          #!/bin/sh
+          export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+          export CATALINA_OPTS="-Dspring.profiles.active=postgresql,spring-data-jpa"
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+        mode: "0755"
+
+    # ---------------------------------------------------------------
+    # Clone & Configure PetClinic REST
+    # ---------------------------------------------------------------
+    - name: Create app build directory
+      file:
+        path: /opt/petclinic-rest
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         mode: "0755"
 
-    - name: Remove stale petclinic repo directory
-      file:
-        path: /opt/petclinic/repo
-        state: absent
-
     - name: Set git safe.directory globally
       command: git config --global --add safe.directory '*'
       changed_when: false
+      failed_when: false
 
-    - name: Clone PetClinic repository
-      command: git clone -b {{ petclinic_branch }} {{ petclinic_repo }} /opt/petclinic/repo
+    - name: Check current petclinic-rest version
+      command: git -C /opt/petclinic-rest/repo describe --tags --exact-match HEAD
+      register: current_petclinic_tag
+      changed_when: false
+      failed_when: false
+
+    - name: Remove stale petclinic-rest clone (wrong version)
+      file:
+        path: /opt/petclinic-rest/repo
+        state: absent
+      when: current_petclinic_tag.stdout | default('') != 'v3.4.0'
+
+    - name: Clone spring-petclinic-rest repository
+      git:
+        repo: https://github.com/spring-petclinic/spring-petclinic-rest.git
+        dest: /opt/petclinic-rest/repo
+        version: v3.4.0
+        update: false
 
     - name: Fix repo ownership
       file:
-        path: /opt/petclinic/repo
+        path: /opt/petclinic-rest/repo
         state: directory
         owner: "{{ ansible_user }}"
         group: "{{ ansible_user }}"
         recurse: true
 
-    - name: Run local lab setup script (clones spring-petclinic inside repo)
-      shell: |
-        cd /opt/petclinic/repo
-        bash setup-local-lab-infra.sh
-      args:
-        creates: /opt/petclinic/repo/spring-petclinic
-        executable: /bin/bash
-      ignore_errors: true
-
-    - name: Check if spring-petclinic exists from setup script
-      stat:
-        path: /opt/petclinic/repo/spring-petclinic
-      register: petclinic_from_setup
-
-    - name: Clone spring-petclinic directly if setup script didn't create it
-      command: git clone https://github.com/spring-projects/spring-petclinic.git /opt/petclinic/repo/spring-petclinic
-      when: not petclinic_from_setup.stat.exists
-
-    - name: Fix all petclinic ownership
-      file:
-        path: /opt/petclinic
-        state: directory
-        owner: "{{ ansible_user }}"
-        group: "{{ ansible_user }}"
-        recurse: true
-      when: not petclinic_from_setup.stat.exists
-
-    - name: Configure PostgreSQL connection in application.properties
+    - name: Configure PostgreSQL connection
       copy:
-        dest: /opt/petclinic/repo/spring-petclinic/src/main/resources/application-postgres.properties
+        dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
-          spring.datasource.url=jdbc:postgresql://localhost:5432/{{ postgres_db }}
+          spring.sql.init.platform=postgres
+          spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
+          spring.datasource.driver-class-name=org.postgresql.Driver
+          spring.jpa.database=POSTGRESQL
+          spring.jpa.database-platform=org.hibernate.dialect.PostgreSQLDialect
+          spring.jpa.hibernate.ddl-auto=update
+          spring.jpa.generate-ddl=true
+          spring.sql.init.continue-on-error=true
         owner: "{{ ansible_user }}"
+      register: pg_props
 
-    - name: Build PetClinic with Maven (skip tests for speed)
+    - name: Remove target to force rebuild when properties changed
+      file:
+        path: /opt/petclinic-rest/repo/target
+        state: absent
+      when: pg_props is changed
+
+    # ---- Convert to WAR packaging ----
+    - name: Set WAR packaging in pom.xml
+      lineinfile:
+        path: /opt/petclinic-rest/repo/pom.xml
+        insertafter: '<artifactId>spring-petclinic-rest</artifactId>'
+        line: '    <packaging>war</packaging>'
+        regexp: '<packaging>'
+
+    - name: Add provided-scope Tomcat dependency
+      blockinfile:
+        path: /opt/petclinic-rest/repo/pom.xml
+        insertafter: '<dependencies>'
+        marker: "<!-- {mark} ANSIBLE MANAGED - Tomcat provided for WAR -->"
+        block: |2
+              <dependency>
+                  <groupId>org.springframework.boot</groupId>
+                  <artifactId>spring-boot-starter-tomcat</artifactId>
+                  <scope>provided</scope>
+              </dependency>
+
+    # PetClinicApplication already extends SpringBootServletInitializer — no extra
+    # ServletInitializer needed. Remove any stale one from prior runs.
+    - name: Remove stale ServletInitializer from prior runs
+      shell: find /opt/petclinic-rest/repo/src -name 'ServletInitializer.java' -print -delete
+      register: removed_si
+      changed_when: removed_si.stdout | trim | length > 0
+      failed_when: false
+
+    - name: Force WAR rebuild if stale ServletInitializer was removed
+      file:
+        path: /opt/petclinic-rest/repo/target
+        state: absent
+      when: removed_si is changed
+
+    # ---- Build & Deploy WAR ----
+    - name: Check if WAR already built
+      find:
+        paths: /opt/petclinic-rest/repo/target
+        patterns: "*.war"
+      register: existing_war
+
+    - name: Build PetClinic REST as WAR (skip tests)
       shell: |
-        cd /opt/petclinic/repo/spring-petclinic
-        sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests'
+        cd /opt/petclinic-rest/repo
+        sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests -Djacoco.skip=true'
       args:
         executable: /bin/bash
+      when: existing_war.files | length == 0
 
-    - name: Find built JAR
+    - name: Find built WAR file
       find:
-        paths: /opt/petclinic/repo/spring-petclinic/target
-        patterns: "*.jar"
-        excludes: "*-sources.jar,*-javadoc.jar,original-*.jar"
-      register: jar_files
+        paths: /opt/petclinic-rest/repo/target
+        patterns: "*.war"
+      register: war_files
 
-    - name: Copy JAR to /opt/petclinic
+    - name: Remove old ROOT.war deployment if present
+      file:
+        path: "{{ tomcat_install_dir }}/webapps/{{ item }}"
+        state: absent
+      loop:
+        - ROOT.war
+        - ROOT
+
+    - name: Deploy WAR to Tomcat
       copy:
-        src: "{{ jar_files.files[0].path }}"
-        dest: /opt/petclinic/petclinic.jar
+        src: "{{ war_files.files[0].path }}"
+        dest: "{{ tomcat_install_dir }}/webapps/petclinic.war"
         remote_src: true
-        owner: "{{ ansible_user }}"
-      when: jar_files.files | length > 0
+        owner: "{{ tomcat_user }}"
+        group: "{{ tomcat_user }}"
+      when: war_files.files | length > 0
+      notify: Restart Tomcat
 
     # ---------------------------------------------------------------
-    # systemd service
+    # Tomcat systemd service
     # ---------------------------------------------------------------
-    - name: Create PetClinic systemd service
+    - name: Create Tomcat systemd service
       copy:
-        dest: /etc/systemd/system/petclinic.service
+        dest: /etc/systemd/system/tomcat.service
         content: |
           [Unit]
-          Description=Spring PetClinic Application
+          Description=Apache Tomcat Web Application Container
           After=network.target postgresql.service
           Requires=postgresql.service
 
           [Service]
-          Type=simple
-          User={{ ansible_user }}
-          WorkingDirectory=/opt/petclinic
-          ExecStart=/usr/bin/java -jar /opt/petclinic/petclinic.jar --spring.profiles.active=postgres --server.port={{ petclinic_app_port }}
-          Restart=on-failure
-          RestartSec=10
-          StandardOutput=journal
-          StandardError=journal
+          Type=forking
+          User={{ tomcat_user }}
+          Group={{ tomcat_user }}
           Environment=JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
+          Environment=CATALINA_HOME={{ tomcat_install_dir }}
+          Environment=CATALINA_BASE={{ tomcat_install_dir }}
+          Environment=CATALINA_PID={{ tomcat_install_dir }}/temp/catalina.pid
+          ExecStart={{ tomcat_install_dir }}/bin/startup.sh
+          ExecStop={{ tomcat_install_dir }}/bin/shutdown.sh
+          RestartSec=10
+          Restart=on-failure
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart PetClinic
+      notify: Restart Tomcat
 
-    - name: Enable and start PetClinic service
+    - name: Enable and start Tomcat service
       systemd:
-        name: petclinic
+        name: tomcat
         daemon_reload: true
         enabled: true
         state: started
@@ -245,10 +379,10 @@
     # ---------------------------------------------------------------
     # Firewall
     # ---------------------------------------------------------------
-    - name: Allow PetClinic port through UFW
+    - name: Allow Tomcat port through UFW
       ufw:
         rule: allow
-        port: "{{ petclinic_app_port }}"
+        port: "{{ petclinic_rest_port }}"
         proto: tcp
       ignore_errors: true
 
@@ -258,7 +392,7 @@
         name: postgresql
         state: restarted
 
-    - name: Restart PetClinic
+    - name: Restart Tomcat
       systemd:
-        name: petclinic
+        name: tomcat
         state: restarted
