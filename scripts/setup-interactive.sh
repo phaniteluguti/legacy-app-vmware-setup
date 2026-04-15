@@ -1410,6 +1410,13 @@ run_ansible() {
         step "Ansible will only target selected stacks: $limit_groups"
     fi
 
+    # Select the correct master playbook for the deploy mode
+    local master_playbook="site.yml"
+    case "$DEPLOY_MODE" in
+        linux-3tier)   master_playbook="playbooks/3tier/site-3tier.yml" ;;
+        windows-3tier) master_playbook="playbooks/3tier/site-3tier-win.yml" ;;
+    esac
+
     local max_retries=3
     local attempt=1
     local retry_file=""
@@ -1417,10 +1424,10 @@ run_ansible() {
     while [[ $attempt -le $max_retries ]]; do
         if [[ $attempt -eq 1 && -z "$retry_file" ]]; then
             step "Running master playbook (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini site.yml -v $limit_arg && break
+            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v $limit_arg && break
         else
             step "Retrying failed tasks (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini site.yml -v --limit @site.retry && break
+            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v --limit @site.retry && break
         fi
 
         if [[ -f "site.retry" ]]; then
@@ -1440,9 +1447,9 @@ run_ansible() {
         echo -e "  ${Y}To resume later, run:${NC}"
         echo -e "    ${GR}cd ansible${NC}"
         if [[ -f "site.retry" ]]; then
-            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini site.yml -v --limit @site.retry${NC}"
+            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini $master_playbook -v --limit @site.retry${NC}"
         else
-            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini site.yml -v${NC}"
+            echo -e "    ${GR}ansible-playbook -i inventory/hosts.ini $master_playbook -v${NC}"
         fi
         popd > /dev/null
         return 1
@@ -1575,7 +1582,13 @@ run_ansible_resume() {
     fi
 
     step "Running full playbook (idempotent — skips completed tasks)..."
-    ansible-playbook -i inventory/hosts.ini site.yml -v
+    # Select the correct master playbook for the deploy mode
+    local master_playbook="site.yml"
+    case "$DEPLOY_MODE" in
+        linux-3tier)   master_playbook="playbooks/3tier/site-3tier.yml" ;;
+        windows-3tier) master_playbook="playbooks/3tier/site-3tier-win.yml" ;;
+    esac
+    ansible-playbook -i inventory/hosts.ini "$master_playbook" -v
 
     popd > /dev/null
 }
@@ -2678,7 +2691,8 @@ main() {
            for mode in "${DEPLOY_MODES[@]}"; do
                echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $mode && terraform apply${NC}"
            done
-           echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}" ;;
+           echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
+           [[ "$ARCH" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" ;;
         3) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                write_tfvars; write_inventory
