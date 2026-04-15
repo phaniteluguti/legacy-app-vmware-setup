@@ -278,7 +278,7 @@
       win_shell: |
         Set-Location C:\Apps\petclinic-rest
         $env:JAVA_HOME = "{{ java_home_path }}"
-        .\mvnw.cmd package -DskipTests -Djacoco.skip=true
+        .\mvnw.cmd package "-DskipTests" "-Djacoco.skip=true"
       timeout: 600
       when: existing_war.files | length == 0
 
