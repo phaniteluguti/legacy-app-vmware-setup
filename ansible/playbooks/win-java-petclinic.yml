@@ -30,12 +30,15 @@
     # ---------------------------------------------------------------
     - name: Install OpenJDK {{ java_version }} via Chocolatey
       win_chocolatey:
-        name: "openjdk{{ java_version }}"
+        name: "microsoft-openjdk-{{ java_version }}"
         state: present
 
     - name: Detect JDK install path
       win_shell: |
-        $jdkPath = Get-ChildItem "C:\Program Files" -Directory | Where-Object { $_.Name -match 'jdk.*{{ java_version }}' -or $_.Name -match 'OpenJDK.*{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
+        $jdkPath = Get-ChildItem "C:\Program Files\Microsoft" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match 'jdk-{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
+        if (-not $jdkPath) {
+          $jdkPath = Get-ChildItem "C:\Program Files" -Directory | Where-Object { $_.Name -match 'jdk.*{{ java_version }}' -or $_.Name -match 'OpenJDK.*{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
+        }
         if (-not $jdkPath) {
           $jdkPath = Get-ChildItem "C:\Program Files\Eclipse Adoptium" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -match '{{ java_version }}' } | Select-Object -First 1 -ExpandProperty FullName
         }
