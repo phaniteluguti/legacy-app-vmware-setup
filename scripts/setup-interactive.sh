@@ -191,6 +191,13 @@ load_previous() {
         PREV_PHP_DISK="$(tfval php_vm_disk "30")"
         PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "lin-php")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
+        # Single-VM Windows overrides (for "both" mode)
+        PREV_WIN_JAVA_IP="$(tfval win_java_vm_ip "")"
+        PREV_WIN_JAVA_HOSTNAME="$(tfval win_java_vm_hostname "win-java")"
+        PREV_WIN_DOTNET_IP="$(tfval win_dotnet_vm_ip "")"
+        PREV_WIN_DOTNET_HOSTNAME="$(tfval win_dotnet_vm_hostname "win-dotnet")"
+        PREV_WIN_PHP_IP="$(tfval win_php_vm_ip "")"
+        PREV_WIN_PHP_HOSTNAME="$(tfval win_php_vm_hostname "win-php")"
         # 3-Tier VM sizing
         PREV_FE_CPU="$(tfval fe_cpus "1")"
         PREV_FE_MEM="$(tfval fe_memory "2048")"
@@ -440,12 +447,17 @@ collect_vms() {
 
     # Populate WIN_ variables from saved values for "both" mode (used by summary + write_tfvars)
     if [[ "$OS_CHOICE" == "both" ]]; then
+        # 3-Tier WIN_ variables
         WIN_JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"; WIN_JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"; WIN_JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"
         WIN_DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"; WIN_DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"; WIN_DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
         WIN_PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; WIN_PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; WIN_PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
         WIN_JAVA_FE_IP="${PREV_WIN_JAVA_FE_IP:-10.1.3.30}"; WIN_JAVA_APP_IP="${PREV_WIN_JAVA_APP_IP:-10.1.3.31}"; WIN_JAVA_DB_IP="${PREV_WIN_JAVA_DB_IP:-10.1.3.32}"
         WIN_DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-10.1.3.33}"; WIN_DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-10.1.3.34}"; WIN_DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-10.1.3.35}"
         WIN_PHP_FE_IP="${PREV_WIN_PHP_FE_IP:-10.1.3.36}"; WIN_PHP_APP_IP="${PREV_WIN_PHP_APP_IP:-10.1.3.37}"; WIN_PHP_DB_IP="${PREV_WIN_PHP_DB_IP:-10.1.3.38}"
+        # Single-VM WIN_ variables
+        WIN_JAVA_IP="${PREV_WIN_JAVA_IP:-}"; WIN_JAVA_HOSTNAME="${PREV_WIN_JAVA_HOSTNAME:-win-java}"
+        WIN_DOTNET_IP="${PREV_WIN_DOTNET_IP:-}"; WIN_DOTNET_HOSTNAME="${PREV_WIN_DOTNET_HOSTNAME:-win-dotnet}"
+        WIN_PHP_IP="${PREV_WIN_PHP_IP:-}"; WIN_PHP_HOSTNAME="${PREV_WIN_PHP_HOSTNAME:-win-php}"
     fi
 
     if $QUICK_MODE; then
@@ -608,39 +620,99 @@ collect_vms() {
 
     else
         # Single-VM mode: prompt only for selected apps
-        if [[ "$DEPLOY_JAVA" == "true" ]]; then
-            local jlabel="Java VM (PetClinic + PostgreSQL)"
-            [[ "$OS_CHOICE" != "linux" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows"
-            echo -e "  ${Y}--- $jlabel ---${NC}"
-            prompt "  Hostname" "$PREV_JAVA_HOSTNAME"; JAVA_HOSTNAME="$REPLY"
-            prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
-            prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
-            prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
-            prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
-            echo ""
-        fi
+        if [[ "$OS_CHOICE" == "both" ]]; then
+            # --- Both mode: prompt for Linux VMs, then Windows VMs ---
+            echo -e "  ${C}=== Linux VMs ===${NC}\n"
 
-        if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-            local dlabel=".NET VM (ASP.NET + SQL Server)"
-            [[ "$OS_CHOICE" != "linux" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows"
-            echo -e "  ${Y}--- $dlabel ---${NC}"
-            prompt "  Hostname" "$PREV_DOTNET_HOSTNAME"; DOTNET_HOSTNAME="$REPLY"
-            prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
-            prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
-            prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
-            prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
-            echo ""
-        fi
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) — Linux ---${NC}"
+                prompt "  Hostname" "${PREV_JAVA_HOSTNAME:-lin-java}"; JAVA_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+                prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
+                echo ""
+            fi
 
-        if [[ "$DEPLOY_PHP" == "true" ]]; then
-            local plabel="PHP VM (Laravel + MySQL)"
-            [[ "$OS_CHOICE" != "linux" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows"
-            echo -e "  ${Y}--- $plabel ---${NC}"
-            prompt "  Hostname" "$PREV_PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
-            prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
-            prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
-            prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
-            prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                echo -e "  ${Y}--- .NET VM (ASP.NET + SQL Server) — Linux ---${NC}"
+                prompt "  Hostname" "${PREV_DOTNET_HOSTNAME:-lin-dotnet}"; DOTNET_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+                prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
+                echo ""
+            fi
+
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                echo -e "  ${Y}--- PHP VM (Laravel + MySQL) — Linux ---${NC}"
+                prompt "  Hostname" "${PREV_PHP_HOSTNAME:-lin-php}"; PHP_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+                prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+                echo ""
+            fi
+
+            echo -e "  ${C}=== Windows VMs ===${NC}\n"
+            echo -e "  ${GR}(CPU/Memory/Disk shared with Linux — only hostname & IP differ)${NC}\n"
+
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                echo -e "  ${Y}--- Java VM (PetClinic + PostgreSQL) — Windows ---${NC}"
+                prompt "  Hostname" "${WIN_JAVA_HOSTNAME:-win-java}"; WIN_JAVA_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "${WIN_JAVA_IP:-}"; WIN_JAVA_IP="$REPLY"
+                echo ""
+            fi
+
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                echo -e "  ${Y}--- .NET VM (IIS + ASP.NET + SQL Server) — Windows ---${NC}"
+                prompt "  Hostname" "${WIN_DOTNET_HOSTNAME:-win-dotnet}"; WIN_DOTNET_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "${WIN_DOTNET_IP:-}"; WIN_DOTNET_IP="$REPLY"
+                echo ""
+            fi
+
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                echo -e "  ${Y}--- PHP VM (IIS + Laravel + MySQL) — Windows ---${NC}"
+                prompt "  Hostname" "${WIN_PHP_HOSTNAME:-win-php}"; WIN_PHP_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "${WIN_PHP_IP:-}"; WIN_PHP_IP="$REPLY"
+            fi
+
+        else
+            # --- Single OS mode ---
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                local jlabel="Java VM (PetClinic + PostgreSQL)"
+                [[ "$OS_CHOICE" == "windows" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows"
+                echo -e "  ${Y}--- $jlabel ---${NC}"
+                prompt "  Hostname" "$PREV_JAVA_HOSTNAME"; JAVA_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+                prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_JAVA_DISK"; JAVA_DISK="$REPLY"
+                echo ""
+            fi
+
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                local dlabel=".NET VM (ASP.NET + SQL Server)"
+                [[ "$OS_CHOICE" == "windows" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows"
+                echo -e "  ${Y}--- $dlabel ---${NC}"
+                prompt "  Hostname" "$PREV_DOTNET_HOSTNAME"; DOTNET_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+                prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_DOTNET_DISK"; DOTNET_DISK="$REPLY"
+                echo ""
+            fi
+
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                local plabel="PHP VM (Laravel + MySQL)"
+                [[ "$OS_CHOICE" == "windows" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows"
+                echo -e "  ${Y}--- $plabel ---${NC}"
+                prompt "  Hostname" "$PREV_PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+                prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
+                prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
+                prompt "  Disk GB" "$PREV_PHP_DISK"; PHP_DISK="$REPLY"
+            fi
         fi
     fi
 }
@@ -772,14 +844,23 @@ show_summary() {
                 echo -e "      Database    $d_php_db_h  $d_php_db_ip   ${DB_CPU}CPU / ${DB_MEM}MB / ${DB_DISK}GB"
             fi
         else
+            # Single-VM: use WIN_ values for Windows display in "both" mode
+            local d_java_h="$JAVA_HOSTNAME" d_java_ip="$JAVA_IP"
+            local d_dotnet_h="$DOTNET_HOSTNAME" d_dotnet_ip="$DOTNET_IP"
+            local d_php_h="$PHP_HOSTNAME" d_php_ip="$PHP_IP"
+            if [[ "$mode" == windows* && "$OS_CHOICE" == "both" ]]; then
+                d_java_h="${WIN_JAVA_HOSTNAME:-$JAVA_HOSTNAME}"; d_java_ip="${WIN_JAVA_IP:-$JAVA_IP}"
+                d_dotnet_h="${WIN_DOTNET_HOSTNAME:-$DOTNET_HOSTNAME}"; d_dotnet_ip="${WIN_DOTNET_IP:-$DOTNET_IP}"
+                d_php_h="${WIN_PHP_HOSTNAME:-$PHP_HOSTNAME}"; d_php_ip="${WIN_PHP_IP:-$PHP_IP}"
+            fi
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                echo -e "    Java  $JAVA_HOSTNAME  $JAVA_IP   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
+                echo -e "    Java  $d_java_h  $d_java_ip   ${JAVA_CPU}CPU / ${JAVA_MEM}MB / ${JAVA_DISK}GB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                echo -e "    .NET  $DOTNET_HOSTNAME  $DOTNET_IP ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
+                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB / ${DOTNET_DISK}GB"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
-                echo -e "    PHP   $PHP_HOSTNAME  $PHP_IP    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
+                echo -e "    PHP   $d_php_h  $d_php_ip    ${PHP_CPU}CPU / ${PHP_MEM}MB / ${PHP_DISK}GB"
             fi
         fi
         echo ""
@@ -802,6 +883,13 @@ write_tfvars() {
         WIN_DOTNET_FE_HOSTNAME="$DOTNET_FE_HOSTNAME"; WIN_DOTNET_APP_HOSTNAME="$DOTNET_APP_HOSTNAME"; WIN_DOTNET_DB_HOSTNAME="$DOTNET_DB_HOSTNAME"
         WIN_PHP_FE_IP="$PHP_FE_IP"; WIN_PHP_APP_IP="$PHP_APP_IP"; WIN_PHP_DB_IP="$PHP_DB_IP"
         WIN_PHP_FE_HOSTNAME="$PHP_FE_HOSTNAME"; WIN_PHP_APP_HOSTNAME="$PHP_APP_HOSTNAME"; WIN_PHP_DB_HOSTNAME="$PHP_DB_HOSTNAME"
+    fi
+
+    # When deploying Windows single-VM in single-OS mode, copy base vars to WIN_ equivalents.
+    if [[ "$DEPLOY_MODE" == "windows" && "$OS_CHOICE" != "both" ]]; then
+        WIN_JAVA_IP="${JAVA_IP:-}"; WIN_JAVA_HOSTNAME="${JAVA_HOSTNAME:-win-java}"
+        WIN_DOTNET_IP="${DOTNET_IP:-}"; WIN_DOTNET_HOSTNAME="${DOTNET_HOSTNAME:-win-dotnet}"
+        WIN_PHP_IP="${PHP_IP:-}"; WIN_PHP_HOSTNAME="${PHP_HOSTNAME:-win-php}"
     fi
 
     cat > "$TF_DIR/terraform.tfvars" <<EOF
@@ -855,6 +943,14 @@ php_vm_disk     = $PHP_DISK
 
 win_template_name  = "$WIN_TEMPLATE"
 win_admin_password = "$WIN_ADMIN_PASS"
+
+# --- Single-VM IPs & Hostnames (Windows — used in "both" mode) ---
+win_java_vm_ip       = "${WIN_JAVA_IP:-$JAVA_IP}"
+win_java_vm_hostname = "${WIN_JAVA_HOSTNAME:-$JAVA_HOSTNAME}"
+win_dotnet_vm_ip       = "${WIN_DOTNET_IP:-$DOTNET_IP}"
+win_dotnet_vm_hostname = "${WIN_DOTNET_HOSTNAME:-$DOTNET_HOSTNAME}"
+win_php_vm_ip       = "${WIN_PHP_IP:-$PHP_IP}"
+win_php_vm_hostname = "${WIN_PHP_HOSTNAME:-$PHP_HOSTNAME}"
 
 # --- 3-Tier IPs & Hostnames (Linux) ---
 java_fe_ip       = "${JAVA_FE_IP:-10.1.2.20}"
@@ -998,20 +1094,27 @@ EOF
         } >> "$inv_file"
 
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
+        # In "both" mode, use WIN_ single-VM values; otherwise use base vars
+        local w_java_ip="${JAVA_IP:-}" w_dotnet_ip="${DOTNET_IP:-}" w_php_ip="${PHP_IP:-}"
+        if [[ "${OS_CHOICE:-}" == "both" ]]; then
+            w_java_ip="${WIN_JAVA_IP:-$JAVA_IP}"
+            w_dotnet_ip="${WIN_DOTNET_IP:-$DOTNET_IP}"
+            w_php_ip="${WIN_PHP_IP:-$PHP_IP}"
+        fi
         [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_java_servers]
-$JAVA_IP
+$w_java_ip
 EOF
         [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_dotnet_servers]
-$DOTNET_IP
+$w_dotnet_ip
 EOF
         [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
 
 [win_php_servers]
-$PHP_IP
+$w_php_ip
 EOF
         {
             echo ""
@@ -2397,6 +2500,10 @@ main() {
         DOTNET_CPU="${PREV_DOTNET_CPU:-2}"; DOTNET_MEM="${PREV_DOTNET_MEM:-4096}"; DOTNET_DISK="${PREV_DOTNET_DISK:-40}"
         PHP_IP="${PREV_PHP_IP:-}"; PHP_HOSTNAME="${PREV_PHP_HOSTNAME:-lin-php}"
         PHP_CPU="${PREV_PHP_CPU:-2}"; PHP_MEM="${PREV_PHP_MEM:-2048}"; PHP_DISK="${PREV_PHP_DISK:-30}"
+        # Single-VM Windows overrides (used when OS_CHOICE=both)
+        WIN_JAVA_IP="${PREV_WIN_JAVA_IP:-}"; WIN_JAVA_HOSTNAME="${PREV_WIN_JAVA_HOSTNAME:-win-java}"
+        WIN_DOTNET_IP="${PREV_WIN_DOTNET_IP:-}"; WIN_DOTNET_HOSTNAME="${PREV_WIN_DOTNET_HOSTNAME:-win-dotnet}"
+        WIN_PHP_IP="${PREV_WIN_PHP_IP:-}"; WIN_PHP_HOSTNAME="${PREV_WIN_PHP_HOSTNAME:-win-php}"
         # 3-Tier hostnames
         JAVA_FE_HOSTNAME="${PREV_JAVA_FE_HOSTNAME:-lin-java-fe}"
         JAVA_APP_HOSTNAME="${PREV_JAVA_APP_HOSTNAME:-lin-java-app}"

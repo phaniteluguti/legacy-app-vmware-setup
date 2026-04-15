@@ -232,6 +232,43 @@ variable "win_admin_password" {
   sensitive   = true
 }
 
+# --- Windows Single-VM overrides (used in "both" mode) ---
+variable "win_java_vm_ip" {
+  description = "Static IP for the Windows Java VM (both mode)"
+  type        = string
+  default     = ""
+}
+
+variable "win_java_vm_hostname" {
+  description = "Hostname for the Windows Java VM (both mode)"
+  type        = string
+  default     = "win-java"
+}
+
+variable "win_dotnet_vm_ip" {
+  description = "Static IP for the Windows .NET VM (both mode)"
+  type        = string
+  default     = ""
+}
+
+variable "win_dotnet_vm_hostname" {
+  description = "Hostname for the Windows .NET VM (both mode)"
+  type        = string
+  default     = "win-dotnet"
+}
+
+variable "win_php_vm_ip" {
+  description = "Static IP for the Windows PHP VM (both mode)"
+  type        = string
+  default     = ""
+}
+
+variable "win_php_vm_hostname" {
+  description = "Hostname for the Windows PHP VM (both mode)"
+  type        = string
+  default     = "win-php"
+}
+
 # =============================================================================
 # 3-Tier Mode — Linux VMs (9 VMs: 3 apps × frontend + appserver + database)
 # =============================================================================

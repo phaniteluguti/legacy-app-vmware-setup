@@ -83,32 +83,32 @@ locals {
   win_vms = var.deploy_mode == "windows" ? merge(
     var.deploy_java ? {
       win-java-vm = {
-        name          = var.java_vm_hostname
-        computer_name = substr(upper(replace(var.java_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        name          = coalesce(var.win_java_vm_hostname, var.java_vm_hostname)
+        computer_name = substr(upper(replace(coalesce(var.win_java_vm_hostname, var.java_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.java_vm_cpus
         memory = var.java_vm_memory
         disk   = var.java_vm_disk
-        ip     = var.java_vm_ip
+        ip     = coalesce(var.win_java_vm_ip, var.java_vm_ip)
       }
     } : {},
     var.deploy_dotnet ? {
       win-dotnet-vm = {
-        name          = var.dotnet_vm_hostname
-        computer_name = substr(upper(replace(var.dotnet_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        name          = coalesce(var.win_dotnet_vm_hostname, var.dotnet_vm_hostname)
+        computer_name = substr(upper(replace(coalesce(var.win_dotnet_vm_hostname, var.dotnet_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.dotnet_vm_cpus
         memory = var.dotnet_vm_memory
         disk   = var.dotnet_vm_disk
-        ip     = var.dotnet_vm_ip
+        ip     = coalesce(var.win_dotnet_vm_ip, var.dotnet_vm_ip)
       }
     } : {},
     var.deploy_php ? {
       win-php-vm = {
-        name          = var.php_vm_hostname
-        computer_name = substr(upper(replace(var.php_vm_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        name          = coalesce(var.win_php_vm_hostname, var.php_vm_hostname)
+        computer_name = substr(upper(replace(coalesce(var.win_php_vm_hostname, var.php_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
         cpus   = var.php_vm_cpus
         memory = var.php_vm_memory
         disk   = var.php_vm_disk
-        ip     = var.php_vm_ip
+        ip     = coalesce(var.win_php_vm_ip, var.php_vm_ip)
       }
     } : {}
   ) : {}

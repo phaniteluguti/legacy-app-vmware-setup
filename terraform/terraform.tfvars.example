@@ -51,3 +51,11 @@ php_vm_hostname = "lin-php"
 php_vm_cpus     = 2
 php_vm_memory   = 2048
 php_vm_disk     = 30
+
+# Windows Single-VM overrides (used in "both" mode)
+# win_java_vm_ip       = "192.168.1.111"
+# win_java_vm_hostname = "win-java"
+# win_dotnet_vm_ip     = "192.168.1.112"
+# win_dotnet_vm_hostname = "win-dotnet"
+# win_php_vm_ip        = "192.168.1.113"
+# win_php_vm_hostname  = "win-php"
