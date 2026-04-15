@@ -142,7 +142,7 @@ variable "java_vm_ip" {
 variable "java_vm_hostname" {
   description = "Hostname for the Java VM"
   type        = string
-  default     = "1t-java"
+  default     = "lin-java"
 }
 
 variable "java_vm_cpus" {
@@ -172,7 +172,7 @@ variable "dotnet_vm_ip" {
 variable "dotnet_vm_hostname" {
   description = "Hostname for the .NET VM"
   type        = string
-  default     = "1t-dotnet"
+  default     = "lin-dotnet"
 }
 
 variable "dotnet_vm_cpus" {
@@ -200,7 +200,7 @@ variable "php_vm_ip" {
 variable "php_vm_hostname" {
   description = "Hostname for the PHP VM"
   type        = string
-  default     = "1t-php"
+  default     = "lin-php"
 }
 
 variable "php_vm_cpus" {

@@ -715,17 +715,17 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Java VM** | 1t-java | Ubuntu 22.04 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **\.NET VM** | 1t-dotnet | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
-| **PHP VM** | 1t-php | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
+| **Java VM** | lin-java | Ubuntu 22.04 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **\.NET VM** | lin-dotnet | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
+| **PHP VM** | lin-php | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
 ### Windows Single-VM (deploy_mode = windows)
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Win Java VM** | 1t-win-java | Windows Server 2019 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **Win .NET VM** | 1t-win-dotnet | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
-| **Win PHP VM** | 1t-win-php | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
+| **Win Java VM** | win-java | Windows Server 2019 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Win .NET VM** | win-dotnet | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
+| **Win PHP VM** | win-php | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
 ### Linux 3-Tier (deploy_mode = linux-3tier)
 
@@ -846,11 +846,11 @@ legacy-app-vmware-setup/
 | `vm_template_name` | Ubuntu template name in vCenter | `ubuntu-2204-template` |
 | `vm_gateway` | Network gateway | `192.168.1.1` |
 | `java_vm_ip` | Static IP for Java VM (both modes) | `192.168.1.101` |
-| `java_vm_hostname` | Hostname for the Java VM | `1t-java` |
+| `java_vm_hostname` | Hostname for the Java VM | `lin-java` |
 | `dotnet_vm_ip` | Static IP for .NET VM (both modes) | `192.168.1.102` |
-| `dotnet_vm_hostname` | Hostname for the .NET VM | `1t-dotnet` |
+| `dotnet_vm_hostname` | Hostname for the .NET VM | `lin-dotnet` |
 | `php_vm_ip` | Static IP for PHP VM (both modes) | `192.168.1.103` |
-| `php_vm_hostname` | Hostname for the PHP VM | `1t-php` |
+| `php_vm_hostname` | Hostname for the PHP VM | `lin-php` |
 | `deploy_mode` | Deployment mode | `linux`, `windows`, `linux-3tier`, or `windows-3tier` |
 | `deploy_java` | Deploy Java app VMs | `true` |
 | `deploy_dotnet` | Deploy .NET app VMs | `true` |
@@ -911,17 +911,17 @@ Azure Portal → Azure Migrate → Create project
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
-| 1t-java | Java 21, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
-| 1t-dotnet | .NET 8, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
-| 1t-php | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
+| lin-java | Java 21, Spring Boot, Tomcat | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
+| lin-dotnet | .NET 8, ASP.NET Core, Nginx | SQL Server 2022 | → SQL Server (localhost:1433) |
+| lin-php | PHP 8.1, Apache2, Laravel | MySQL 8.0 | → MySQL (localhost:3306) |
 
 **Single-VM Mode (Windows):**
 
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
-| 1t-win-java | Java 21, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
-| 1t-win-dotnet | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
-| 1t-win-php | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
+| win-java | Java 21, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
+| win-dotnet | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
+| win-php | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
 
 **3-Tier Mode — Inter-VM Dependencies (the key value-add):**
 
