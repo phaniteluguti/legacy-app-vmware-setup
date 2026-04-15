@@ -185,7 +185,6 @@
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
           spring.sql.init.continue-on-error=true
-          spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.web.servlet.error.ErrorMvcAutoConfiguration
         owner: "{{ ansible_user }}"
       register: pg_props
 
@@ -215,36 +214,19 @@
                   <scope>provided</scope>
               </dependency>
 
-    - name: Detect application class package path
-      shell: >
-        find /opt/petclinic-rest/repo/src/main/java -name '*Application*.java' -type f
-        | head -1 | sed 's|.*/src/main/java/||; s|/[^/]*$||'
-      register: app_pkg_path
-      changed_when: false
+    # PetClinicApplication already extends SpringBootServletInitializer — no extra
+    # ServletInitializer needed. Remove any stale one from prior runs.
+    - name: Remove stale ServletInitializer from prior runs
+      shell: find /opt/petclinic-rest/repo/src -name 'ServletInitializer.java' -print -delete
+      register: removed_si
+      changed_when: removed_si.stdout | trim | length > 0
+      failed_when: false
 
-    - name: Detect application class name
-      shell: >
-        find /opt/petclinic-rest/repo/src/main/java -name '*Application*.java' -type f
-        | head -1 | xargs basename | sed 's|\.java$||'
-      register: app_class
-      changed_when: false
-
-    - name: Create ServletInitializer for WAR deployment
-      copy:
-        dest: "/opt/petclinic-rest/repo/src/main/java/{{ app_pkg_path.stdout }}/ServletInitializer.java"
-        content: |
-          package {{ app_pkg_path.stdout | replace('/', '.') }};
-
-          import org.springframework.boot.builder.SpringApplicationBuilder;
-          import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
-
-          public class ServletInitializer extends SpringBootServletInitializer {
-              @Override
-              protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
-                  return application.sources({{ app_class.stdout }}.class);
-              }
-          }
-        owner: "{{ ansible_user }}"
+    - name: Force WAR rebuild if stale ServletInitializer was removed
+      file:
+        path: /opt/petclinic-rest/repo/target
+        state: absent
+      when: removed_si is changed
 
     # ---- Build & Deploy WAR ----
     - name: Check if WAR already built

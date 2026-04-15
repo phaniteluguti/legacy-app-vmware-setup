@@ -182,7 +182,6 @@
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
           spring.sql.init.continue-on-error=true
-          spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.web.servlet.error.ErrorMvcAutoConfiguration
       register: props_source
 
     - name: Remove target to force rebuild when properties changed
@@ -235,37 +234,20 @@
         state: absent
       when: war_packaging is changed or tomcat_dep is changed
 
-    - name: Detect application class details
+    # PetClinicApplication already extends SpringBootServletInitializer — no extra
+    # ServletInitializer needed. Remove any stale one from prior runs.
+    - name: Remove stale ServletInitializer from prior runs
       win_shell: |
-        $appFile = Get-ChildItem -Path "C:\Apps\petclinic-rest\src\main\java" -Recurse -Filter "*Application*.java" | Select-Object -First 1
-        $pkgPath = $appFile.DirectoryName -replace '.*\\src\\main\\java\\', ''
-        $pkgName = $pkgPath -replace '\\', '.'
-        $className = $appFile.BaseName
-        Write-Output "$pkgPath|$pkgName|$className"
-      register: app_detect
-      changed_when: false
+        $files = Get-ChildItem -Path "C:\Apps\petclinic-rest\src" -Recurse -Filter "ServletInitializer.java" -ErrorAction SilentlyContinue
+        if ($files) { $files | Remove-Item -Force; Write-Output "removed" } else { Write-Output "none" }
+      register: removed_si
+      changed_when: "'removed' in removed_si.stdout"
 
-    - name: Parse application class details
-      set_fact:
-        app_pkg_path: "{{ app_detect.stdout.split('|')[0] | trim }}"
-        app_pkg_name: "{{ app_detect.stdout.split('|')[1] | trim }}"
-        app_class_name: "{{ app_detect.stdout.split('|')[2] | trim }}"
-
-    - name: Create ServletInitializer for WAR deployment
-      win_copy:
-        dest: 'C:\Apps\petclinic-rest\src\main\java\{{ app_pkg_path }}\ServletInitializer.java'
-        content: |
-          package {{ app_pkg_name }};
-
-          import org.springframework.boot.builder.SpringApplicationBuilder;
-          import org.springframework.boot.web.servlet.support.SpringBootServletInitializer;
-
-          public class ServletInitializer extends SpringBootServletInitializer {
-              @Override
-              protected SpringApplicationBuilder configure(SpringApplicationBuilder application) {
-                  return application.sources({{ app_class_name }}.class);
-              }
-          }
+    - name: Force WAR rebuild if stale ServletInitializer was removed
+      win_file:
+        path: C:\Apps\petclinic-rest\target
+        state: absent
+      when: removed_si is changed
 
     # ---- Build & Deploy WAR ----
     - name: Check if WAR already built
