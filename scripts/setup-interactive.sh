@@ -1097,13 +1097,13 @@ EOF
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
 
         # When "both" mode, use WIN_ vars; otherwise use base vars (same as user entered)
-        local w_java_fe_ip="${JAVA_FE_IP}" w_java_app_ip="${JAVA_APP_IP}" w_java_db_ip="${JAVA_DB_IP}"
-        local w_dotnet_fe_ip="${DOTNET_FE_IP}" w_dotnet_app_ip="${DOTNET_APP_IP}" w_dotnet_db_ip="${DOTNET_DB_IP}"
-        local w_php_fe_ip="${PHP_FE_IP}" w_php_app_ip="${PHP_APP_IP}" w_php_db_ip="${PHP_DB_IP}"
+        local w_java_fe_ip="${JAVA_FE_IP:-}" w_java_app_ip="${JAVA_APP_IP:-}" w_java_db_ip="${JAVA_DB_IP:-}"
+        local w_dotnet_fe_ip="${DOTNET_FE_IP:-}" w_dotnet_app_ip="${DOTNET_APP_IP:-}" w_dotnet_db_ip="${DOTNET_DB_IP:-}"
+        local w_php_fe_ip="${PHP_FE_IP:-}" w_php_app_ip="${PHP_APP_IP:-}" w_php_db_ip="${PHP_DB_IP:-}"
         if [[ "$OS_CHOICE" == "both" ]]; then
-            w_java_fe_ip="${WIN_JAVA_FE_IP:-$JAVA_FE_IP}"; w_java_app_ip="${WIN_JAVA_APP_IP:-$JAVA_APP_IP}"; w_java_db_ip="${WIN_JAVA_DB_IP:-$JAVA_DB_IP}"
-            w_dotnet_fe_ip="${WIN_DOTNET_FE_IP:-$DOTNET_FE_IP}"; w_dotnet_app_ip="${WIN_DOTNET_APP_IP:-$DOTNET_APP_IP}"; w_dotnet_db_ip="${WIN_DOTNET_DB_IP:-$DOTNET_DB_IP}"
-            w_php_fe_ip="${WIN_PHP_FE_IP:-$PHP_FE_IP}"; w_php_app_ip="${WIN_PHP_APP_IP:-$PHP_APP_IP}"; w_php_db_ip="${WIN_PHP_DB_IP:-$PHP_DB_IP}"
+            w_java_fe_ip="${WIN_JAVA_FE_IP:-${JAVA_FE_IP:-}}"; w_java_app_ip="${WIN_JAVA_APP_IP:-${JAVA_APP_IP:-}}"; w_java_db_ip="${WIN_JAVA_DB_IP:-${JAVA_DB_IP:-}}"
+            w_dotnet_fe_ip="${WIN_DOTNET_FE_IP:-${DOTNET_FE_IP:-}}"; w_dotnet_app_ip="${WIN_DOTNET_APP_IP:-${DOTNET_APP_IP:-}}"; w_dotnet_db_ip="${WIN_DOTNET_DB_IP:-${DOTNET_DB_IP:-}}"
+            w_php_fe_ip="${WIN_PHP_FE_IP:-${PHP_FE_IP:-}}"; w_php_app_ip="${WIN_PHP_APP_IP:-${PHP_APP_IP:-}}"; w_php_db_ip="${WIN_PHP_DB_IP:-${PHP_DB_IP:-}}"
         fi
 
         [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
