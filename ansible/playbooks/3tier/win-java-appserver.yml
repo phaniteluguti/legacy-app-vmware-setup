@@ -157,6 +157,7 @@
         dest: C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties
         content: |
           database=postgresql
+          spring.sql.init.platform=postgres
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}

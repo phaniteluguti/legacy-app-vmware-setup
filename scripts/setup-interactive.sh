@@ -1287,7 +1287,7 @@ run_terraform() {
         if [[ -n "$first_vm" ]]; then
             state_domain=$(terraform state show "$first_vm" 2>/dev/null \
                           | grep '^\s*domain\s*=' | head -1 \
-                          | sed 's/.*= *"\(.*\)"/\1/')
+                          | sed 's/.*= *"\(.*\)"/\1/' || true)
             if [[ -n "$state_domain" ]]; then
                 sed -i "s|^vm_domain .*=.*|vm_domain              = \"${state_domain}\"|" terraform.tfvars
                 step "  Preserved domain: $state_domain"

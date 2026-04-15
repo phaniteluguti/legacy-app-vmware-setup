@@ -163,6 +163,7 @@
       copy:
         dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
+          spring.sql.init.platform=postgres
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
@@ -173,6 +174,13 @@
           spring.jpa.generate-ddl=true
           spring.sql.init.continue-on-error=true
         owner: "{{ ansible_user }}"
+      register: pg_props
+
+    - name: Remove target to force rebuild when properties changed
+      file:
+        path: /opt/petclinic-rest/repo/target
+        state: absent
+      when: pg_props is changed
 
     # ---- Convert to WAR packaging ----
     - name: Set WAR packaging in pom.xml
