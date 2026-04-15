@@ -185,6 +185,7 @@
           spring.jpa.hibernate.ddl-auto=update
           spring.jpa.generate-ddl=true
           spring.sql.init.continue-on-error=true
+          spring.autoconfigure.exclude=org.springframework.boot.autoconfigure.web.servlet.error.ErrorMvcAutoConfiguration
         owner: "{{ ansible_user }}"
       register: pg_props
 
