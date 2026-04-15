@@ -67,6 +67,22 @@
         url: "https://archive.apache.org/dist/tomcat/tomcat-{{ tomcat_major }}/v{{ tomcat_version }}/bin/apache-tomcat-{{ tomcat_version }}.tar.gz"
         dest: "/tmp/apache-tomcat-{{ tomcat_version }}.tar.gz"
 
+    - name: Check current Tomcat version
+      shell: |
+        if [ -f "{{ tomcat_install_dir }}/RELEASE-NOTES" ]; then
+          grep -oP 'Apache Tomcat Version \K[0-9.]+' "{{ tomcat_install_dir }}/RELEASE-NOTES" || echo "unknown"
+        else
+          echo "none"
+        fi
+      register: current_tomcat_version
+      changed_when: false
+
+    - name: Remove old Tomcat if version has changed
+      file:
+        path: "{{ tomcat_install_dir }}"
+        state: absent
+      when: current_tomcat_version.stdout != tomcat_version
+
     - name: Create Tomcat install directory
       file:
         path: "{{ tomcat_install_dir }}"

@@ -88,6 +88,21 @@
       args:
         creates: 'C:\Temp\apache-tomcat-{{ tomcat_version }}.zip'
 
+    - name: Check current Tomcat version
+      win_shell: |
+        if (Test-Path "{{ tomcat_install_dir }}\RELEASE-NOTES") {
+          $notes = Get-Content "{{ tomcat_install_dir }}\RELEASE-NOTES" -Raw
+          if ($notes -match 'Apache Tomcat Version ([0-9.]+)') { $Matches[1] } else { "unknown" }
+        } else { "none" }
+      register: current_tomcat_version
+      changed_when: false
+
+    - name: Remove old Tomcat if version has changed
+      win_file:
+        path: '{{ tomcat_install_dir }}'
+        state: absent
+      when: current_tomcat_version.stdout | trim != tomcat_version
+
     - name: Extract and install Tomcat
       win_shell: |
         Expand-Archive -Path "C:\Temp\apache-tomcat-{{ tomcat_version }}.zip" -DestinationPath "C:\Temp\tomcat-extract" -Force
