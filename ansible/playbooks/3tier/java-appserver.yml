@@ -109,7 +109,7 @@
     - name: Configure Tomcat port to {{ petclinic_rest_port }}
       replace:
         path: "{{ tomcat_install_dir }}/conf/server.xml"
-        regexp: 'Connector port="8080"'
+        regexp: 'Connector port="(8080|{{ petclinic_rest_port }})"'
         replace: 'Connector port="{{ petclinic_rest_port }}"'
 
     - name: Remove default Tomcat webapps
@@ -140,12 +140,16 @@
 
     - name: Set git safe.directory globally
       command: git config --global --add safe.directory '*'
+      register: git_safe_dir
       changed_when: false
+      failed_when: false
 
     - name: Clone spring-petclinic-rest repository
-      command: git clone https://github.com/spring-petclinic/spring-petclinic-rest.git /opt/petclinic-rest/repo
-      args:
-        creates: /opt/petclinic-rest/repo/pom.xml
+      git:
+        repo: https://github.com/spring-petclinic/spring-petclinic-rest.git
+        dest: /opt/petclinic-rest/repo
+        version: main
+        update: false
 
     - name: Fix repo ownership
       file:
@@ -222,12 +226,19 @@
         owner: "{{ ansible_user }}"
 
     # ---- Build & Deploy WAR ----
+    - name: Check if WAR already built
+      find:
+        paths: /opt/petclinic-rest/repo/target
+        patterns: "*.war"
+      register: existing_war
+
     - name: Build PetClinic REST as WAR (skip tests)
       shell: |
         cd /opt/petclinic-rest/repo
         sudo -u {{ ansible_user }} bash -c 'JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64 ./mvnw clean package -DskipTests -Djacoco.skip=true'
       args:
         executable: /bin/bash
+      when: existing_war.files | length == 0
 
     - name: Find built WAR file
       find:

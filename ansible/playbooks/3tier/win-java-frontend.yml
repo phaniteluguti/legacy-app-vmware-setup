@@ -143,14 +143,18 @@
         path: '{{ iis_site_path }}'
         state: directory
 
+    - name: Check if Angular app is already deployed to IIS
+      win_stat:
+        path: '{{ iis_site_path }}\index.html'
+      register: iis_index
+
     - name: Clear IIS site directory
       win_shell: Remove-Item "{{ iis_site_path }}/*" -Recurse -Force -ErrorAction SilentlyContinue
-      changed_when: true
+      when: not iis_index.stat.exists
 
     - name: Copy built Angular app to IIS site directory
       win_shell: Copy-Item "{{ angular_dist }}/*" "{{ iis_site_path }}/" -Recurse -Force
-      register: copy_result
-      changed_when: true
+      when: not iis_index.stat.exists
 
     - name: Create web.config for SPA routing and API proxy
       win_copy:

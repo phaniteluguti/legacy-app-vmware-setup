@@ -64,12 +64,16 @@
 
     - name: Set git safe.directory globally
       command: git config --global --add safe.directory '*'
+      register: git_safe_dir
       changed_when: false
+      failed_when: false
 
     - name: Clone eShopOnWeb repository (archived .NET 8 version)
-      command: git clone https://github.com/dotnet-architecture/eShopOnWeb.git /opt/eshop/repo
-      args:
-        creates: /opt/eshop/repo/eShopOnWeb.sln
+      git:
+        repo: https://github.com/dotnet-architecture/eShopOnWeb.git
+        dest: /opt/eshop/repo
+        version: main
+        update: false
 
     - name: Remove environment-specific appsettings overrides
       file:
@@ -125,6 +129,7 @@
         sudo -u {{ ansible_user }} dotnet publish src/Web/Web.csproj -c Release -o /opt/eshop/published
       args:
         executable: /bin/bash
+        creates: /opt/eshop/published/Web.dll
 
     - name: Wait for SQL Server on database VM to be reachable
       wait_for:

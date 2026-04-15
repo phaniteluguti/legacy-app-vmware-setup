@@ -115,8 +115,15 @@
     - name: Configure Tomcat port to {{ petclinic_rest_port }}
       win_shell: |
         $xml = Get-Content "{{ tomcat_install_dir }}\conf\server.xml" -Raw
-        $xml = $xml -replace 'Connector port="8080"', 'Connector port="{{ petclinic_rest_port }}"'
-        Set-Content "{{ tomcat_install_dir }}\conf\server.xml" $xml
+        if ($xml -match 'Connector port="{{ petclinic_rest_port }}"') {
+          Write-Output "OK"
+        } else {
+          $xml = $xml -replace 'Connector port="\d+"', 'Connector port="{{ petclinic_rest_port }}"'
+          Set-Content "{{ tomcat_install_dir }}\conf\server.xml" $xml
+          Write-Output "CHANGED"
+        }
+      register: port_config
+      changed_when: "'CHANGED' in port_config.stdout"
 
     - name: Remove default Tomcat webapps
       win_file:
@@ -244,12 +251,20 @@
           }
 
     # ---- Build & Deploy WAR ----
+    - name: Check if WAR already built
+      win_find:
+        paths: C:\Apps\petclinic-rest\target
+        patterns: "*.war"
+        file_type: file
+      register: existing_war
+
     - name: Build PetClinic REST as WAR
       win_shell: |
         Set-Location C:\Apps\petclinic-rest
         $env:JAVA_HOME = "{{ java_home_path }}"
         .\mvnw.cmd package -DskipTests -Djacoco.skip=true
       timeout: 600
+      when: existing_war.files | length == 0
 
     - name: Find built WAR file
       win_find:
@@ -278,32 +293,32 @@
 
     - name: Stop Tomcat service if it exists (for re-provisioning)
       win_service:
-        name: Tomcat10
+        name: Tomcat
         state: stopped
       ignore_errors: true
 
     - name: Remove existing Tomcat service (for re-provisioning)
-      win_shell: nssm remove Tomcat10 confirm
+      win_shell: nssm remove Tomcat confirm
       ignore_errors: true
 
     - name: Install Tomcat as Windows service
       win_shell: |
-        nssm install Tomcat10 "{{ tomcat_install_dir }}\bin\catalina.bat" run
-        nssm set Tomcat10 AppDirectory "{{ tomcat_install_dir }}"
-        nssm set Tomcat10 DisplayName "Apache Tomcat 10"
-        nssm set Tomcat10 Description "Apache Tomcat Web Application Container"
-        nssm set Tomcat10 Start SERVICE_AUTO_START
-        nssm set Tomcat10 AppEnvironmentExtra "JAVA_HOME={{ java_home_path }}" "CATALINA_HOME={{ tomcat_install_dir }}"
-        nssm set Tomcat10 AppStdout "{{ tomcat_install_dir }}\logs\stdout.log"
-        nssm set Tomcat10 AppStderr "{{ tomcat_install_dir }}\logs\stderr.log"
-        nssm set Tomcat10 AppStdoutCreationDisposition 4
-        nssm set Tomcat10 AppStderrCreationDisposition 4
-        nssm set Tomcat10 AppRotateFiles 1
-        nssm set Tomcat10 AppRotateBytes 10485760
+        nssm install Tomcat "{{ tomcat_install_dir }}\bin\catalina.bat" run
+        nssm set Tomcat AppDirectory "{{ tomcat_install_dir }}"
+        nssm set Tomcat DisplayName "Apache Tomcat {{ tomcat_major }}"
+        nssm set Tomcat Description "Apache Tomcat Web Application Container"
+        nssm set Tomcat Start SERVICE_AUTO_START
+        nssm set Tomcat AppEnvironmentExtra "JAVA_HOME={{ java_home_path }}" "CATALINA_HOME={{ tomcat_install_dir }}"
+        nssm set Tomcat AppStdout "{{ tomcat_install_dir }}\logs\stdout.log"
+        nssm set Tomcat AppStderr "{{ tomcat_install_dir }}\logs\stderr.log"
+        nssm set Tomcat AppStdoutCreationDisposition 4
+        nssm set Tomcat AppStderrCreationDisposition 4
+        nssm set Tomcat AppRotateFiles 1
+        nssm set Tomcat AppRotateBytes 10485760
 
     - name: Start Tomcat service
       win_service:
-        name: Tomcat10
+        name: Tomcat
         start_mode: auto
         state: started
 
@@ -317,7 +332,7 @@
     - name: Show service status if startup failed
       win_shell: |
         Write-Output "=== Service Status ==="
-        Get-Service Tomcat10 | Format-List *
+        Get-Service Tomcat | Format-List *
         Write-Output ""
         Write-Output "=== Last 50 lines of stderr.log ==="
         if (Test-Path "{{ tomcat_install_dir }}\logs\stderr.log") {

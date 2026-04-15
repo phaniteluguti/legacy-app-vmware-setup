@@ -46,12 +46,16 @@
 
     - name: Set git safe.directory globally
       command: git config --global --add safe.directory '*'
+      register: git_safe_dir
       changed_when: false
+      failed_when: false
 
     - name: Clone spring-petclinic-angular repository
-      command: git clone https://github.com/spring-petclinic/spring-petclinic-angular.git /opt/petclinic-angular
-      args:
-        creates: /opt/petclinic-angular/package.json
+      git:
+        repo: https://github.com/spring-petclinic/spring-petclinic-angular.git
+        dest: /opt/petclinic-angular
+        version: master
+        update: false
 
     - name: Install npm dependencies
       shell: npm install
@@ -96,12 +100,20 @@
         angular_dist: "{{ dist_dir_result.stdout | trim }}"
 
     - name: Copy built Angular app to Nginx web root
-      shell: |
-        rm -rf /var/www/petclinic
-        cp -r {{ angular_dist }}/. /var/www/petclinic
-        chown -R www-data:www-data /var/www/petclinic
-      args:
-        executable: /bin/bash
+      synchronize:
+        src: "{{ angular_dist }}/"
+        dest: /var/www/petclinic/
+        delete: true
+        recursive: true
+      delegate_to: "{{ inventory_hostname }}"
+
+    - name: Set Nginx web root ownership
+      file:
+        path: /var/www/petclinic
+        state: directory
+        owner: www-data
+        group: www-data
+        recurse: true
 
     - name: Configure Nginx for Angular SPA with API proxy
       copy:
