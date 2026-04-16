@@ -12,9 +12,9 @@
 #     -e "appliance_ip=10.20.1.x"
 # =============================================================================
 
-# ─── Play 1: PostgreSQL — Linux DB VMs ──────────────────────────────────────
+# ─── Play 1: PostgreSQL — Linux VMs (1-tier java_servers + 3-tier java_database)
 - name: Create Azure Migrate user on PostgreSQL (Linux)
-  hosts: java_database
+  hosts: java_servers:java_database
   become: true
   gather_facts: false
   vars_files:
@@ -75,9 +75,9 @@
         name: postgresql
         state: reloaded
 
-# ─── Play 2: PostgreSQL — Windows DB VMs ────────────────────────────────────
+# ─── Play 2: PostgreSQL — Windows VMs (1-tier win_java_servers + 3-tier win_java_database)
 - name: Create Azure Migrate user on PostgreSQL (Windows)
-  hosts: win_java_database
+  hosts: win_java_servers:win_java_database
   gather_facts: false
   become: false
   vars_files:
@@ -148,9 +148,9 @@
       debug:
         msg: "User '{{ az_migrate_user }}' has roles: {{ win_pg_roles_check.stdout_lines }}"
 
-# ─── Play 3: MySQL — Linux DB VMs ──────────────────────────────────────────
+# ─── Play 3: MySQL — Linux VMs (1-tier php_servers + 3-tier php_database)
 - name: Create Azure Migrate user on MySQL (Linux)
-  hosts: php_database
+  hosts: php_servers:php_database
   become: true
   gather_facts: false
   vars_files:
@@ -199,9 +199,9 @@
       debug:
         msg: "{{ mysql_grants_check.stdout_lines }}"
 
-# ─── Play 4: MySQL — Windows DB VMs ────────────────────────────────────────
+# ─── Play 4: MySQL — Windows VMs (1-tier win_php_servers + 3-tier win_php_database)
 - name: Create Azure Migrate user on MySQL (Windows)
-  hosts: win_php_database
+  hosts: win_php_servers:win_php_database
   gather_facts: false
   become: false
   vars_files:
