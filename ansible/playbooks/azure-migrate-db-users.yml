@@ -35,9 +35,11 @@
         sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
         sudo -u postgres psql -c "ALTER USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}';"
-        # Grant CONNECT on all non-template databases
+        # Grant CONNECT, USAGE on schemas, SELECT on tables — for every non-template database
         for db in $(sudo -u postgres psql -tAc "SELECT datname FROM pg_database WHERE datistemplate = false;"); do
           sudo -u postgres psql -c "GRANT CONNECT ON DATABASE \"$db\" TO {{ az_migrate_user }};"
+          sudo -u postgres psql -d "$db" -c "GRANT USAGE ON ALL SCHEMAS IN DATABASE \"$db\" TO {{ az_migrate_user }};" 2>/dev/null || \
+          sudo -u postgres psql -d "$db" -c "DO \$\$DECLARE s record; BEGIN FOR s IN SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT LIKE 'pg_%' AND schema_name <> 'information_schema' LOOP EXECUTE format('GRANT USAGE ON SCHEMA %I TO {{ az_migrate_user }}', s.schema_name); EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {{ az_migrate_user }}', s.schema_name); END LOOP; END\$\$;"
         done
         # Grant monitoring roles required by Azure Migrate
         sudo -u postgres psql -c "GRANT pg_read_all_settings TO {{ az_migrate_user }};"
@@ -46,6 +48,13 @@
       args:
         executable: /bin/bash
       changed_when: false
+
+    - name: Ensure PostgreSQL listens on all interfaces (not just localhost)
+      lineinfile:
+        path: "/etc/postgresql/{{ postgres_version }}/main/postgresql.conf"
+        regexp: '^#?\s*listen_addresses\s*='
+        line: "listen_addresses = '*'"
+      notify: Reload PostgreSQL
 
     - name: Allow Azure Migrate appliance in pg_hba.conf
       lineinfile:
@@ -105,12 +114,13 @@
         }
         & $psql -U postgres -c "ALTER USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}';"
 
-        # Grant CONNECT on all non-template databases
+        # Grant CONNECT, USAGE, SELECT on all non-template databases
         $dbs = & $psql -U postgres -tAc "SELECT datname FROM pg_database WHERE datistemplate = false;"
         foreach ($db in $dbs) {
           $db = $db.Trim()
           if ($db) {
             & $psql -U postgres -c "GRANT CONNECT ON DATABASE `"$db`" TO {{ az_migrate_user }};"
+            & $psql -U postgres -d $db -c "DO `$`$DECLARE s record; BEGIN FOR s IN SELECT schema_name FROM information_schema.schemata WHERE schema_name NOT LIKE 'pg_%' AND schema_name <> 'information_schema' LOOP EXECUTE format('GRANT USAGE ON SCHEMA %I TO {{ az_migrate_user }}', s.schema_name); EXECUTE format('GRANT SELECT ON ALL TABLES IN SCHEMA %I TO {{ az_migrate_user }}', s.schema_name); END LOOP; END`$`$;"
           }
         }
 
@@ -119,6 +129,13 @@
         & $psql -U postgres -c "GRANT pg_read_all_stats TO {{ az_migrate_user }};"
         & $psql -U postgres -c "GRANT pg_monitor TO {{ az_migrate_user }};"
       changed_when: false
+
+    - name: Ensure PostgreSQL listens on all interfaces (Windows)
+      win_lineinfile:
+        path: 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\postgresql.conf'
+        regexp: '^#?\s*listen_addresses\s*='
+        line: "listen_addresses = '*'"
+      notify: Reload PostgreSQL service (Windows)
 
     - name: Allow Azure Migrate appliance in pg_hba.conf (Windows)
       win_lineinfile:
