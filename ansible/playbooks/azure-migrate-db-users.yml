@@ -63,8 +63,17 @@
         line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   md5"
       notify: Reload PostgreSQL
 
-    - name: Verify Azure Migrate user roles
-      no_log: true
+    # ── Validation: PostgreSQL (Linux) ──
+    - name: Flush handlers before validation
+      meta: flush_handlers
+
+    - name: "[VALIDATE] Check PostgreSQL user exists and can login"
+      shell: |
+        sudo -u postgres psql -tAc "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname='{{ az_migrate_user }}'"
+      register: pg_user_check
+      changed_when: false
+
+    - name: "[VALIDATE] Check PostgreSQL user roles"
       shell: |
         sudo -u postgres psql -tAc "
           SELECT r.rolname
@@ -74,9 +83,51 @@
       register: pg_roles_check
       changed_when: false
 
-    - name: Show PostgreSQL user roles
+    - name: "[VALIDATE] Check listen_addresses setting"
+      shell: |
+        sudo -u postgres psql -tAc "SHOW listen_addresses;"
+      register: pg_listen_check
+      changed_when: false
+
+    - name: "[VALIDATE] Check PostgreSQL is listening on port 5432 (all interfaces)"
+      shell: |
+        ss -tlnp | grep ':5432' || netstat -tlnp 2>/dev/null | grep ':5432'
+      register: pg_port_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Check pg_hba.conf has appliance entry"
+      shell: |
+        grep '{{ az_migrate_user }}' /etc/postgresql/{{ postgres_version }}/main/pg_hba.conf
+      register: pg_hba_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Test password authentication for Azure Migrate user"
+      no_log: true
+      shell: |
+        PGPASSWORD='{{ az_migrate_password }}' psql -h 127.0.0.1 -U {{ az_migrate_user }} -d postgres -tAc "SELECT 1;" 2>&1
+      register: pg_auth_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[RESULT] PostgreSQL validation summary"
       debug:
-        msg: "User '{{ az_migrate_user }}' has roles: {{ pg_roles_check.stdout_lines }}"
+        msg:
+          - "──────────────────────────────────────────"
+          - "HOST: {{ inventory_hostname }}"
+          - "User exists: {{ 'YES (' + pg_user_check.stdout.strip() + ')' if pg_user_check.stdout.strip() else 'NO ✗' }}"
+          - "Roles: {{ pg_roles_check.stdout_lines | default([]) }}"
+          - "listen_addresses: {{ pg_listen_check.stdout.strip() | default('UNKNOWN') }}"
+          - "Port 5432 binding: {{ pg_port_check.stdout_lines | default(['NOT FOUND']) }}"
+          - "pg_hba.conf entry: {{ 'YES' if pg_hba_check.rc == 0 else 'MISSING ✗' }}"
+          - "Password auth test: {{ 'PASS ✓' if pg_auth_test.rc == 0 else 'FAIL ✗ — ' + pg_auth_test.stdout.strip() }}"
+          - "──────────────────────────────────────────"
+
+    - name: "[FAIL] PostgreSQL user does not exist"
+      fail:
+        msg: "Azure Migrate PostgreSQL user '{{ az_migrate_user }}' was NOT created on {{ inventory_hostname }}"
+      when: pg_user_check.stdout.strip() == ""
 
   handlers:
     - name: Reload PostgreSQL
@@ -149,21 +200,54 @@
         & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\pg_ctl.exe" reload -D "C:\Program Files\PostgreSQL\{{ postgres_version }}\data"
       changed_when: false
 
-    - name: Verify Azure Migrate user roles (Windows)
+    # ── Validation: PostgreSQL (Windows) ──
+    - name: "[VALIDATE] Check PostgreSQL user exists and roles (Windows)"
       no_log: true
       win_shell: |
         $env:PGPASSWORD = "{{ postgres_password }}"
-        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "
-          SELECT r.rolname
-          FROM pg_auth_members m
-          JOIN pg_roles r ON m.roleid = r.oid
-          WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = '{{ az_migrate_user }}');"
-      register: win_pg_roles_check
+        $psql = "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe"
+        Write-Output "=== USER ==="
+        & $psql -U postgres -tAc "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname='{{ az_migrate_user }}'"
+        Write-Output "=== ROLES ==="
+        & $psql -U postgres -tAc "SELECT r.rolname FROM pg_auth_members m JOIN pg_roles r ON m.roleid = r.oid WHERE m.member = (SELECT oid FROM pg_roles WHERE rolname = '{{ az_migrate_user }}')"
+        Write-Output "=== LISTEN ==="
+        & $psql -U postgres -tAc "SHOW listen_addresses;"
+      register: win_pg_validate
       changed_when: false
 
-    - name: Show PostgreSQL user roles (Windows)
+    - name: "[VALIDATE] Check PostgreSQL port 5432 binding (Windows)"
+      win_shell: |
+        netstat -an | Select-String ':5432.*LISTEN'
+      register: win_pg_port_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Check pg_hba.conf has appliance entry (Windows)"
+      win_shell: |
+        Select-String -Path 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\pg_hba.conf' -Pattern '{{ az_migrate_user }}'
+      register: win_pg_hba_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Test password authentication (Windows)"
+      no_log: true
+      win_shell: |
+        $env:PGPASSWORD = "{{ az_migrate_password }}"
+        & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -h 127.0.0.1 -U {{ az_migrate_user }} -d postgres -tAc "SELECT 1;" 2>&1
+      register: win_pg_auth_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[RESULT] PostgreSQL validation summary (Windows)"
       debug:
-        msg: "User '{{ az_migrate_user }}' has roles: {{ win_pg_roles_check.stdout_lines }}"
+        msg:
+          - "──────────────────────────────────────────"
+          - "HOST: {{ inventory_hostname }}"
+          - "Validation output: {{ win_pg_validate.stdout_lines | default([]) }}"
+          - "Port 5432 binding: {{ win_pg_port_check.stdout_lines | default(['NOT FOUND']) }}"
+          - "pg_hba.conf entry: {{ 'YES' if win_pg_hba_check.rc == 0 else 'MISSING ✗' }}"
+          - "Password auth test: {{ 'PASS ✓' if win_pg_auth_test.rc == 0 else 'FAIL ✗' }}"
+          - "──────────────────────────────────────────"
 
 # ─── Play 3: MySQL — Linux VMs (1-tier php_servers + 3-tier php_database)
 - name: Create Azure Migrate user on MySQL (Linux)
@@ -221,16 +305,69 @@
       changed_when: "'CHANGED' in bind_result.stdout"
       notify: Restart MySQL
 
-    - name: Verify Azure Migrate MySQL user privileges
+    # ── Validation: MySQL (Linux) ──
+    - name: Flush handlers before validation
+      meta: flush_handlers
+
+    - name: "[VALIDATE] Check MySQL user exists and auth plugin"
+      no_log: true
+      shell: |
+        mysql -u root -p'{{ mysql_root_password }}' -e "SELECT user, host, plugin FROM mysql.user WHERE user='{{ az_migrate_user }}';" 2>/dev/null
+      register: mysql_user_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Check MySQL user grants"
       no_log: true
       shell: |
         mysql -u root -p'{{ mysql_root_password }}' -e "SHOW GRANTS FOR '{{ az_migrate_user }}'@'%';" 2>/dev/null
       register: mysql_grants_check
       changed_when: false
+      ignore_errors: true
 
-    - name: Show MySQL user privileges
+    - name: "[VALIDATE] Check MySQL bind-address configuration"
+      shell: |
+        for conf in /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf; do
+          if [ -f "$conf" ]; then
+            grep -H 'bind-address' "$conf" 2>/dev/null || true
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: mysql_bind_check
+      changed_when: false
+
+    - name: "[VALIDATE] Check MySQL is listening on port 3306 (all interfaces)"
+      shell: |
+        ss -tlnp | grep ':3306' || netstat -tlnp 2>/dev/null | grep ':3306'
+      register: mysql_port_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Test MySQL password authentication for Azure Migrate user"
+      no_log: true
+      shell: |
+        mysql -h 127.0.0.1 -u '{{ az_migrate_user }}' -p'{{ az_migrate_password }}' -e "SELECT 1;" 2>&1
+      register: mysql_auth_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[RESULT] MySQL validation summary"
       debug:
-        msg: "{{ mysql_grants_check.stdout_lines }}"
+        msg:
+          - "──────────────────────────────────────────"
+          - "HOST: {{ inventory_hostname }}"
+          - "User/plugin: {{ mysql_user_check.stdout_lines | default(['NOT FOUND ✗']) }}"
+          - "Grants: {{ mysql_grants_check.stdout_lines | default(['NONE ✗']) }}"
+          - "bind-address config: {{ mysql_bind_check.stdout_lines | default(['NOT FOUND']) }}"
+          - "Port 3306 binding: {{ mysql_port_check.stdout_lines | default(['NOT FOUND ✗']) }}"
+          - "Password auth test: {{ 'PASS ✓' if mysql_auth_test.rc == 0 else 'FAIL ✗ — ' + (mysql_auth_test.stdout | default(mysql_auth_test.stderr | default(''))) }}"
+          - "──────────────────────────────────────────"
+
+    - name: "[FAIL] MySQL user does not exist"
+      fail:
+        msg: "Azure Migrate MySQL user '{{ az_migrate_user }}' was NOT created on {{ inventory_hostname }}"
+      when: mysql_user_check.rc != 0
 
   handlers:
     - name: Restart MySQL
@@ -278,15 +415,43 @@
         msg: "Failed to create Azure Migrate MySQL user. See error above."
       when: win_mysql_create_result.rc != 0
 
-    - name: Verify Azure Migrate MySQL user privileges (Windows)
+    # ── Validation: MySQL (Windows) ──
+    - name: "[VALIDATE] Check MySQL user exists, auth plugin, and grants (Windows)"
       no_log: true
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        Write-Output "=== USER ==="
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "SELECT user, host, plugin FROM mysql.user WHERE user='{{ az_migrate_user }}';"
+        Write-Output "=== GRANTS ==="
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "SHOW GRANTS FOR '{{ az_migrate_user }}'@'%';"
-      register: win_mysql_grants_check
+      register: win_mysql_validate
       changed_when: false
+      ignore_errors: true
 
-    - name: Show MySQL user privileges (Windows)
+    - name: "[VALIDATE] Check MySQL port 3306 binding (Windows)"
+      win_shell: |
+        netstat -an | Select-String ':3306.*LISTEN'
+      register: win_mysql_port_check
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[VALIDATE] Test MySQL password authentication (Windows)"
+      no_log: true
+      win_shell: |
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+        & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" -e "SELECT 1;" 2>&1
+      register: win_mysql_auth_test
+      changed_when: false
+      ignore_errors: true
+
+    - name: "[RESULT] MySQL validation summary (Windows)"
       debug:
-        msg: "{{ win_mysql_grants_check.stdout_lines }}"
+        msg:
+          - "──────────────────────────────────────────"
+          - "HOST: {{ inventory_hostname }}"
+          - "Validation output: {{ win_mysql_validate.stdout_lines | default(['NOT FOUND ✗']) }}"
+          - "Port 3306 binding: {{ win_mysql_port_check.stdout_lines | default(['NOT FOUND ✗']) }}"
+          - "Password auth test: {{ 'PASS ✓' if win_mysql_auth_test.rc == 0 else 'FAIL ✗' }}"
+          - "──────────────────────────────────────────"
