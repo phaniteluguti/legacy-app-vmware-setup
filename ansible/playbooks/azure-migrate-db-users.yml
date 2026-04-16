@@ -82,7 +82,7 @@
     - name: Reload PostgreSQL
       systemd:
         name: postgresql
-        state: reloaded
+        state: restarted
 
 # ─── Play 2: PostgreSQL — Windows VMs (1-tier win_java_servers + 3-tier win_java_database)
 - name: Create Azure Migrate user on PostgreSQL (Windows)
@@ -185,8 +185,9 @@
       no_log: true
       shell: |
         mysql -u root -p'{{ mysql_root_password }}' -e "
-          CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
-          GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';
+          CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
+          ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
+          GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';
           GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
           FLUSH PRIVILEGES;"
       args:
@@ -205,6 +206,15 @@
         msg: "Failed to create Azure Migrate MySQL user. See error above."
       when: mysql_create_result.rc != 0
 
+    - name: Ensure MySQL listens on all interfaces (not just localhost)
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: '^\s*bind-address\s*='
+        line: 'bind-address = 0.0.0.0'
+        backup: yes
+      notify: Restart MySQL
+      ignore_errors: true
+
     - name: Verify Azure Migrate MySQL user privileges
       no_log: true
       shell: |
@@ -215,6 +225,12 @@
     - name: Show MySQL user privileges
       debug:
         msg: "{{ mysql_grants_check.stdout_lines }}"
+
+  handlers:
+    - name: Restart MySQL
+      systemd:
+        name: mysql
+        state: restarted
 
 # ─── Play 4: MySQL — Windows VMs (1-tier win_php_servers + 3-tier win_php_database)
 - name: Create Azure Migrate user on MySQL (Windows)
@@ -237,8 +253,9 @@
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT PROCESS ON *.* TO '{{ az_migrate_user }}'@'%';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "FLUSH PRIVILEGES;"
       changed_when: false
