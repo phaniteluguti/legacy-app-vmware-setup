@@ -207,13 +207,19 @@
       when: mysql_create_result.rc != 0
 
     - name: Ensure MySQL listens on all interfaces (not just localhost)
-      lineinfile:
-        path: /etc/mysql/mysql.conf.d/mysqld.cnf
-        regexp: '^\s*bind-address\s*='
-        line: 'bind-address = 0.0.0.0'
-        backup: yes
+      shell: |
+        # Try both common MySQL config paths
+        for conf in /etc/mysql/mysql.conf.d/mysqld.cnf /etc/mysql/my.cnf /etc/my.cnf; do
+          if [ -f "$conf" ] && grep -q 'bind-address' "$conf"; then
+            sed -i 's/^\s*bind-address\s*=.*/bind-address = 0.0.0.0/' "$conf"
+            echo "CHANGED: $conf"
+          fi
+        done
+      args:
+        executable: /bin/bash
+      register: bind_result
+      changed_when: "'CHANGED' in bind_result.stdout"
       notify: Restart MySQL
-      ignore_errors: true
 
     - name: Verify Azure Migrate MySQL user privileges
       no_log: true
