@@ -30,6 +30,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
 
     - name: Create Azure Migrate PostgreSQL user with least privileges
+      no_log: true
       shell: |
         sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
@@ -54,6 +55,7 @@
       notify: Reload PostgreSQL
 
     - name: Verify Azure Migrate user roles
+      no_log: true
       shell: |
         sudo -u postgres psql -tAc "
           SELECT r.rolname
@@ -91,6 +93,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
 
     - name: Create Azure Migrate PostgreSQL user with least privileges (Windows)
+      no_log: true
       win_shell: |
         $env:PGPASSWORD = "{{ postgres_password }}"
         $psql = "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe"
@@ -124,11 +127,13 @@
         insertafter: "^# IPv4 local connections"
 
     - name: Reload PostgreSQL service (Windows)
+      no_log: true
       win_shell: |
         & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\pg_ctl.exe" reload -D "C:\Program Files\PostgreSQL\{{ postgres_version }}\data"
       changed_when: false
 
     - name: Verify Azure Migrate user roles (Windows)
+      no_log: true
       win_shell: |
         $env:PGPASSWORD = "{{ postgres_password }}"
         & "C:\Program Files\PostgreSQL\{{ postgres_version }}\bin\psql.exe" -U postgres -tAc "
@@ -160,6 +165,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
 
     - name: Create Azure Migrate MySQL user with discovery privileges
+      no_log: true
       shell: |
         mysql -u root -p'{{ mysql_root_password }}' -e "
           CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
@@ -183,6 +189,7 @@
       when: mysql_create_result.rc != 0
 
     - name: Verify Azure Migrate MySQL user privileges
+      no_log: true
       shell: |
         mysql -u root -p'{{ mysql_root_password }}' -e "SHOW GRANTS FOR '{{ az_migrate_user }}'@'%';" 2>/dev/null
       register: mysql_grants_check
@@ -209,6 +216,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
 
     - name: Create Azure Migrate MySQL user with discovery privileges (Windows)
+      no_log: true
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
@@ -229,9 +237,9 @@
       fail:
         msg: "Failed to create Azure Migrate MySQL user. See error above."
       when: win_mysql_create_result.rc != 0
-      no_log: true
 
     - name: Verify Azure Migrate MySQL user privileges (Windows)
+      no_log: true
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
