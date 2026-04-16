@@ -2289,42 +2289,48 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
-        INVENTORY_INITIALIZED=""
-        for mode in "${DEPLOY_MODES[@]}"; do
-            DEPLOY_MODE="$mode"
-            step "Reading Terraform state for workspace: $DEPLOY_MODE"
-            pushd "$TF_DIR" > /dev/null
-            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+        # Only rebuild inventory if hosts.ini doesn't already exist.
+        # If it exists, the user may have manually added VMs not tracked by Terraform.
+        if [[ -f "$ANSIBLE_DIR/inventory/hosts.ini" ]]; then
+            step "Using existing inventory: $ANSIBLE_DIR/inventory/hosts.ini (not overwriting)"
+        else
+            INVENTORY_INITIALIZED=""
+            for mode in "${DEPLOY_MODES[@]}"; do
+                DEPLOY_MODE="$mode"
+                step "Reading Terraform state for workspace: $DEPLOY_MODE"
+                pushd "$TF_DIR" > /dev/null
+                terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
+                    warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
+                    popd > /dev/null
+                    continue
+                }
+                if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
+                    if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                        JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                        JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                        JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                    fi
+                    if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                        DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                        DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                        DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                    fi
+                    if [[ "$DEPLOY_PHP" == "true" ]]; then
+                        PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                        PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                        PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                    fi
+                else
+                    [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+                    [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+                    [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+                fi
                 popd > /dev/null
-                continue
-            }
-            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_PHP" == "true" ]]; then
-                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-            else
-                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
-            fi
-            popd > /dev/null
-            write_inventory
-        done
+                write_inventory
+            done
+            step "Inventory rebuilt from Terraform state"
+        fi
 
-        step "Inventory rebuilt from Terraform state"
         run_azmigrate_db
         exit 0
     fi
