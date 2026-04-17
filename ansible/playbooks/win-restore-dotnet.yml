@@ -1,0 +1,37 @@
+---
+# =============================================================================
+# Restore .NET Framework on Windows VMs after accidental removal.
+# Uses cmd.exe shell (not PowerShell) since PowerShell is broken.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/win-restore-dotnet.yml
+# =============================================================================
+
+- name: Restore .NET Framework on Windows VMs
+  hosts: win_servers:win_servers_3tier
+  gather_facts: false
+  become: false
+  vars:
+    ansible_shell_type: cmd
+    ansible_become: false
+
+  tasks:
+    - name: Re-enable .NET Framework 4.x (NetFx4)
+      raw: dism /online /enable-feature /featurename:NetFx4 /all /norestart
+      register: netfx4_result
+      changed_when: "'successfully' in netfx4_result.stdout | default('')"
+      failed_when: false
+
+    - name: Show NetFx4 result
+      raw: echo NetFx4 done
+      changed_when: false
+
+    - name: Re-enable .NET Framework 3.x (NetFx3)
+      raw: dism /online /enable-feature /featurename:NetFx3 /all /norestart /limitaccess
+      register: netfx3_result
+      changed_when: "'successfully' in netfx3_result.stdout | default('')"
+      failed_when: false
+
+    - name: Reboot VMs
+      raw: shutdown /r /t 15 /f /c "Restoring .NET Framework - rebooting"
+      changed_when: true
