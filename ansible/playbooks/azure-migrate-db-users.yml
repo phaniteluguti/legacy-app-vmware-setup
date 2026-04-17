@@ -422,7 +422,8 @@
           "FLUSH PRIVILEGES;"
         ) -Encoding ASCII
 
-        $result = & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "source $sqlFile" 2>&1
+        # Pipe file content to mysql stdin (avoids backslash path issues with 'source')
+        $result = Get-Content $sqlFile -Raw | & $mysqlBin -u root -p"{{ mysql_root_password }}" --force 2>&1
         $rc = $LASTEXITCODE
         Remove-Item $sqlFile -Force -ErrorAction SilentlyContinue
 
