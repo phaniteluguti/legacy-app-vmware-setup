@@ -553,7 +553,7 @@
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
-        & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" -e "SELECT 1;" 2>&1
+        & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" --get-server-public-key -e "SELECT 1;" 2>&1
       register: win_mysql_auth_test
       changed_when: false
       ignore_errors: true
