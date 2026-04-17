@@ -663,7 +663,7 @@ The wizard prompts for:
 | Database | Permissions Granted | Why |
 |----------|-------------------|-----|
 | PostgreSQL | `CONNECT` on all databases, `pg_read_all_settings`, `pg_read_all_stats`, `pg_monitor` roles | Per [Microsoft's least-privilege spec](https://aka.ms/Least-credentials-postgresql) |
-| MySQL | `PROCESS` on `*.*`, `SELECT` on `performance_schema.*` | `information_schema` is readable by all users by default |
+| MySQL | `USAGE`, `PROCESS` on `*.*`, `SELECT` on `*.*` | Per [Azure Migrate MySQL discovery requirements](https://learn.microsoft.com/en-us/azure/migrate/tutorial-discover-mysql-database-instances) |
 
 **Target VMs:**
 

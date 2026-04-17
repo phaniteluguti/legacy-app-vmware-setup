@@ -286,8 +286,8 @@
         mysql -u root -p'{{ mysql_root_password }}' -e "
           CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
           ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
-          GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';
-          GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
+          GRANT USAGE, PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';
+          GRANT SELECT ON *.* TO '{{ az_migrate_user }}'@'%';
           FLUSH PRIVILEGES;"
       args:
         executable: /bin/bash
@@ -499,8 +499,8 @@
         & $mysqlBin -u root -p"$rootPwd" -e "DROP USER IF EXISTS '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "CREATE USER '$migrateUser'@'%' $authClause;" 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Error "CREATE USER failed"; exit 1 }
-        & $mysqlBin -u root -p"$rootPwd" -e "GRANT PROCESS, REPLICATION CLIENT ON *.* TO '$migrateUser'@'%';" 2>&1
-        & $mysqlBin -u root -p"$rootPwd" -e "GRANT SELECT ON performance_schema.* TO '$migrateUser'@'%';" 2>&1
+        & $mysqlBin -u root -p"$rootPwd" -e "GRANT USAGE, PROCESS, REPLICATION CLIENT ON *.* TO '$migrateUser'@'%';" 2>&1
+        & $mysqlBin -u root -p"$rootPwd" -e "GRANT SELECT ON *.* TO '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "FLUSH PRIVILEGES;" 2>&1
 
         # Verify user was created
