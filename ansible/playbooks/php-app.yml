@@ -202,8 +202,7 @@
       shell: |
         cd /var/www/laravel
         php artisan key:generate --force
-      args:
-        creates: /var/www/laravel/storage/framework/sessions/.gitkeep
+      changed_when: false
 
     - name: Run Laravel migrations
       shell: |

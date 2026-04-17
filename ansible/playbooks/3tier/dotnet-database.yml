@@ -103,14 +103,25 @@
       changed_when: false
 
     - name: Ensure SQL Server TCP port is set to 1433
-      shell: /opt/mssql/bin/mssql-conf set network.tcpport 1433
-      changed_when: false
+      shell: |
+        current=$(/opt/mssql/bin/mssql-conf get network.tcpport 2>/dev/null | grep -oP '\d+' || echo "default")
+        if [ "$current" != "1433" ]; then
+          /opt/mssql/bin/mssql-conf set network.tcpport 1433
+          echo "CHANGED"
+        else
+          echo "OK"
+        fi
+      register: tcpport_result
+      changed_when: "'CHANGED' in tcpport_result.stdout"
       notify: Restart SQL Server
 
     - name: Ensure SQL Server listens on all interfaces
       shell: /opt/mssql/bin/mssql-conf set network.ipaddress 0.0.0.0
       changed_when: false
       ignore_errors: true
+
+    - name: Flush SQL Server restart if config changed
+      meta: flush_handlers
 
     - name: Create application database
       shell: |
