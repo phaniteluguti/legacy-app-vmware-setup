@@ -795,6 +795,8 @@ legacy-app-vmware-setup/
 │       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server
 │       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
 │       ├── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
+│       ├── win-cleanup-appliance.yml  # Windows: remove appliance/IIS leftovers from template
+│       ├── win-restore-dotnet.yml     # Windows: restore broken .NET Framework
 │       ├── dns-register-linux.yml     # DNS: register Linux VMs in Windows DNS
 │       ├── dns-register-windows.yml   # DNS: register Windows VMs in Windows DNS
 │       ├── dns-register-all.yml       # DNS: register all VMs (wrapper)
@@ -822,7 +824,8 @@ legacy-app-vmware-setup/
 │           ├── win-dotnet-database.yml # Windows: SQL Server
 │           ├── win-php-frontend.yml   # Windows: IIS + ARR
 │           ├── win-php-appserver.yml   # Windows: IIS + PHP
-│           └── win-php-database.yml   # Windows: MySQL
+│           ├── win-php-database.yml   # Windows: MySQL
+│           └── win-dotnet-diagnose.yml # Windows: eShopOnWeb diagnostic helper
 │
 ├── .gitignore                         # Excludes secrets (tfvars, all.yml, keys)
 └── README.md                          # This file
@@ -1059,6 +1062,23 @@ UNREACHABLE! => {"msg": "winrm connection error"}
 - Verify `pywinrm` is installed: `pip install pywinrm`
 - Try HTTP (port 5985) if HTTPS fails — update `ansible_port` in inventory to `5985`
 
+### Laravel: "No application encryption key has been specified"
+```
+RuntimeException: No application encryption key has been specified.
+```
+- The `artisan key:generate` task was skipped because a stale guard file existed from the git clone
+- This was fixed in the latest code — pull the latest: `git pull`
+- Manual fix: SSH into the PHP VM and run `cd /var/www/laravel && php artisan key:generate`
+
+### Windows VM: .NET Framework broken after cleanup
+```
+PowerShell error: Unable to load DLL 'api-ms-win-core-sysinfo'
+```
+- If the Windows VM template had Azure Migrate appliance or IIS pre-installed and was cleaned up incorrectly, .NET Framework / PowerShell may break
+- Run the restore playbook: `ansible-playbook -i inventory/hosts.ini playbooks/win-restore-dotnet.yml`
+- This uses `dism /online /enable-feature /featurename:NetFx4` via `cmd.exe` (not PowerShell) to repair the framework
+- After restore, reboot the VM and verify WinRM is functional
+
 ### Windows VM: SQL Server download hangs or fails
 - The SQL Server 2019 Express installer is ~800 MB and needs internet access
 - Ensure the Windows VM can reach `go.microsoft.com` and `download.microsoft.com`
@@ -1129,6 +1149,21 @@ terraform destroy    # type "yes" to confirm — only destroys VMs in this works
 ```
 
 > **"Both" OS cleanup:** If you deployed with "Both" OS, you need to destroy each workspace separately (e.g., `linux` and `windows`), or use `--destroy` which handles this automatically.
+
+### Clean up Windows VMs cloned from appliance template
+
+If the Windows VM template had Azure Migrate appliance, IIS, or ASP.NET hosting components pre-installed, run the cleanup playbook **before** deploying apps:
+
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/win-cleanup-appliance.yml
+```
+
+This removes Azure Migrate agent services, IIS website configurations, and ASP.NET hosting bundles — but **preserves core .NET Framework features** (removing those would break PowerShell and WinRM).
+
+If .NET Framework was accidentally broken, restore it with:
+```bash
+ansible-playbook -i inventory/hosts.ini playbooks/win-restore-dotnet.yml
+```
 
 ### Remove all generated files
 ```bash
