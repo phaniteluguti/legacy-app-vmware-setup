@@ -16,22 +16,14 @@
     ansible_become: false
 
   tasks:
-    - name: Re-enable .NET Framework 4.x (NetFx4)
-      raw: dism /online /enable-feature /featurename:NetFx4 /all /norestart
-      register: netfx4_result
-      changed_when: "'successfully' in netfx4_result.stdout | default('')"
+    # Single raw command to avoid broken WinRM sessions between tasks.
+    # Disables NetFx4 first (clears corrupt state), then re-enables it,
+    # then reboots. All chained so only one WinRM call is needed.
+    - name: Disable, re-enable .NET Framework 4.x and reboot
+      raw: >-
+        dism /online /disable-feature /featurename:NetFx4 /norestart
+        & dism /online /enable-feature /featurename:NetFx4 /all /norestart
+        & dism /online /enable-feature /featurename:NetFx3 /all /norestart /limitaccess
+        & shutdown /r /t 30 /f /c "Restoring .NET Framework - rebooting"
       failed_when: false
-
-    - name: Show NetFx4 result
-      raw: echo NetFx4 done
-      changed_when: false
-
-    - name: Re-enable .NET Framework 3.x (NetFx3)
-      raw: dism /online /enable-feature /featurename:NetFx3 /all /norestart /limitaccess
-      register: netfx3_result
-      changed_when: "'successfully' in netfx3_result.stdout | default('')"
-      failed_when: false
-
-    - name: Reboot VMs
-      raw: shutdown /r /t 15 /f /c "Restoring .NET Framework - rebooting"
       changed_when: true
