@@ -67,6 +67,21 @@
     - name: Flush handlers before validation
       meta: flush_handlers
 
+    - name: Check runtime listen_addresses and force restart if needed
+      shell: |
+        current=$(sudo -u postgres psql -tAc "SHOW listen_addresses;" | tr -d ' ')
+        if [ "$current" != "*" ]; then
+          echo "listen_addresses is '$current', restarting PostgreSQL to apply '*'..."
+          systemctl restart postgresql
+          echo "RESTARTED"
+        else
+          echo "listen_addresses is already '*', no restart needed."
+        fi
+      args:
+        executable: /bin/bash
+      register: pg_force_restart
+      changed_when: "'RESTARTED' in pg_force_restart.stdout"
+
     - name: "[VALIDATE] Check PostgreSQL user exists and can login"
       shell: |
         sudo -u postgres psql -tAc "SELECT rolname, rolcanlogin FROM pg_roles WHERE rolname='{{ az_migrate_user }}'"
@@ -396,11 +411,22 @@
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';"
-        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "FLUSH PRIVILEGES;"
+
+        # Single SQL block to avoid escaping issues with separate calls
+        $sql = @"
+        CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
+        ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
+        GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';
+        GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
+        FLUSH PRIVILEGES;
+        "@
+
+        $result = $sql | & $mysqlBin -u root -p"{{ mysql_root_password }}" --force 2>&1
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "MySQL commands failed: $result"
+          exit 1
+        }
+        Write-Output $result
       changed_when: false
       failed_when: false
       register: win_mysql_create_result

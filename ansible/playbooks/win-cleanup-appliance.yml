@@ -1,0 +1,132 @@
+---
+# =============================================================================
+# Remove Azure Migrate appliance, IIS, and .NET hosting components
+# from Windows VMs that were cloned from a template that had these installed.
+#
+# Usage:
+#   ansible-playbook -i inventory/hosts.ini playbooks/win-cleanup-appliance.yml
+# =============================================================================
+
+- name: Remove Azure Migrate appliance, IIS, and .NET from Windows VMs
+  hosts: win_servers:win_servers_3tier
+  gather_facts: false
+  become: false
+
+  tasks:
+    # ── Azure Migrate Appliance ──
+    - name: Stop Azure Migrate appliance services
+      win_service:
+        name: "{{ item }}"
+        state: stopped
+        start_mode: disabled
+      loop:
+        - "Azure Migrate Agent"
+        - "Azure Migrate Discovery Service"
+        - "Azure Migrate Appliance Configuration Manager"
+        - "Microsoft Azure Gateway Service"
+        - "Microsoft Azure Telemetry Service"
+        - "Microsoft Azure Recovery Services Agent"
+      ignore_errors: true
+
+    - name: Uninstall Azure Migrate appliance (MSI / Programs)
+      win_shell: |
+        # Find and uninstall any Azure Migrate related products
+        $apps = Get-WmiObject -Class Win32_Product | Where-Object { $_.Name -like '*Azure Migrate*' -or $_.Name -like '*Azure Site Recovery*' }
+        foreach ($app in $apps) {
+          Write-Output "Uninstalling: $($app.Name)"
+          $app.Uninstall() | Out-Null
+        }
+        if (-not $apps) { Write-Output "No Azure Migrate MSI products found." }
+      register: azmigrate_uninstall
+      changed_when: "'Uninstalling' in azmigrate_uninstall.stdout"
+
+    - name: Remove Azure Migrate appliance directories
+      win_file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - 'C:\ProgramData\Microsoft Azure'
+        - 'C:\Program Files\Microsoft Azure Appliance Configuration Manager'
+        - 'C:\Program Files\Microsoft Azure Site Recovery'
+      ignore_errors: true
+
+    # ── IIS (Web Server) ──
+    - name: Stop IIS service (W3SVC)
+      win_service:
+        name: W3SVC
+        state: stopped
+        start_mode: disabled
+      ignore_errors: true
+
+    - name: Remove IIS and management tools
+      win_feature:
+        name:
+          - Web-Server
+          - Web-WebServer
+          - Web-Mgmt-Tools
+          - Web-Mgmt-Console
+        state: absent
+      register: iis_removal
+
+    - name: Show IIS removal result
+      debug:
+        msg: "IIS removal: {{ 'Removed (reboot may be required)' if iis_removal.changed else 'Already not installed' }}"
+
+    # ── .NET Hosting Bundle / ASP.NET ──
+    - name: Remove ASP.NET Windows features
+      win_feature:
+        name:
+          - NET-Framework-Features
+          - NET-Framework-45-Features
+          - Web-Asp-Net
+          - Web-Asp-Net45
+          - Web-Net-Ext
+          - Web-Net-Ext45
+        state: absent
+      ignore_errors: true
+      register: dotnet_features_removal
+
+    - name: Uninstall .NET Hosting Bundle (if installed as standalone)
+      win_shell: |
+        $bundles = Get-WmiObject -Class Win32_Product | Where-Object {
+          $_.Name -like '*.NET*Hosting*' -or
+          $_.Name -like '*ASP.NET Core*Module*' -or
+          $_.Name -like '*.NET Core*Hosting*'
+        }
+        foreach ($b in $bundles) {
+          Write-Output "Uninstalling: $($b.Name)"
+          $b.Uninstall() | Out-Null
+        }
+        if (-not $bundles) { Write-Output "No .NET Hosting Bundle products found." }
+      register: dotnet_bundle_uninstall
+      changed_when: "'Uninstalling' in dotnet_bundle_uninstall.stdout"
+
+    # ── Cleanup leftover scheduled tasks ──
+    - name: Remove Azure Migrate scheduled tasks
+      win_shell: |
+        $tasks = Get-ScheduledTask | Where-Object { $_.TaskName -like '*Azure*Migrate*' -or $_.TaskName -like '*Azure*Site*Recovery*' }
+        foreach ($t in $tasks) {
+          Write-Output "Removing task: $($t.TaskName)"
+          Unregister-ScheduledTask -TaskName $t.TaskName -Confirm:$false
+        }
+        if (-not $tasks) { Write-Output "No Azure Migrate scheduled tasks found." }
+      register: schtask_cleanup
+      changed_when: "'Removing task' in schtask_cleanup.stdout"
+
+    # ── Summary ──
+    - name: "[RESULT] Cleanup summary"
+      debug:
+        msg:
+          - "──────────────────────────────────────────"
+          - "HOST: {{ inventory_hostname }}"
+          - "Azure Migrate uninstall: {{ azmigrate_uninstall.stdout_lines | default([]) }}"
+          - "IIS removal: {{ 'Removed' if iis_removal.changed | default(false) else 'Not installed / already removed' }}"
+          - ".NET features removal: {{ 'Removed' if dotnet_features_removal.changed | default(false) else 'Not installed / already removed' }}"
+          - ".NET bundle uninstall: {{ dotnet_bundle_uninstall.stdout_lines | default([]) }}"
+          - "Scheduled tasks cleanup: {{ schtask_cleanup.stdout_lines | default([]) }}"
+          - "──────────────────────────────────────────"
+
+    - name: Reboot if required by feature removal
+      win_reboot:
+        reboot_timeout: 600
+      when: iis_removal.reboot_required | default(false) or dotnet_features_removal.reboot_required | default(false)
