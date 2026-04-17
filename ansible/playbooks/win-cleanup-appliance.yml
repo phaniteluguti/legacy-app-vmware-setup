@@ -73,11 +73,12 @@
         msg: "IIS removal: {{ 'Removed (reboot may be required)' if iis_removal.changed else 'Already not installed' }}"
 
     # ── .NET Hosting Bundle / ASP.NET ──
+    # NOTE: Do NOT remove NET-Framework-Features or NET-Framework-45-Features!
+    # Windows PowerShell 5.1 depends on .NET Framework (mscoree.dll).
+    # Removing them breaks PowerShell, WinRM, and remote management.
     - name: Remove ASP.NET Windows features
       win_feature:
         name:
-          - NET-Framework-Features
-          - NET-Framework-45-Features
           - Web-Asp-Net
           - Web-Asp-Net45
           - Web-Net-Ext
@@ -128,5 +129,6 @@
 
     - name: Reboot if required by feature removal
       win_reboot:
-        reboot_timeout: 600
+        reboot_timeout: 900
+        post_reboot_delay: 60
       when: iis_removal.reboot_required | default(false) or dotnet_features_removal.reboot_required | default(false)
