@@ -8,7 +8,7 @@
 # =============================================================================
 
 - name: Remove Azure Migrate appliance, IIS, and .NET from Windows VMs
-  hosts: win_servers:win_servers_3tier
+  hosts: win_servers:win_servers_3tier:!win_dotnet_servers:!win_dotnet_frontend:!win_dotnet_appserver:!win_dotnet_database
   gather_facts: false
   become: false
 

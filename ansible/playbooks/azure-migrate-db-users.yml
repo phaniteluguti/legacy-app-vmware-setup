@@ -305,6 +305,26 @@
         msg: "Failed to create Azure Migrate MySQL user. See error above."
       when: mysql_create_result.rc != 0
 
+    - name: Set default_authentication_plugin to mysql_native_password
+      shell: |
+        conf="/etc/mysql/mysql.conf.d/mysqld.cnf"
+        [ ! -f "$conf" ] && conf="/etc/mysql/my.cnf"
+        [ ! -f "$conf" ] && conf="/etc/my.cnf"
+        if grep -q 'default_authentication_plugin' "$conf" 2>/dev/null; then
+          sed -i 's/^\s*default_authentication_plugin\s*=.*/default_authentication_plugin=mysql_native_password/' "$conf"
+          echo "CHANGED: updated default_authentication_plugin in $conf"
+        elif grep -q '\[mysqld\]' "$conf" 2>/dev/null; then
+          sed -i '/\[mysqld\]/a default_authentication_plugin=mysql_native_password' "$conf"
+          echo "CHANGED: added default_authentication_plugin to $conf"
+        else
+          echo "SKIP: no [mysqld] section found"
+        fi
+      args:
+        executable: /bin/bash
+      register: auth_plugin_result
+      changed_when: "'CHANGED' in auth_plugin_result.stdout"
+      notify: Restart MySQL
+
     - name: Ensure MySQL listens on all interfaces (not just localhost)
       shell: |
         # Try both common MySQL config paths
