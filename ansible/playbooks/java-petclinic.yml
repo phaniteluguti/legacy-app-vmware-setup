@@ -118,6 +118,9 @@
         line: "host    {{ postgres_db }}   {{ postgres_user }}   127.0.0.1/32   md5"
       notify: Restart PostgreSQL
 
+    - name: Apply PostgreSQL config changes before app deployment
+      meta: flush_handlers
+
     # ---------------------------------------------------------------
     # Standalone Apache Tomcat
     # ---------------------------------------------------------------

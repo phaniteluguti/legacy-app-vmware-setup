@@ -210,7 +210,7 @@
         return_content: false
         status_code: [200, 302]
       register: eshop_check
-      retries: 6
+      retries: 18
       delay: 10
       until: eshop_check.status_code is defined and eshop_check.status_code in [200, 302]
       ignore_errors: true

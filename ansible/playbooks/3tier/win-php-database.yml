@@ -59,11 +59,22 @@
         if (!(Test-Path $mysqlIni)) { $mysqlIni = "C:\ProgramData\MySQL\MySQL Server 8.0\my.ini" }
         if (Test-Path $mysqlIni) {
           $content = Get-Content $mysqlIni -Raw
-          $content = $content -replace 'bind-address\s*=\s*127\.0\.0\.1', 'bind-address = 0.0.0.0'
-          Set-Content $mysqlIni $content
+          if ($content -match 'bind-address\s*=\s*127\.0\.0\.1') {
+            $content = $content -replace 'bind-address\s*=\s*127\.0\.0\.1', 'bind-address = 0.0.0.0'
+            Set-Content $mysqlIni $content
+            Write-Output "CHANGED"
+          } else {
+            Write-Output "OK"
+          }
+        } else {
+          Write-Output "NO_INI"
         }
-      changed_when: false
+      register: mysql_bind_result
+      changed_when: "'CHANGED' in mysql_bind_result.stdout"
       notify: Restart MySQL
+
+    - name: Flush handlers to restart MySQL before app server connects
+      meta: flush_handlers
 
     - name: Allow MySQL port through Windows Firewall
       win_firewall_rule:

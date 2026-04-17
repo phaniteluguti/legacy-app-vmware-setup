@@ -153,11 +153,6 @@
     # ---------------------------------------------------------------
     # Deploy Laravel App
     # ---------------------------------------------------------------
-    - name: Remove stale Laravel directory
-      file:
-        path: /var/www/laravel
-        state: absent
-
     - name: Create web app directory
       file:
         path: /var/www/laravel
@@ -168,6 +163,8 @@
 
     - name: Clone Laravel repository
       command: git clone -b {{ php_app_branch }} {{ php_app_repo }} /var/www/laravel
+      args:
+        creates: /var/www/laravel/composer.json
       notify: Set Laravel permissions
 
     - name: Install Composer dependencies
