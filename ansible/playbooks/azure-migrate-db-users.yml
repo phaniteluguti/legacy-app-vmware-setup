@@ -412,21 +412,32 @@
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
 
-        # Single SQL block to avoid escaping issues with separate calls
-        $sql = @"
-        CREATE USER IF NOT EXISTS '{{ az_migrate_user }}'@'%' IDENTIFIED BY '{{ az_migrate_password }}';
-        ALTER USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';
-        GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';
-        GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';
-        FLUSH PRIVILEGES;
-        "@
+        # Write SQL to temp file to avoid PowerShell/Jinja2 escaping issues
+        $sqlFile = "$env:TEMP\azmigrate_mysql_setup.sql"
+        Set-Content -Path $sqlFile -Value @(
+          "DROP USER IF EXISTS '{{ az_migrate_user }}'@'%';",
+          "CREATE USER '{{ az_migrate_user }}'@'%' IDENTIFIED WITH mysql_native_password BY '{{ az_migrate_password }}';",
+          "GRANT PROCESS, REPLICATION CLIENT ON *.* TO '{{ az_migrate_user }}'@'%';",
+          "GRANT SELECT ON performance_schema.* TO '{{ az_migrate_user }}'@'%';",
+          "FLUSH PRIVILEGES;"
+        ) -Encoding ASCII
 
-        $result = $sql | & $mysqlBin -u root -p"{{ mysql_root_password }}" --force 2>&1
-        if ($LASTEXITCODE -ne 0) {
-          Write-Error "MySQL commands failed: $result"
+        $result = & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "source $sqlFile" 2>&1
+        $rc = $LASTEXITCODE
+        Remove-Item $sqlFile -Force -ErrorAction SilentlyContinue
+
+        # Verify the plugin was actually changed
+        $plugin = & $mysqlBin -u root -p"{{ mysql_root_password }}" -N -e "SELECT plugin FROM mysql.user WHERE user='{{ az_migrate_user }}' AND host='%';" 2>&1
+        Write-Output "Auth plugin after setup: $plugin"
+
+        if ($plugin -match 'caching_sha2_password') {
+          Write-Error "FAILED: auth plugin is still caching_sha2_password after ALTER. MySQL output: $result"
           exit 1
         }
-        Write-Output $result
+        if ($rc -ne 0) {
+          Write-Error "MySQL commands failed (rc=$rc): $result"
+          exit 1
+        }
       changed_when: false
       failed_when: false
       register: win_mysql_create_result
