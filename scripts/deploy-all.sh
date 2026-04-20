@@ -58,12 +58,6 @@ provision_vms() {
   log "Initializing Terraform..."
   terraform init -input=false
 
-  # Select workspace based on deploy_mode from tfvars
-  local mode
-  mode=$(grep 'deploy_mode' terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\(.*\)"/\1/' || echo "linux")
-  log "Selecting workspace: $mode"
-  terraform workspace select -or-create "$mode"
-
   log "Planning infrastructure..."
   terraform plan -out=tfplan
 
@@ -106,44 +100,68 @@ verify_deployment() {
   log "=== Phase 3: Verifying Deployment ==="
   cd "$ANSIBLE_DIR"
 
-  local mode
-  mode=$(grep 'deploy_mode' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*"\(.*\)"/\1/' || echo "linux")
+  # Read tier booleans from tfvars
+  local l1 w1 l3 w3
+  l1=$(grep 'deploy_linux_1tier' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*//' | tr -d ' "' || echo "false")
+  w1=$(grep 'deploy_windows_1tier' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*//' | tr -d ' "' || echo "false")
+  l3=$(grep 'deploy_linux_3tier' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*//' | tr -d ' "' || echo "false")
+  w3=$(grep 'deploy_windows_3tier' "$TF_DIR/terraform.tfvars" 2>/dev/null | sed 's/.*=\s*//' | tr -d ' "' || echo "false")
 
-  case "$mode" in
-    linux)
-      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active petclinic || true"    --limit java_servers    2>/dev/null || true
-      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active dotnet-app || true"   --limit dotnet_servers  2>/dev/null || true
-      ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active apache2 || true"      --limit php_servers     2>/dev/null || true
-      log ""
-      log "=== Deployment Summary ==="
-      log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
-      log ".NET MVC App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
-      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
-      ;;
-    windows)
-      log ""
-      log "=== Deployment Summary ==="
-      log "Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip):8080"
-      log ".NET IIS App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip)"
-      log "PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip)"
-      ;;
-    linux-3tier|windows-3tier)
-      log ""
-      log "=== 3-Tier Deployment Summary ==="
-      log "Java Stack:"
-      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
-      log "  App Server: $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"{d.get(\"appserver\",\"N/A\")}:9966")' 2>/dev/null || echo 'N/A')"
-      log "  Database:   $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
-      log ".NET Stack:"
-      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
-      log "  App Server: $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo 'N/A')"
-      log "  Database:   $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
-      log "PHP Stack:"
-      log "  Frontend:  $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo 'N/A')"
-      log "  App Server: $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo 'N/A')"
-      log "  Database:   $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo 'N/A')"
-      ;;
-  esac
+  log ""
+  log "=== Deployment Summary ==="
+
+  # Linux single-tier
+  if [[ "$l1" == "true" ]]; then
+    ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active petclinic || true"    --limit java_servers    2>/dev/null || true
+    ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active dotnet-app || true"   --limit dotnet_servers  2>/dev/null || true
+    ansible all -i inventory/hosts.ini -m shell -a "systemctl is-active apache2 || true"      --limit php_servers     2>/dev/null || true
+    log "Linux 1-Tier:"
+    log "  Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw java_vm_ip 2>/dev/null || echo 'N/A'):8080"
+    log "  .NET MVC App:    http://$(terraform -chdir=$TF_DIR output -raw dotnet_vm_ip 2>/dev/null || echo 'N/A')"
+    log "  PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw php_vm_ip 2>/dev/null || echo 'N/A')"
+  fi
+
+  # Windows single-tier
+  if [[ "$w1" == "true" ]]; then
+    log "Windows 1-Tier:"
+    log "  Java PetClinic:  http://$(terraform -chdir=$TF_DIR output -raw win_java_vm_ip 2>/dev/null || echo 'N/A'):8080"
+    log "  .NET IIS App:    http://$(terraform -chdir=$TF_DIR output -raw win_dotnet_vm_ip 2>/dev/null || echo 'N/A')"
+    log "  PHP Laravel App: http://$(terraform -chdir=$TF_DIR output -raw win_php_vm_ip 2>/dev/null || echo 'N/A')"
+  fi
+
+  # Linux 3-tier
+  if [[ "$l3" == "true" ]]; then
+    log "Linux 3-Tier:"
+    log "  Java Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"{d.get(\"appserver\",\"N/A\")}:9966")' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "  .NET Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "  PHP Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+  fi
+
+  # Windows 3-tier
+  if [[ "$w3" == "true" ]]; then
+    log "Windows 3-Tier:"
+    log "  Java Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json win_java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json win_java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"{d.get(\"appserver\",\"N/A\")}:9966")' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json win_java_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "  .NET Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "  PHP Stack:"
+    log "    Frontend:   $(terraform -chdir=$TF_DIR output -json win_php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(f"http://{d.get(\"frontend\",\"N/A\")}")' 2>/dev/null || echo '    N/A')"
+    log "    App Server:  $(terraform -chdir=$TF_DIR output -json win_php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("appserver","N/A"))' 2>/dev/null || echo '    N/A')"
+    log "    Database:    $(terraform -chdir=$TF_DIR output -json win_php_3tier_ips 2>/dev/null | python3 -c 'import sys,json; d=json.load(sys.stdin); print(d.get("database","N/A"))' 2>/dev/null || echo '    N/A')"
+  fi
 
   log ""
   log "All VMs are ready for Azure Migrate discovery & assessment."

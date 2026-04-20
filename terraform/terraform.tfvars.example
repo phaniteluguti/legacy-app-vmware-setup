@@ -1,4 +1,18 @@
 # =============================================================================
+# Deployment Tier Selection  (enable one or more — additive-only)
+# =============================================================================
+# Each boolean is independent. Enabling a new tier never destroys existing VMs.
+deploy_linux_1tier   = false   # Linux single-VM (1 VM per app)
+deploy_windows_1tier = false   # Windows single-VM (1 VM per app)
+deploy_linux_3tier   = false   # Linux 3-tier (web + app + db per app)
+deploy_windows_3tier = false   # Windows 3-tier (web + app + db per app)
+
+# Per-app selection (applies to every enabled tier above)
+# deploy_java   = true
+# deploy_dotnet = true
+# deploy_php    = true
+
+# =============================================================================
 # VMware vSphere Connection  (fill in your values)
 # =============================================================================
 vsphere_server               = "vcenter.example.com"

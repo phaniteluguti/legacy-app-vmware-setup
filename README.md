@@ -58,7 +58,7 @@ Each app runs on a single VM with the application and database co-located (typic
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              VMware vSphere                                  │
 │                                                                              │
-│  Linux Single-VM (deploy_mode = linux)                                       │
+│  Linux Single-VM (deploy_linux_1tier = true)                                  │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │  VM: java-vm  │  │  VM: dotnet-vm│  │  VM: php-vm  │                      │
 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
@@ -69,7 +69,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  │               │  │  2022 Express │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
 │                                                                              │
-│  Windows Single-VM (deploy_mode = windows)                                   │
+│  Windows Single-VM (deploy_windows_1tier = true)                              │
 │  ┌──────────────┐  ┌──────────────┐  ┌──────────────┐                       │
 │  │ VM: win-java  │  │ VM: win-dotnet│  │ VM: win-php  │                      │
 │  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
@@ -81,7 +81,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
 │                                                                              │
 │         Per-app selection: deploy 1, 2, or all 3 apps                        │
-│         "Both" OS: deploys Linux AND Windows VMs simultaneously              │
+│         Multiple tiers: enable any combination — existing VMs are preserved  │
 └──────────────────────────────────────────────────────────────────────────────┘
 ```
 
@@ -93,7 +93,7 @@ Each app is split across 3 VMs: Frontend (web server / reverse proxy), App Serve
 ┌──────────────────────────────────────────────────────────────────────────────┐
 │                              VMware vSphere                                  │
 │                                                                              │
-│  Linux 3-Tier (deploy_mode = linux-3tier)      per app: 3 VMs               │
+│  Linux 3-Tier (deploy_linux_3tier = true)       per app: 3 VMs               │
 │                                                                              │
 │  Java Stack:                                                                 │
 │  ┌─────────────┐   ┌─────────────┐   ┌─────────────┐                       │
@@ -116,11 +116,11 @@ Each app is split across 3 VMs: Frontend (web server / reverse proxy), App Serve
 │  │  :80         │   │  :8000      │   │  :3306       │                      │
 │  └─────────────┘   └─────────────┘   └─────────────┘                       │
 │                                                                              │
-│  Windows 3-Tier (deploy_mode = windows-3tier)  per app: 3 VMs               │
+│  Windows 3-Tier (deploy_windows_3tier = true)  per app: 3 VMs               │
 │  Same layout with IIS+ARR frontends, IIS/NSSM app servers, Windows DBs      │
 │                                                                              │
 │  Per-app selection: deploy 1, 2, or all 3 stacks (3 to 9 VMs per OS)        │
-│  "Both" OS: deploys Linux AND Windows 3-tier simultaneously (up to 18 VMs)  │
+│  Enable multiple tiers simultaneously — up to 18 VMs (all 4 tiers enabled)  │
 └──────────────────────────────────────────────────────────────────────────────┘
          │
          ▼  Azure Migrate Appliance discovers all VMs and inter-VM dependencies
@@ -692,10 +692,9 @@ cp ansible/group_vars/all.yml.example ansible/group_vars/all.yml
 # 2. Edit terraform.tfvars — fill in vCenter creds, IPs, template name
 #    Edit ansible/group_vars/all.yml — set database passwords
 
-# 3. Provision VMs (select workspace matching your deploy_mode)
+# 3. Provision VMs
 cd terraform
 terraform init
-terraform workspace select -or-create linux   # or: windows
 terraform plan        # review what will be created
 terraform apply       # type "yes" to confirm
 
@@ -711,7 +710,7 @@ bash scripts/deploy-all.sh all
 
 ## What Gets Deployed
 
-### Linux Single-VM (deploy_mode = linux)
+### Linux Single-VM (deploy_linux_1tier = true)
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
@@ -719,7 +718,7 @@ bash scripts/deploy-all.sh all
 | **\.NET VM** | lin-dotnet | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | lin-php | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
-### Windows Single-VM (deploy_mode = windows)
+### Windows Single-VM (deploy_windows_1tier = true)
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
@@ -727,7 +726,7 @@ bash scripts/deploy-all.sh all
 | **Win .NET VM** | win-dotnet | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
 | **Win PHP VM** | win-php | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
 
-### Linux 3-Tier (deploy_mode = linux-3tier)
+### Linux 3-Tier (deploy_linux_3tier = true)
 
 Each app is split across 3 VMs — 9 VMs total for all apps:
 
@@ -737,7 +736,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 | **.NET** | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
 | **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
 
-### Windows 3-Tier (deploy_mode = windows-3tier)
+### Windows 3-Tier (deploy_windows_3tier = true)
 
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
@@ -854,7 +853,10 @@ legacy-app-vmware-setup/
 | `dotnet_vm_hostname` | Hostname for the .NET VM | `lin-dotnet` |
 | `php_vm_ip` | Static IP for PHP VM (both modes) | `192.168.1.103` |
 | `php_vm_hostname` | Hostname for the PHP VM | `lin-php` |
-| `deploy_mode` | Deployment mode | `linux`, `windows`, `linux-3tier`, or `windows-3tier` |
+| `deploy_linux_1tier` | Deploy Linux single-VM tier | `true` / `false` |
+| `deploy_windows_1tier` | Deploy Windows single-VM tier | `true` / `false` |
+| `deploy_linux_3tier` | Deploy Linux 3-tier architecture | `true` / `false` |
+| `deploy_windows_3tier` | Deploy Windows 3-tier architecture | `true` / `false` |
 | `deploy_java` | Deploy Java app VMs | `true` |
 | `deploy_dotnet` | Deploy .NET app VMs | `true` |
 | `deploy_php` | Deploy PHP app VMs | `true` |
@@ -1129,12 +1131,12 @@ realm: Couldn't join realm: Failed to enroll machine in realm
 | `--dns` | Register all deployed VMs in DNS (standalone, no domain join) |
 | `--domainjoin` | Join all deployed VMs to an Active Directory domain (includes DNS) |
 | `--azmigrate-db` | Create least-privilege database users for Azure Migrate discovery |
-| `--destroy` | Destroy all VMs across all workspaces |
+| `--reinventory` | Re-scan Terraform state and regenerate Ansible inventory |
+| `--destroy` | Destroy all deployed VMs |
 
 ### Quick destroy via wizard
 ```bash
 # Fastest way — skips the wizard, goes straight to destroy
-# Automatically destroys all workspaces from your last deployment (including "both" OS mode)
 bash scripts/setup-interactive.sh --destroy
 ```
 
@@ -1144,11 +1146,10 @@ Or re-run the wizard and pick **option 6** at the end.
 ```bash
 cd terraform
 terraform init
-terraform workspace select linux    # or: windows, linux-3tier, windows-3tier
-terraform destroy    # type "yes" to confirm — only destroys VMs in this workspace
+terraform destroy    # type "yes" to confirm — destroys all deployed VMs
 ```
 
-> **"Both" OS cleanup:** If you deployed with "Both" OS, you need to destroy each workspace separately (e.g., `linux` and `windows`), or use `--destroy` which handles this automatically.
+> **Additive-only deploys:** Each tier boolean is independent. Enabling a new tier never destroys VMs from previously-enabled tiers. To remove specific VMs, set their tier boolean to `false` in `terraform.tfvars` and run `terraform apply`.
 
 ### Clean up Windows VMs cloned from appliance template
 

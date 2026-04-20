@@ -1,4 +1,4 @@
-%{ if deploy_mode == "linux" }
+%{ if deploy_linux_1tier }
 %{ if deploy_java }
 [java_servers]
 ${java_ip} ansible_user=${ssh_user} ${ssh_auth_line}
@@ -25,7 +25,7 @@ dotnet_servers
 php_servers
 %{ endif }
 %{ endif }
-%{ if deploy_mode == "windows" }
+%{ if deploy_windows_1tier }
 %{ if deploy_java }
 [win_java_servers]
 ${win_java_ip}
@@ -61,7 +61,7 @@ ansible_password=${win_password}
 ansible_port=5985
 ansible_become=false
 %{ endif }
-%{ if deploy_mode == "linux-3tier" }
+%{ if deploy_linux_3tier }
 %{ if deploy_java }
 # --- Java 3-Tier ---
 [java_frontend]
@@ -137,7 +137,7 @@ frontends
 appservers
 databases
 %{ endif }
-%{ if deploy_mode == "windows-3tier" }
+%{ if deploy_windows_3tier }
 %{ if deploy_java }
 # --- Java 3-Tier ---
 [win_java_frontend]

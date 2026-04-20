@@ -17,6 +17,10 @@ DEPLOY_MODES=()
 DEPLOY_JAVA="true"
 DEPLOY_DOTNET="true"
 DEPLOY_PHP="true"
+DEPLOY_LINUX_1TIER="false"
+DEPLOY_WINDOWS_1TIER="false"
+DEPLOY_LINUX_3TIER="false"
+DEPLOY_WINDOWS_3TIER="false"
 QUICK_MODE=false
 
 # Colors
@@ -93,9 +97,95 @@ tfval() { grep -m1 "^${1} " "$TFVARS_FILE" 2>/dev/null | sed 's/.*= *"\?\([^"]*\
 # Helper: extract value for a key from ansible all.yml  
 ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed "s/^${1}: *\"\{0,1\}\([^\"]*\)\"\{0,1\}/\1/" || echo "$2"; }
 
+# Helper: build DEPLOY_MODES array from the 4 tier booleans
+derive_modes_from_booleans() {
+    DEPLOY_MODES=()
+    [[ "$DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_MODES+=("linux")
+    [[ "$DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_MODES+=("windows")
+    [[ "$DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_MODES+=("linux-3tier")
+    [[ "$DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_MODES+=("windows-3tier")
+}
+
+# Helper: read tier booleans from tfvars (with backward compat from old deploy_mode)
+read_tier_booleans_from_tfvars() {
+    DEPLOY_LINUX_1TIER="$(tfval deploy_linux_1tier "false")"
+    DEPLOY_WINDOWS_1TIER="$(tfval deploy_windows_1tier "false")"
+    DEPLOY_LINUX_3TIER="$(tfval deploy_linux_3tier "false")"
+    DEPLOY_WINDOWS_3TIER="$(tfval deploy_windows_3tier "false")"
+    # Backward compat: derive booleans from old deploy_mode if new booleans not found
+    if [[ "$DEPLOY_LINUX_1TIER" == "false" && "$DEPLOY_WINDOWS_1TIER" == "false" &&
+          "$DEPLOY_LINUX_3TIER" == "false" && "$DEPLOY_WINDOWS_3TIER" == "false" ]]; then
+        local old_mode; old_mode="$(tfval deploy_mode "")"
+        case "$old_mode" in
+            linux)          DEPLOY_LINUX_1TIER="true" ;;
+            windows)        DEPLOY_WINDOWS_1TIER="true" ;;
+            linux-3tier)    DEPLOY_LINUX_3TIER="true" ;;
+            windows-3tier)  DEPLOY_WINDOWS_3TIER="true" ;;
+        esac
+    fi
+}
+
+# Helper: read VM IPs from Terraform outputs for a given mode (no workspace switching)
+_read_mode_ips_from_terraform() {
+    local mode="$1"
+    case "$mode" in
+        linux)
+            [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
+            [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
+            [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            ;;
+        windows)
+            [[ "$DEPLOY_JAVA" == "true" ]]   && { WIN_JAVA_IP="$(terraform output -raw win_java_vm_ip 2>/dev/null || echo "")"; JAVA_IP="${WIN_JAVA_IP:-$JAVA_IP}"; }
+            [[ "$DEPLOY_DOTNET" == "true" ]] && { WIN_DOTNET_IP="$(terraform output -raw win_dotnet_vm_ip 2>/dev/null || echo "")"; DOTNET_IP="${WIN_DOTNET_IP:-$DOTNET_IP}"; }
+            [[ "$DEPLOY_PHP" == "true" ]]    && { WIN_PHP_IP="$(terraform output -raw win_php_vm_ip 2>/dev/null || echo "")"; PHP_IP="${WIN_PHP_IP:-$PHP_IP}"; }
+            ;;
+        linux-3tier)
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            fi
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            fi
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+            fi
+            ;;
+        windows-3tier)
+            if [[ "$DEPLOY_JAVA" == "true" ]]; then
+                WIN_JAVA_FE_IP="$(terraform output -json win_java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                WIN_JAVA_APP_IP="$(terraform output -json win_java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                WIN_JAVA_DB_IP="$(terraform output -json win_java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                JAVA_FE_IP="${WIN_JAVA_FE_IP}"; JAVA_APP_IP="${WIN_JAVA_APP_IP}"; JAVA_DB_IP="${WIN_JAVA_DB_IP}"
+            fi
+            if [[ "$DEPLOY_DOTNET" == "true" ]]; then
+                WIN_DOTNET_FE_IP="$(terraform output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                WIN_DOTNET_APP_IP="$(terraform output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                WIN_DOTNET_DB_IP="$(terraform output -json win_dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                DOTNET_FE_IP="${WIN_DOTNET_FE_IP}"; DOTNET_APP_IP="${WIN_DOTNET_APP_IP}"; DOTNET_DB_IP="${WIN_DOTNET_DB_IP}"
+            fi
+            if [[ "$DEPLOY_PHP" == "true" ]]; then
+                WIN_PHP_FE_IP="$(terraform output -json win_php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
+                WIN_PHP_APP_IP="$(terraform output -json win_php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
+                WIN_PHP_DB_IP="$(terraform output -json win_php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
+                PHP_FE_IP="${WIN_PHP_FE_IP}"; PHP_APP_IP="${WIN_PHP_APP_IP}"; PHP_DB_IP="${WIN_PHP_DB_IP}"
+            fi
+            ;;
+    esac
+}
+
 load_previous() {
     # Initialize all defaults to hard-coded values
     PREV_DEPLOY_MODE="linux"
+    PREV_DEPLOY_LINUX_1TIER="false"
+    PREV_DEPLOY_WINDOWS_1TIER="false"
+    PREV_DEPLOY_LINUX_3TIER="false"
+    PREV_DEPLOY_WINDOWS_3TIER="false"
     PREV_APP_SELECTION="all"; PREV_OS_CHOICE="linux"; PREV_ARCH_CHOICE="single"
     PREV_DEPLOY_JAVA="true"; PREV_DEPLOY_DOTNET="true"; PREV_DEPLOY_PHP="true"
     PREV_VSPHERE_SERVER=""; PREV_VSPHERE_USER="administrator@vsphere.local"; PREV_VSPHERE_SSL="true"
@@ -131,6 +221,21 @@ load_previous() {
     if [[ -f "$TFVARS_FILE" ]]; then
         step "Found previous config: terraform.tfvars — loading as defaults"
         PREV_DEPLOY_MODE="$(tfval deploy_mode "linux")"
+        # Read tier booleans (with backward compat)
+        PREV_DEPLOY_LINUX_1TIER="$(tfval deploy_linux_1tier "false")"
+        PREV_DEPLOY_WINDOWS_1TIER="$(tfval deploy_windows_1tier "false")"
+        PREV_DEPLOY_LINUX_3TIER="$(tfval deploy_linux_3tier "false")"
+        PREV_DEPLOY_WINDOWS_3TIER="$(tfval deploy_windows_3tier "false")"
+        # Backward compat: derive booleans from old deploy_mode if not present
+        if [[ "$PREV_DEPLOY_LINUX_1TIER" == "false" && "$PREV_DEPLOY_WINDOWS_1TIER" == "false" &&
+              "$PREV_DEPLOY_LINUX_3TIER" == "false" && "$PREV_DEPLOY_WINDOWS_3TIER" == "false" ]]; then
+            case "$PREV_DEPLOY_MODE" in
+                linux)          PREV_DEPLOY_LINUX_1TIER="true" ;;
+                windows)        PREV_DEPLOY_WINDOWS_1TIER="true" ;;
+                linux-3tier)    PREV_DEPLOY_LINUX_3TIER="true" ;;
+                windows-3tier)  PREV_DEPLOY_WINDOWS_3TIER="true" ;;
+            esac
+        fi
         PREV_DEPLOY_JAVA="$(tfval deploy_java "true")"
         PREV_DEPLOY_DOTNET="$(tfval deploy_dotnet "true")"
         PREV_DEPLOY_PHP="$(tfval deploy_php "true")"
@@ -141,13 +246,16 @@ load_previous() {
             PREV_OS_CHOICE=$(echo "$wiz_line" | sed 's/.*os=\([^ ]*\).*/\1/')
             PREV_ARCH_CHOICE=$(echo "$wiz_line" | sed 's/.*arch=\([^ ]*\).*/\1/')
         else
-            # Derive from deploy_mode for backward compatibility
-            case "$PREV_DEPLOY_MODE" in
-                linux)          PREV_OS_CHOICE="linux";   PREV_ARCH_CHOICE="single" ;;
-                windows)        PREV_OS_CHOICE="windows"; PREV_ARCH_CHOICE="single" ;;
-                linux-3tier)    PREV_OS_CHOICE="linux";   PREV_ARCH_CHOICE="3tier" ;;
-                windows-3tier)  PREV_OS_CHOICE="windows"; PREV_ARCH_CHOICE="3tier" ;;
-            esac
+            # Derive from tier booleans for backward compatibility
+            local has_linux=false has_windows=false has_single=false has_3tier=false
+            [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && { has_linux=true; has_single=true; }
+            [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && { has_windows=true; has_single=true; }
+            [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && { has_linux=true; has_3tier=true; }
+            [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && { has_windows=true; has_3tier=true; }
+            if $has_linux && $has_windows; then PREV_OS_CHOICE="both"
+            elif $has_windows; then PREV_OS_CHOICE="windows"
+            else PREV_OS_CHOICE="linux"; fi
+            if $has_3tier; then PREV_ARCH_CHOICE="3tier"; else PREV_ARCH_CHOICE="single"; fi
             if [[ "$PREV_DEPLOY_JAVA" == "true" && "$PREV_DEPLOY_DOTNET" == "true" && "$PREV_DEPLOY_PHP" == "true" ]]; then
                 PREV_APP_SELECTION="all"
             elif [[ "$PREV_DEPLOY_JAVA" == "true" ]]; then
@@ -854,14 +962,14 @@ show_summary() {
 
 # ---------------------------------------------------------------------------
 write_tfvars() {
-    step "Generating terraform/terraform.tfvars for mode: $DEPLOY_MODE ..."
+    step "Generating terraform/terraform.tfvars ..."
     local dns_arr
     dns_arr=$(echo "$VM_DNS" | tr ',' '\n' | sed 's/^ *//;s/ *$//' | awk '{printf "\"%s\", ", $0}' | sed 's/, $//')
 
     # When deploying Windows 3-tier in single-OS mode, the wizard stores
     # user input in JAVA_FE_* etc. Copy them to WIN_ equivalents so the
     # heredoc writes correct values. Skip when "both" — already separate.
-    if [[ "$DEPLOY_MODE" == "windows-3tier" && "$OS_CHOICE" != "both" ]]; then
+    if [[ "$DEPLOY_WINDOWS_3TIER" == "true" && "$OS_CHOICE" != "both" ]]; then
         WIN_JAVA_FE_IP="$JAVA_FE_IP"; WIN_JAVA_APP_IP="$JAVA_APP_IP"; WIN_JAVA_DB_IP="$JAVA_DB_IP"
         WIN_JAVA_FE_HOSTNAME="$JAVA_FE_HOSTNAME"; WIN_JAVA_APP_HOSTNAME="$JAVA_APP_HOSTNAME"; WIN_JAVA_DB_HOSTNAME="$JAVA_DB_HOSTNAME"
         WIN_DOTNET_FE_IP="$DOTNET_FE_IP"; WIN_DOTNET_APP_IP="$DOTNET_APP_IP"; WIN_DOTNET_DB_IP="$DOTNET_DB_IP"
@@ -871,7 +979,7 @@ write_tfvars() {
     fi
 
     # When deploying Windows single-VM in single-OS mode, copy base vars to WIN_ equivalents.
-    if [[ "$DEPLOY_MODE" == "windows" && "$OS_CHOICE" != "both" ]]; then
+    if [[ "$DEPLOY_WINDOWS_1TIER" == "true" && "$OS_CHOICE" != "both" ]]; then
         WIN_JAVA_IP="${JAVA_IP:-}"; WIN_JAVA_HOSTNAME="${JAVA_HOSTNAME:-win-java}"
         WIN_DOTNET_IP="${DOTNET_IP:-}"; WIN_DOTNET_HOSTNAME="${DOTNET_HOSTNAME:-win-dotnet}"
         WIN_PHP_IP="${PHP_IP:-}"; WIN_PHP_HOSTNAME="${PHP_HOSTNAME:-win-php}"
@@ -881,7 +989,11 @@ write_tfvars() {
 # Auto-generated by setup-interactive.sh on $(date '+%Y-%m-%d %H:%M:%S')
 # wizard_choices: app=$APP_SELECTION os=$OS_CHOICE arch=$ARCH_CHOICE
 
-deploy_mode = "$DEPLOY_MODE"
+# --- Tier deployment toggles (independent — any combination supported) ---
+deploy_linux_1tier   = $DEPLOY_LINUX_1TIER
+deploy_windows_1tier = $DEPLOY_WINDOWS_1TIER
+deploy_linux_3tier   = $DEPLOY_LINUX_3TIER
+deploy_windows_3tier = $DEPLOY_WINDOWS_3TIER
 
 deploy_java   = $DEPLOY_JAVA
 deploy_dotnet = $DEPLOY_DOTNET
@@ -1259,89 +1371,87 @@ EOF
 
 # ---------------------------------------------------------------------------
 run_terraform() {
-    header "Phase 1 — Provisioning VMs on vSphere (Terraform) [$DEPLOY_MODE]"
+    header "Phase 1 — Provisioning VMs on vSphere (Terraform)"
     pushd "$TF_DIR" > /dev/null
 
     step "terraform init ..."
     terraform init -input=false
 
-    step "Selecting workspace: $DEPLOY_MODE ..."
-    terraform workspace select -or-create "$DEPLOY_MODE"
-
     # Merge deploy flags with existing state — never destroy apps from prior runs
     local existing_resources
     existing_resources=$(terraform state list 2>/dev/null || echo "")
     if [[ -n "$existing_resources" ]]; then
-        step "Existing VMs detected in workspace — merging deploy flags to preserve them"
+        step "Existing VMs detected in state — merging deploy flags to preserve them"
+
+        # Merge tier booleans: if state has resources for a tier, keep it enabled
+        if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.vm\['; then
+            if [[ "$DEPLOY_LINUX_1TIER" != "true" ]]; then
+                DEPLOY_LINUX_1TIER="true"
+                sed -i "s/^deploy_linux_1tier .*/deploy_linux_1tier   = true/" terraform.tfvars
+                step "  Preserved tier: deploy_linux_1tier=true (existing VMs in state)"
+            fi
+        fi
+        if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.win_vm\['; then
+            if [[ "$DEPLOY_WINDOWS_1TIER" != "true" ]]; then
+                DEPLOY_WINDOWS_1TIER="true"
+                sed -i "s/^deploy_windows_1tier .*/deploy_windows_1tier = true/" terraform.tfvars
+                step "  Preserved tier: deploy_windows_1tier=true (existing VMs in state)"
+            fi
+        fi
+        if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.vm_3tier\['; then
+            if [[ "$DEPLOY_LINUX_3TIER" != "true" ]]; then
+                DEPLOY_LINUX_3TIER="true"
+                sed -i "s/^deploy_linux_3tier .*/deploy_linux_3tier   = true/" terraform.tfvars
+                step "  Preserved tier: deploy_linux_3tier=true (existing VMs in state)"
+            fi
+        fi
+        if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.win_vm_3tier\['; then
+            if [[ "$DEPLOY_WINDOWS_3TIER" != "true" ]]; then
+                DEPLOY_WINDOWS_3TIER="true"
+                sed -i "s/^deploy_windows_3tier .*/deploy_windows_3tier = true/" terraform.tfvars
+                step "  Preserved tier: deploy_windows_3tier=true (existing VMs in state)"
+            fi
+        fi
+        # Rebuild DEPLOY_MODES after merge
+        derive_modes_from_booleans
+
+        # Merge app-level flags
         local tf_java="$DEPLOY_JAVA" tf_dotnet="$DEPLOY_DOTNET" tf_php="$DEPLOY_PHP"
-        if echo "$existing_resources" | grep -q "java"; then
-            tf_java="true"
-        fi
-        if echo "$existing_resources" | grep -q "dotnet"; then
-            tf_dotnet="true"
-        fi
-        if echo "$existing_resources" | grep -q "php"; then
-            tf_php="true"
-        fi
+        echo "$existing_resources" | grep -q "java" && tf_java="true"
+        echo "$existing_resources" | grep -q "dotnet" && tf_dotnet="true"
+        echo "$existing_resources" | grep -q "php" && tf_php="true"
         if [[ "$tf_java" != "$DEPLOY_JAVA" || "$tf_dotnet" != "$DEPLOY_DOTNET" || "$tf_php" != "$DEPLOY_PHP" ]]; then
             step "Adjusted: deploy_java=$tf_java deploy_dotnet=$tf_dotnet deploy_php=$tf_php"
-            # Rewrite tfvars with merged flags
             sed -i "s/^deploy_java   = .*/deploy_java   = $tf_java/" terraform.tfvars
             sed -i "s/^deploy_dotnet = .*/deploy_dotnet = $tf_dotnet/" terraform.tfvars
             sed -i "s/^deploy_php    = .*/deploy_php    = $tf_php/" terraform.tfvars
 
-            # Also restore IPs from state for stacks being preserved but not selected
-            # This guards against IPs defaulting when user only deploys one stack
-            if [[ "$tf_java" == "true" && "$DEPLOY_JAVA" != "true" ]]; then
-                local ip
-                for vm_key in java-fe java-app java-db; do
-                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
-                    if [[ -n "$ip" ]]; then
-                        local tf_var="${vm_key//-/_}_ip"   # java-fe -> java_fe_ip
-                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
-                        step "  Preserved $vm_key IP: $ip"
-                    fi
-                done
-            fi
-            if [[ "$tf_dotnet" == "true" && "$DEPLOY_DOTNET" != "true" ]]; then
-                local ip
-                for vm_key in dotnet-fe dotnet-app dotnet-db; do
-                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
-                    if [[ -n "$ip" ]]; then
-                        local tf_var="${vm_key//-/_}_ip"
-                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
-                        step "  Preserved $vm_key IP: $ip"
-                    fi
-                done
-            fi
-            if [[ "$tf_php" == "true" && "$DEPLOY_PHP" != "true" ]]; then
-                local ip
-                for vm_key in php-fe php-app php-db; do
-                    ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
-                         | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
-                    if [[ -n "$ip" ]]; then
-                        local tf_var="${vm_key//-/_}_ip"
-                        sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
-                        step "  Preserved $vm_key IP: $ip"
-                    fi
-                done
-            fi
+            # Restore IPs from state for stacks being preserved but not selected
+            for app in java dotnet php; do
+                local app_flag_var="tf_${app}"
+                local deploy_flag_var="DEPLOY_${app^^}"
+                if [[ "${!app_flag_var}" == "true" && "${!deploy_flag_var}" != "true" ]]; then
+                    local ip
+                    for suffix in fe app db; do
+                        local vm_key="${app}-${suffix}"
+                        ip=$(terraform state show "vsphere_virtual_machine.vm_3tier[\"$vm_key\"]" 2>/dev/null \
+                             | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/' || true)
+                        if [[ -n "$ip" ]]; then
+                            local tf_var="${vm_key//-/_}_ip"
+                            sed -i "s/^${tf_var} .* = .*/${tf_var} = \"${ip}\"/" terraform.tfvars
+                            step "  Preserved $vm_key IP: $ip"
+                        fi
+                    done
+                fi
+            done
         fi
 
         # ── Preserve hostnames & domain from state for ALL existing VMs ──
-        # The vSphere provider treats host_name and domain inside
-        # clone.customize as ForceNew — any change destroys & recreates the VM.
-        # Pull the actual values from state and patch tfvars so Terraform
-        # sees no diff on these immutable attributes.
         _preserve_vm_attrs() {
             local resource="$1" vm_key="$2" prefix="$3"
             local state_block
             state_block=$(terraform state show "${resource}[\"${vm_key}\"]" 2>/dev/null || true)
             [[ -z "$state_block" ]] && return
-
-            # Extract hostname (= the VM name vSphere used at clone time)
             local cur_name
             cur_name=$(echo "$state_block" | grep '^\s*name\s*=' | head -1 \
                        | sed 's/.*= *"\(.*\)"/\1/')
@@ -1350,8 +1460,6 @@ run_terraform() {
                 sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_name}\"|" terraform.tfvars
                 step "  Preserved $vm_key hostname: $cur_name"
             fi
-
-            # Extract IP
             local cur_ip
             cur_ip=$(echo "$state_block" | grep 'default_ip_address' | head -1 \
                      | sed 's/.*= *"\(.*\)"/\1/')
@@ -1362,9 +1470,8 @@ run_terraform() {
             fi
         }
 
-        # Preserve domain from state (also ForceNew in linux_options)
-        local state_domain
-        local first_vm
+        # Preserve domain from state (ForceNew in linux_options)
+        local state_domain first_vm
         first_vm=$(echo "$existing_resources" | grep 'vm_3tier\[\|vm\[' | head -1 || true)
         if [[ -n "$first_vm" ]]; then
             state_domain=$(terraform state show "$first_vm" 2>/dev/null \
@@ -1376,54 +1483,30 @@ run_terraform() {
             fi
         fi
 
+        # Preserve attributes for ALL resource types (unconditional — all tiers in one state)
         # Linux 3-tier VMs
-        if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
-            for vm_key in java-fe java-app java-db dotnet-fe dotnet-app dotnet-db php-fe php-app php-db; do
-                echo "$existing_resources" | grep -q "vm_3tier\[\"${vm_key}\"\]" || continue
-                _preserve_vm_attrs "vsphere_virtual_machine.vm_3tier" "$vm_key" ""
-            done
-        fi
+        for vm_key in java-fe java-app java-db dotnet-fe dotnet-app dotnet-db php-fe php-app php-db; do
+            echo "$existing_resources" | grep -q "vm_3tier\[\"${vm_key}\"\]" || continue
+            _preserve_vm_attrs "vsphere_virtual_machine.vm_3tier" "$vm_key" ""
+        done
 
         # Windows 3-tier VMs
-        if [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
-            for vm_key in win-java-fe win-java-app win-java-db win-dotnet-fe win-dotnet-app win-dotnet-db win-php-fe win-php-app win-php-db; do
-                echo "$existing_resources" | grep -q "win_vm_3tier\[\"${vm_key}\"\]" || continue
-                _preserve_vm_attrs "vsphere_virtual_machine.win_vm_3tier" "$vm_key" ""
-            done
-        fi
+        for vm_key in win-java-fe win-java-app win-java-db win-dotnet-fe win-dotnet-app win-dotnet-db win-php-fe win-php-app win-php-db; do
+            echo "$existing_resources" | grep -q "win_vm_3tier\[\"${vm_key}\"\]" || continue
+            _preserve_vm_attrs "vsphere_virtual_machine.win_vm_3tier" "$vm_key" ""
+        done
 
         # Linux single-VM
-        if [[ "$DEPLOY_MODE" == "linux" ]]; then
-            for vm_key in java-vm dotnet-vm php-vm; do
-                echo "$existing_resources" | grep -q "vm\[\"${vm_key}\"\]" || continue
-                _preserve_vm_attrs "vsphere_virtual_machine.vm" "$vm_key" ""
-            done
-        fi
+        for vm_key in java-vm dotnet-vm php-vm; do
+            echo "$existing_resources" | grep -q "vm\[\"${vm_key}\"\]" || continue
+            _preserve_vm_attrs "vsphere_virtual_machine.vm" "$vm_key" ""
+        done
 
-        # Windows single-VM (shares java_vm/dotnet_vm/php_vm hostname vars)
-        if [[ "$DEPLOY_MODE" == "windows" ]]; then
-            for vm_key in win-java-vm win-dotnet-vm win-php-vm; do
-                echo "$existing_resources" | grep -q "win_vm\[\"${vm_key}\"\]" || continue
-                local state_block
-                state_block=$(terraform state show "vsphere_virtual_machine.win_vm[\"${vm_key}\"]" 2>/dev/null || true)
-                [[ -z "$state_block" ]] && continue
-                local cur_name
-                cur_name=$(echo "$state_block" | grep '^\s*name\s*=' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-                if [[ -n "$cur_name" ]]; then
-                    # win-java-vm -> java_vm_hostname (strip win- prefix)
-                    local tf_var="${vm_key#win-}"; tf_var="${tf_var//-/_}_hostname"
-                    sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_name}\"|" terraform.tfvars
-                    step "  Preserved $vm_key hostname: $cur_name"
-                fi
-                local cur_ip
-                cur_ip=$(echo "$state_block" | grep 'default_ip_address' | head -1 | sed 's/.*= *"\(.*\)"/\1/')
-                if [[ -n "$cur_ip" ]]; then
-                    local tf_var="${vm_key#win-}"; tf_var="${tf_var//-/_}_ip"
-                    sed -i "s|^${tf_var} .*=.*|${tf_var} = \"${cur_ip}\"|" terraform.tfvars
-                    step "  Preserved $vm_key IP: $cur_ip"
-                fi
-            done
-        fi
+        # Windows single-VM
+        for vm_key in win-java-vm win-dotnet-vm win-php-vm; do
+            echo "$existing_resources" | grep -q "win_vm\[\"${vm_key}\"\]" || continue
+            _preserve_vm_attrs "vsphere_virtual_machine.win_vm" "$vm_key" ""
+        done
     fi
 
     step "terraform plan ..."
@@ -1622,36 +1705,11 @@ run_destroy() {
     header "Destroying VMs (Terraform Destroy)"
     pushd "$TF_DIR" > /dev/null
 
-    # Determine which workspaces to destroy
-    local modes=()
-    if [[ ${#DEPLOY_MODES[@]} -gt 0 ]]; then
-        modes=("${DEPLOY_MODES[@]}")
-    else
-        load_previous
-        if [[ "$PREV_OS_CHOICE" == "both" ]]; then
-            if [[ "$PREV_ARCH_CHOICE" == "3tier" ]]; then
-                modes=("linux-3tier" "windows-3tier")
-            else
-                modes=("linux" "windows")
-            fi
-        else
-            modes=("${PREV_DEPLOY_MODE:-linux}")
-        fi
-    fi
-
     step "terraform init ..."
     terraform init -input=false
 
-    for ws in "${modes[@]}"; do
-        if ! terraform workspace select "$ws" 2>/dev/null; then
-            warn "Workspace '$ws' not found. Skipping."
-            continue
-        fi
-
-        step "terraform destroy (workspace: $ws) ..."
-        terraform destroy -auto-approve
-        step "VMs destroyed in workspace: $ws"
-    done
+    step "terraform destroy ..."
+    terraform destroy -auto-approve
 
     popd > /dev/null
 }
@@ -2075,29 +2133,22 @@ main() {
         DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
         DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
         DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        # Discover ALL Terraform workspaces with state (don't rely on saved OS choice)
-        pushd "$TF_DIR" > /dev/null
-        terraform init -input=false > /dev/null 2>&1
-        local all_workspaces
-        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
-        popd > /dev/null
-
-        if [[ -z "$all_workspaces" ]]; then
-            err "No Terraform workspaces found. Deploy VMs first."
+        derive_modes_from_booleans
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
             exit 1
         fi
+        step "Active tiers: ${DEPLOY_MODES[*]}"
 
-        DEPLOY_MODES=()
-        while IFS= read -r ws; do
-            DEPLOY_MODES+=("$ws")
-        done <<< "$all_workspaces"
-        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
-
-        # Prompt for credentials based on discovered workspaces
+        # Prompt for credentials based on active tiers
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
             [[ "$m" == linux* ]] && need_linux=true
@@ -2110,43 +2161,17 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
-        # Read Terraform state for all workspaces and rebuild combined inventory
+        # Read Terraform state and rebuild combined inventory
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
         INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
-            step "Reading Terraform state for workspace: $DEPLOY_MODE"
-            pushd "$TF_DIR" > /dev/null
-            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
-                popd > /dev/null
-                continue
-            }
-            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_PHP" == "true" ]]; then
-                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-            else
-                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
-            fi
-            popd > /dev/null
-
-            # Append to inventory (INVENTORY_INITIALIZED flag handles first-write truncation)
+            step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
             write_inventory
         done
+        popd > /dev/null
 
         step "Inventory rebuilt from Terraform state"
         run_dns_register
@@ -2168,26 +2193,20 @@ main() {
         DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
         DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
         DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        pushd "$TF_DIR" > /dev/null
-        terraform init -input=false > /dev/null 2>&1
-        local all_workspaces
-        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
-        popd > /dev/null
-
-        if [[ -z "$all_workspaces" ]]; then
-            err "No Terraform workspaces found. Deploy VMs first."
+        derive_modes_from_booleans
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
             exit 1
         fi
-
-        DEPLOY_MODES=()
-        while IFS= read -r ws; do
-            DEPLOY_MODES+=("$ws")
-        done <<< "$all_workspaces"
-        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+        step "Active tiers: ${DEPLOY_MODES[*]}"
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
@@ -2201,40 +2220,16 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
         INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
-            step "Reading Terraform state for workspace: $DEPLOY_MODE"
-            pushd "$TF_DIR" > /dev/null
-            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
-                popd > /dev/null
-                continue
-            }
-            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_PHP" == "true" ]]; then
-                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-            else
-                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
-            fi
-            popd > /dev/null
+            step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
             write_inventory
         done
+        popd > /dev/null
 
         step "Inventory rebuilt from Terraform state"
         run_domain_join
@@ -2256,26 +2251,20 @@ main() {
         DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
         DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
         DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
 
-        pushd "$TF_DIR" > /dev/null
-        terraform init -input=false > /dev/null 2>&1
-        local all_workspaces
-        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
-        popd > /dev/null
-
-        if [[ -z "$all_workspaces" ]]; then
-            err "No Terraform workspaces found. Deploy VMs first."
+        derive_modes_from_booleans
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
             exit 1
         fi
-
-        DEPLOY_MODES=()
-        while IFS= read -r ws; do
-            DEPLOY_MODES+=("$ws")
-        done <<< "$all_workspaces"
-        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+        step "Active tiers: ${DEPLOY_MODES[*]}"
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
@@ -2290,44 +2279,19 @@ main() {
         fi
 
         # Only rebuild inventory if hosts.ini doesn't already exist.
-        # If it exists, the user may have manually added VMs not tracked by Terraform.
         if [[ -f "$ANSIBLE_DIR/inventory/hosts.ini" ]]; then
             step "Using existing inventory: $ANSIBLE_DIR/inventory/hosts.ini (not overwriting)"
         else
+            pushd "$TF_DIR" > /dev/null
+            terraform init -input=false > /dev/null 2>&1
             INVENTORY_INITIALIZED=""
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
-                step "Reading Terraform state for workspace: $DEPLOY_MODE"
-                pushd "$TF_DIR" > /dev/null
-                terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                    warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
-                    popd > /dev/null
-                    continue
-                }
-                if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                    if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                        JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                        JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                        JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                    fi
-                    if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                        DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                        DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                        DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                    fi
-                    if [[ "$DEPLOY_PHP" == "true" ]]; then
-                        PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                        PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                        PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                    fi
-                else
-                    [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-                    [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-                    [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
-                fi
-                popd > /dev/null
+                step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+                _read_mode_ips_from_terraform "$DEPLOY_MODE"
                 write_inventory
             done
+            popd > /dev/null
             step "Inventory rebuilt from Terraform state"
         fi
 
@@ -2348,6 +2312,10 @@ main() {
         DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
         DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
         DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
         SSH_USER="${PREV_SSH_USER:-ubuntu}"
         SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
         SSH_KEY="${PREV_SSH_KEY:-}"
@@ -2355,22 +2323,12 @@ main() {
         VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
         VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
 
-        pushd "$TF_DIR" > /dev/null
-        terraform init -input=false > /dev/null 2>&1
-        local all_workspaces
-        all_workspaces=$(terraform workspace list 2>/dev/null | sed 's/[* ]//g' | grep -v '^default$' | grep -v '^$' || echo "")
-        popd > /dev/null
-
-        if [[ -z "$all_workspaces" ]]; then
-            err "No Terraform workspaces found. Deploy VMs first."
+        derive_modes_from_booleans
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
             exit 1
         fi
-
-        DEPLOY_MODES=()
-        while IFS= read -r ws; do
-            DEPLOY_MODES+=("$ws")
-        done <<< "$all_workspaces"
-        step "Found Terraform workspaces: ${DEPLOY_MODES[*]}"
+        step "Active tiers: ${DEPLOY_MODES[*]}"
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
@@ -2384,40 +2342,16 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
         INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
-            step "Reading Terraform state for workspace: $DEPLOY_MODE"
-            pushd "$TF_DIR" > /dev/null
-            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
-                popd > /dev/null
-                continue
-            }
-            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_PHP" == "true" ]]; then
-                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-            else
-                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
-            fi
-            popd > /dev/null
+            step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
             write_inventory
         done
+        popd > /dev/null
 
         step "Inventory rebuilt: $ANSIBLE_DIR/inventory/hosts.ini"
         echo -e "  ${G}Done. You can now run ansible manually or use --resume.${NC}"
@@ -2439,18 +2373,19 @@ main() {
         DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
         DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
 
-        # Derive DEPLOY_MODES from saved wizard choices
-        DEPLOY_MODES=()
-        local r_os="${PREV_OS_CHOICE:-linux}"
-        local r_arch="${PREV_ARCH_CHOICE:-single}"
-        if [[ "$r_os" == "linux" || "$r_os" == "both" ]]; then
-            [[ "$r_arch" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
-        fi
-        if [[ "$r_os" == "windows" || "$r_os" == "both" ]]; then
-            [[ "$r_arch" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
+        # Derive DEPLOY_MODES from saved tier booleans
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
+        derive_modes_from_booleans
+
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
+            exit 1
         fi
 
-        echo -e "  ${C}Resuming: app=${PREV_APP_SELECTION:-all} os=$r_os arch=$r_arch${NC}"
+        echo -e "  ${C}Resuming: app=${PREV_APP_SELECTION:-all}${NC}"
         echo -e "  ${C}Modes: ${DEPLOY_MODES[*]}${NC}"
         echo ""
 
@@ -2462,8 +2397,8 @@ main() {
         # Restore all config variables from saved tfvars so write_tfvars()
         # can regenerate a complete file without prompting the user.
         APP_SELECTION="${PREV_APP_SELECTION:-all}"
-        OS_CHOICE="$r_os"
-        ARCH_CHOICE="$r_arch"
+        OS_CHOICE="${PREV_OS_CHOICE:-linux}"
+        ARCH_CHOICE="${PREV_ARCH_CHOICE:-single}"
         VSPHERE_USER="${PREV_VSPHERE_USER:-administrator@vsphere.local}"
         VSPHERE_PASSWORD=""
         VSPHERE_SSL="${PREV_VSPHERE_SSL:-true}"
@@ -2539,49 +2474,23 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
-        # Resume each mode
+        # Read IPs from Terraform state (single workspace, no workspace switching)
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
         INVENTORY_INITIALIZED=""
         for mode in "${DEPLOY_MODES[@]}"; do
             DEPLOY_MODE="$mode"
             echo ""
             header "Resuming mode: $DEPLOY_MODE"
-
-            # Get IPs from Terraform state
-            pushd "$TF_DIR" > /dev/null
-            terraform init -input=false > /dev/null 2>&1
-            terraform workspace select "$DEPLOY_MODE" 2>/dev/null || {
-                warn "Terraform workspace '$DEPLOY_MODE' not found. Skipping."
-                popd > /dev/null
-                continue
-            }
-            if [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-                if [[ "$DEPLOY_JAVA" == "true" ]]; then
-                    JAVA_FE_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    JAVA_APP_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    JAVA_DB_IP="$(terraform output -json java_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                    DOTNET_FE_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    DOTNET_APP_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    DOTNET_DB_IP="$(terraform output -json dotnet_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                if [[ "$DEPLOY_PHP" == "true" ]]; then
-                    PHP_FE_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['frontend'])" 2>/dev/null || echo "")"
-                    PHP_APP_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['appserver'])" 2>/dev/null || echo "")"
-                    PHP_DB_IP="$(terraform output -json php_3tier_ips 2>/dev/null | python3 -c "import sys,json; print(json.load(sys.stdin)['database'])" 2>/dev/null || echo "")"
-                fi
-                step "Using 3-tier IPs from Terraform state"
-            else
-                [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "$PREV_JAVA_IP")"
-                [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "$PREV_DOTNET_IP")"
-                [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "$PREV_PHP_IP")"
-                step "Using IPs from Terraform state"
-            fi
-            popd > /dev/null
-
-            # Regenerate inventory and run ansible
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
             write_tfvars
             write_inventory
+        done
+        popd > /dev/null
+
+        # Run ansible resume + verify per mode
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
             run_ansible_resume
             run_verify
         done
@@ -2618,14 +2527,12 @@ main() {
             *)      DEPLOY_JAVA=true;  DEPLOY_DOTNET=true;  DEPLOY_PHP=true  ;;
         esac
 
-        # Derive deploy modes
-        DEPLOY_MODES=()
-        if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
-            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_MODES+=("linux-3tier") || DEPLOY_MODES+=("linux")
-        fi
-        if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
-            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_MODES+=("windows-3tier") || DEPLOY_MODES+=("windows")
-        fi
+        # Derive deploy modes from saved tier booleans (additive)
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
+        derive_modes_from_booleans
         DEPLOY_MODE="${DEPLOY_MODES[0]}"
 
         step "Loaded: App=${APP_SELECTION}  OS=${OS_CHOICE}  Arch=${ARCH_CHOICE}"
@@ -2647,7 +2554,11 @@ main() {
         header "Saving Configuration Files"
         write_tfvars
         write_ansible_vars
-        write_inventory
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            write_inventory
+        done
 
         echo ""
         echo -e "  ${G}Files saved. Ready to deploy.${NC}"
@@ -2662,11 +2573,10 @@ main() {
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
-            INVENTORY_INITIALIZED=""
+            run_terraform
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
-                write_tfvars; write_inventory
-                run_terraform; run_ansible; run_verify
+                run_ansible; run_verify
             done
             echo ""
             echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
@@ -2678,10 +2588,8 @@ main() {
             [[ "$post_choice" == "1" ]] && run_dns_register
             [[ "$post_choice" == "2" ]] && run_domain_join
         elif [[ "$qchoice" == "2" ]]; then
-            INVENTORY_INITIALIZED=""
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
-                write_tfvars; write_inventory
                 run_ansible; run_verify
             done
             echo ""
@@ -2780,22 +2688,28 @@ main() {
         *) ARCH_CHOICE="single"; step "Architecture: Single-VM (all-in-one)" ;;
     esac
 
-    # --- Derive deploy modes from selections ---
-    DEPLOY_MODES=()
+    # --- Derive deploy modes from selections (additive — merge with previous) ---
+    # Set booleans from current user selection
     if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
         if [[ "$ARCH_CHOICE" == "3tier" ]]; then
-            DEPLOY_MODES+=("linux-3tier")
+            DEPLOY_LINUX_3TIER="true"
         else
-            DEPLOY_MODES+=("linux")
+            DEPLOY_LINUX_1TIER="true"
         fi
     fi
     if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
         if [[ "$ARCH_CHOICE" == "3tier" ]]; then
-            DEPLOY_MODES+=("windows-3tier")
+            DEPLOY_WINDOWS_3TIER="true"
         else
-            DEPLOY_MODES+=("windows")
+            DEPLOY_WINDOWS_1TIER="true"
         fi
     fi
+    # Merge with previously-enabled tiers (never destroy existing VMs)
+    [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_LINUX_1TIER="true"
+    [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_WINDOWS_1TIER="true"
+    [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_LINUX_3TIER="true"
+    [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_WINDOWS_3TIER="true"
+    derive_modes_from_booleans
     # Set DEPLOY_MODE to the first mode for collection functions
     DEPLOY_MODE="${DEPLOY_MODES[0]}"
 
@@ -2840,7 +2754,11 @@ main() {
     header "Saving Configuration Files"
     write_tfvars
     write_ansible_vars
-    write_inventory
+    INVENTORY_INITIALIZED=""
+    for mode in "${DEPLOY_MODES[@]}"; do
+        DEPLOY_MODE="$mode"
+        write_inventory
+    done
 
     echo ""
     echo -e "  ${G}Files saved successfully:${NC}"
@@ -2863,37 +2781,9 @@ main() {
     choice="${choice:-2}"
 
     case "$choice" in
-        1) INVENTORY_INITIALIZED=""
+        1) run_terraform
            for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
-               write_tfvars; write_inventory
-               run_terraform; run_ansible; run_verify
-           done
-           echo ""
-           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
-           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
-           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
-           echo -e "    ${G}3)${NC} Skip"
-           read -rp "  Choice [3]: " post_choice
-           post_choice="${post_choice:-3}"
-           [[ "$post_choice" == "1" ]] && run_dns_register
-           [[ "$post_choice" == "2" ]] && run_domain_join ;;
-        2) step "Config files saved. Run manually when ready:"
-           for mode in "${DEPLOY_MODES[@]}"; do
-               echo -e "    ${GR}cd terraform && terraform init && terraform workspace select -or-create $mode && terraform apply${NC}"
-           done
-           echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
-           [[ "$ARCH" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" ;;
-        3) INVENTORY_INITIALIZED=""
-           for mode in "${DEPLOY_MODES[@]}"; do
-               DEPLOY_MODE="$mode"
-               write_tfvars; write_inventory
-               run_terraform
-           done ;;
-        4) INVENTORY_INITIALIZED=""
-           for mode in "${DEPLOY_MODES[@]}"; do
-               DEPLOY_MODE="$mode"
-               write_tfvars; write_inventory
                run_ansible; run_verify
            done
            echo ""
@@ -2905,10 +2795,26 @@ main() {
            post_choice="${post_choice:-3}"
            [[ "$post_choice" == "1" ]] && run_dns_register
            [[ "$post_choice" == "2" ]] && run_domain_join ;;
-        5) INVENTORY_INITIALIZED=""
-           for mode in "${DEPLOY_MODES[@]}"; do
+        2) step "Config files saved. Run manually when ready:"
+           echo -e "    ${GR}cd terraform && terraform init && terraform apply${NC}"
+           echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
+           [[ "$ARCH_CHOICE" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" ;;
+        3) run_terraform ;;
+        4) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
-               write_tfvars; write_inventory
+               run_ansible; run_verify
+           done
+           echo ""
+           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+           echo -e "    ${G}3)${NC} Skip"
+           read -rp "  Choice [3]: " post_choice
+           post_choice="${post_choice:-3}"
+           [[ "$post_choice" == "1" ]] && run_dns_register
+           [[ "$post_choice" == "2" ]] && run_domain_join ;;
+        5) for mode in "${DEPLOY_MODES[@]}"; do
+               DEPLOY_MODE="$mode"
                run_ansible_resume; run_verify
            done ;;
         6) run_destroy ;;

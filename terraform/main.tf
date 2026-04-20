@@ -37,20 +37,20 @@ data "vsphere_network" "network" {
 }
 
 data "vsphere_virtual_machine" "template" {
-  count         = contains(["linux", "linux-3tier"], var.deploy_mode) ? 1 : 0
+  count         = (var.deploy_linux_1tier || var.deploy_linux_3tier) ? 1 : 0
   name          = var.vm_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "windows_template" {
-  count         = contains(["windows", "windows-3tier"], var.deploy_mode) ? 1 : 0
+  count         = (var.deploy_windows_1tier || var.deploy_windows_3tier) ? 1 : 0
   name          = var.win_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 # --- Local variables ---
 locals {
-  vms = var.deploy_mode == "linux" ? merge(
+  vms = var.deploy_linux_1tier ? merge(
     var.deploy_java ? {
       java-vm = {
         name   = var.java_vm_hostname
@@ -80,7 +80,7 @@ locals {
     } : {}
   ) : {}
 
-  win_vms = var.deploy_mode == "windows" ? merge(
+  win_vms = var.deploy_windows_1tier ? merge(
     var.deploy_java ? {
       win-java-vm = {
         name          = coalesce(var.win_java_vm_hostname, var.java_vm_hostname)
@@ -114,7 +114,7 @@ locals {
   ) : {}
 
   # --- 3-Tier Linux VMs (up to 9 VMs) ---
-  vms_3tier = var.deploy_mode == "linux-3tier" ? merge(
+  vms_3tier = var.deploy_linux_3tier ? merge(
     var.deploy_java ? {
       java-fe = {
         name   = var.java_fe_hostname
@@ -187,7 +187,7 @@ locals {
   ) : {}
 
   # --- 3-Tier Windows VMs (up to 9 VMs) ---
-  win_vms_3tier = var.deploy_mode == "windows-3tier" ? merge(
+  win_vms_3tier = var.deploy_windows_3tier ? merge(
     var.deploy_java ? {
       win-java-fe = {
         name          = var.win_java_fe_hostname
@@ -502,39 +502,42 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
 # --- Generate Ansible inventory ---
 resource "local_file" "ansible_inventory" {
   content = templatefile("${path.module}/templates/hosts.ini.tftpl", {
-    deploy_mode   = var.deploy_mode
+    deploy_linux_1tier   = var.deploy_linux_1tier
+    deploy_windows_1tier = var.deploy_windows_1tier
+    deploy_linux_3tier   = var.deploy_linux_3tier
+    deploy_windows_3tier = var.deploy_windows_3tier
     deploy_java   = var.deploy_java
     deploy_dotnet = var.deploy_dotnet
     deploy_php    = var.deploy_php
-    java_ip       = var.deploy_mode == "linux" && var.deploy_java ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : ""
-    dotnet_ip     = var.deploy_mode == "linux" && var.deploy_dotnet ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : ""
-    php_ip        = var.deploy_mode == "linux" && var.deploy_php ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : ""
+    java_ip       = var.deploy_linux_1tier && var.deploy_java ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : ""
+    dotnet_ip     = var.deploy_linux_1tier && var.deploy_dotnet ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : ""
+    php_ip        = var.deploy_linux_1tier && var.deploy_php ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : ""
     ssh_user      = var.vm_ssh_user
     ssh_auth_line = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
-    win_java_ip   = var.deploy_mode == "windows" && var.deploy_java ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
-    win_dotnet_ip = var.deploy_mode == "windows" && var.deploy_dotnet ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
-    win_php_ip    = var.deploy_mode == "windows" && var.deploy_php ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
+    win_java_ip   = var.deploy_windows_1tier && var.deploy_java ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
+    win_dotnet_ip = var.deploy_windows_1tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
+    win_php_ip    = var.deploy_windows_1tier && var.deploy_php ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
     win_password  = var.win_admin_password
     # 3-tier Linux IPs
-    java_fe_ip    = var.deploy_mode == "linux-3tier" && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-fe"].default_ip_address : ""
-    java_app_ip   = var.deploy_mode == "linux-3tier" && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-app"].default_ip_address : ""
-    java_db_ip    = var.deploy_mode == "linux-3tier" && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-db"].default_ip_address : ""
-    dotnet_fe_ip  = var.deploy_mode == "linux-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-fe"].default_ip_address : ""
-    dotnet_app_ip = var.deploy_mode == "linux-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-app"].default_ip_address : ""
-    dotnet_db_ip  = var.deploy_mode == "linux-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-db"].default_ip_address : ""
-    php_fe_ip     = var.deploy_mode == "linux-3tier" && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-fe"].default_ip_address : ""
-    php_app_ip    = var.deploy_mode == "linux-3tier" && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-app"].default_ip_address : ""
-    php_db_ip     = var.deploy_mode == "linux-3tier" && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-db"].default_ip_address : ""
+    java_fe_ip    = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-fe"].default_ip_address : ""
+    java_app_ip   = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-app"].default_ip_address : ""
+    java_db_ip    = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-db"].default_ip_address : ""
+    dotnet_fe_ip  = var.deploy_linux_3tier && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-fe"].default_ip_address : ""
+    dotnet_app_ip = var.deploy_linux_3tier && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-app"].default_ip_address : ""
+    dotnet_db_ip  = var.deploy_linux_3tier && var.deploy_dotnet ? vsphere_virtual_machine.vm_3tier["dotnet-db"].default_ip_address : ""
+    php_fe_ip     = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-fe"].default_ip_address : ""
+    php_app_ip    = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-app"].default_ip_address : ""
+    php_db_ip     = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-db"].default_ip_address : ""
     # 3-tier Windows IPs
-    win_java_fe_ip    = var.deploy_mode == "windows-3tier" && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-fe"].default_ip_address : ""
-    win_java_app_ip   = var.deploy_mode == "windows-3tier" && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-app"].default_ip_address : ""
-    win_java_db_ip    = var.deploy_mode == "windows-3tier" && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-db"].default_ip_address : ""
-    win_dotnet_fe_ip  = var.deploy_mode == "windows-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-fe"].default_ip_address : ""
-    win_dotnet_app_ip = var.deploy_mode == "windows-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-app"].default_ip_address : ""
-    win_dotnet_db_ip  = var.deploy_mode == "windows-3tier" && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-db"].default_ip_address : ""
-    win_php_fe_ip     = var.deploy_mode == "windows-3tier" && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-fe"].default_ip_address : ""
-    win_php_app_ip    = var.deploy_mode == "windows-3tier" && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-app"].default_ip_address : ""
-    win_php_db_ip     = var.deploy_mode == "windows-3tier" && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-db"].default_ip_address : ""
+    win_java_fe_ip    = var.deploy_windows_3tier && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-fe"].default_ip_address : ""
+    win_java_app_ip   = var.deploy_windows_3tier && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-app"].default_ip_address : ""
+    win_java_db_ip    = var.deploy_windows_3tier && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-db"].default_ip_address : ""
+    win_dotnet_fe_ip  = var.deploy_windows_3tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-fe"].default_ip_address : ""
+    win_dotnet_app_ip = var.deploy_windows_3tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-app"].default_ip_address : ""
+    win_dotnet_db_ip  = var.deploy_windows_3tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm_3tier["win-dotnet-db"].default_ip_address : ""
+    win_php_fe_ip     = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-fe"].default_ip_address : ""
+    win_php_app_ip    = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-app"].default_ip_address : ""
+    win_php_db_ip     = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-db"].default_ip_address : ""
   })
   filename = "${path.module}/../ansible/inventory/hosts.ini"
 }

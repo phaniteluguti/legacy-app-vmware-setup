@@ -1,12 +1,26 @@
-# --- Deployment Mode ---
-variable "deploy_mode" {
-  description = "Deployment mode: 'linux' or 'windows' (single VM per app), 'linux-3tier' or 'windows-3tier' (frontend + appserver + database VMs)"
-  type        = string
-  default     = "linux"
-  validation {
-    condition     = contains(["linux", "windows", "linux-3tier", "windows-3tier"], var.deploy_mode)
-    error_message = "deploy_mode must be 'linux', 'windows', 'linux-3tier', or 'windows-3tier'."
-  }
+# --- Deployment Toggles (all independent — enable any combination) ---
+variable "deploy_linux_1tier" {
+  description = "Deploy Linux 1-tier VMs (single VM per app)"
+  type        = bool
+  default     = false
+}
+
+variable "deploy_windows_1tier" {
+  description = "Deploy Windows 1-tier VMs (single VM per app)"
+  type        = bool
+  default     = false
+}
+
+variable "deploy_linux_3tier" {
+  description = "Deploy Linux 3-tier VMs (frontend + appserver + database per app)"
+  type        = bool
+  default     = false
+}
+
+variable "deploy_windows_3tier" {
+  description = "Deploy Windows 3-tier VMs (frontend + appserver + database per app)"
+  type        = bool
+  default     = false
 }
 
 # --- Per-App Deployment Toggle ---
