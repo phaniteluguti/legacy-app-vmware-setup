@@ -163,7 +163,7 @@
         repo: https://github.com/dotnet-architecture/eShopOnWeb.git
         dest: /opt/eshop/repo
         version: main
-        update: false
+        force: true
 
     - name: Remove environment-specific appsettings overrides
       file:
@@ -213,6 +213,11 @@
           }
         owner: "{{ ansible_user }}"
 
+    - name: Clean stale published directory
+      file:
+        path: /opt/eshop/published
+        state: absent
+
     - name: Build and publish eShopOnWeb Web project
       shell: |
         cd /opt/eshop/repo
@@ -221,6 +226,7 @@
         executable: /bin/bash
       register: dotnet_build
       changed_when: dotnet_build.rc == 0
+      notify: Restart eShop
 
     # ---------------------------------------------------------------
     # systemd service
