@@ -412,12 +412,19 @@ If you want to deploy Windows legacy apps, you need a Windows Server template wi
    # Mount the VMware Tools ISO from vCenter and run setup.exe, or:
    # Install-WindowsFeature -Name NET-Framework-45-Core
 
+   # Verify .NET Framework is present (required by PowerShell & WinRM)
+   Get-WindowsFeature NET-Framework* | Format-Table Name, InstallState
+   # If NET-Framework-45-Core shows "Available" instead of "Installed", run:
+   # Install-WindowsFeature -Name NET-Framework-45-Core
+
    # Clean up for templating
    # Run sysprep if you want unique SIDs:
    # C:\Windows\System32\Sysprep\sysprep.exe /generalize /oobe /shutdown
    ```
 
    > **Note:** The template must have VMware Tools installed for Terraform's guest customization (setting hostname and static IP) to work. Mount the VMware Tools ISO from vCenter → VM → Install VMware Tools.
+
+   > **Important:** Do **not** remove `NET-Framework-Features` or `NET-Framework-45-Features` from the template or any cloned VMs. Windows PowerShell 5.1 and WinRM depend on .NET Framework — removing it will break remote management and Ansible connectivity.
 
 4. **Shut down the VM.**
 
@@ -1077,7 +1084,9 @@ RuntimeException: No application encryption key has been specified.
 PowerShell error: Unable to load DLL 'api-ms-win-core-sysinfo'
 ```
 - If the Windows VM template had Azure Migrate appliance or IIS pre-installed and was cleaned up incorrectly, .NET Framework / PowerShell may break
-- Run the restore playbook: `ansible-playbook -i inventory/hosts.ini playbooks/win-restore-dotnet.yml`
+- Verify .NET Framework status: `Get-WindowsFeature NET-Framework* | Format-Table Name, InstallState`
+- If `NET-Framework-45-Core` shows `Available` instead of `Installed`, reinstall it: `Install-WindowsFeature -Name NET-Framework-45-Core`
+- Or run the restore playbook: `ansible-playbook -i inventory/hosts.ini playbooks/win-restore-dotnet.yml`
 - This uses `dism /online /enable-feature /featurename:NetFx4` via `cmd.exe` (not PowerShell) to repair the framework
 - After restore, reboot the VM and verify WinRM is functional
 

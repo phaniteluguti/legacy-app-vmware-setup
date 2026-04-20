@@ -100,10 +100,10 @@ ymlval() { grep -m1 "^${1}:" "$ALLVARS_FILE" 2>/dev/null | sed "s/^${1}: *\"\{0,
 # Helper: build DEPLOY_MODES array from the 4 tier booleans
 derive_modes_from_booleans() {
     DEPLOY_MODES=()
-    [[ "$DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_MODES+=("linux")
-    [[ "$DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_MODES+=("windows")
-    [[ "$DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_MODES+=("linux-3tier")
-    [[ "$DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_MODES+=("windows-3tier")
+    [[ "$DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_MODES+=("linux") || true
+    [[ "$DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_MODES+=("windows") || true
+    [[ "$DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_MODES+=("linux-3tier") || true
+    [[ "$DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_MODES+=("windows-3tier") || true
 }
 
 # Helper: read tier booleans from tfvars (with backward compat from old deploy_mode)
@@ -248,10 +248,10 @@ load_previous() {
         else
             # Derive from tier booleans for backward compatibility
             local has_linux=false has_windows=false has_single=false has_3tier=false
-            [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && { has_linux=true; has_single=true; }
-            [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && { has_windows=true; has_single=true; }
-            [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && { has_linux=true; has_3tier=true; }
-            [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && { has_windows=true; has_3tier=true; }
+            [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && { has_linux=true; has_single=true; } || true
+            [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && { has_windows=true; has_single=true; } || true
+            [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && { has_linux=true; has_3tier=true; } || true
+            [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && { has_windows=true; has_3tier=true; } || true
             if $has_linux && $has_windows; then PREV_OS_CHOICE="both"
             elif $has_windows; then PREV_OS_CHOICE="windows"
             else PREV_OS_CHOICE="linux"; fi
@@ -2705,10 +2705,10 @@ main() {
         fi
     fi
     # Merge with previously-enabled tiers (never destroy existing VMs)
-    [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_LINUX_1TIER="true"
-    [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_WINDOWS_1TIER="true"
-    [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_LINUX_3TIER="true"
-    [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_WINDOWS_3TIER="true"
+    [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_LINUX_1TIER="true" || true
+    [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_WINDOWS_1TIER="true" || true
+    [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_LINUX_3TIER="true" || true
+    [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_WINDOWS_3TIER="true" || true
     derive_modes_from_booleans
     # Set DEPLOY_MODE to the first mode for collection functions
     DEPLOY_MODE="${DEPLOY_MODES[0]}"
