@@ -99,6 +99,14 @@
       set_fact:
         angular_dist: "{{ dist_dir_result.stdout | trim }}"
 
+    - name: Create Nginx web root directory
+      file:
+        path: /var/www/petclinic
+        state: directory
+        owner: www-data
+        group: www-data
+        mode: '0755'
+
     - name: Copy built Angular app to Nginx web root
       shell: cp -a {{ angular_dist }}/. /var/www/petclinic/
       args:
