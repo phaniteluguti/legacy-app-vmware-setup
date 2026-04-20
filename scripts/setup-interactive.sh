@@ -40,7 +40,7 @@ prompt() {
     else
         while true; do
             read -rp "  $label: " REPLY
-            [[ -n "$REPLY" ]] && break
+            [[ -n "$REPLY" ]] && break || true
             echo "    Value required." >&2
         done
     fi
@@ -65,7 +65,7 @@ prompt_secret() {
     local label="$1"
     while true; do
         read -srp "  $label: " REPLY; echo
-        [[ -n "$REPLY" ]] && break
+        [[ -n "$REPLY" ]] && break || true
         echo "    Value required." >&2
     done
 }
@@ -130,14 +130,14 @@ _read_mode_ips_from_terraform() {
     local mode="$1"
     case "$mode" in
         linux)
-            [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")"
-            [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")"
+            [[ "$DEPLOY_JAVA" == "true" ]]   && JAVA_IP="$(terraform output -raw java_vm_ip 2>/dev/null || echo "")" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && DOTNET_IP="$(terraform output -raw dotnet_vm_ip 2>/dev/null || echo "")" || true
+            [[ "$DEPLOY_PHP" == "true" ]]    && PHP_IP="$(terraform output -raw php_vm_ip 2>/dev/null || echo "")" || true
             ;;
         windows)
-            [[ "$DEPLOY_JAVA" == "true" ]]   && { WIN_JAVA_IP="$(terraform output -raw win_java_vm_ip 2>/dev/null || echo "")"; JAVA_IP="${WIN_JAVA_IP:-$JAVA_IP}"; }
-            [[ "$DEPLOY_DOTNET" == "true" ]] && { WIN_DOTNET_IP="$(terraform output -raw win_dotnet_vm_ip 2>/dev/null || echo "")"; DOTNET_IP="${WIN_DOTNET_IP:-$DOTNET_IP}"; }
-            [[ "$DEPLOY_PHP" == "true" ]]    && { WIN_PHP_IP="$(terraform output -raw win_php_vm_ip 2>/dev/null || echo "")"; PHP_IP="${WIN_PHP_IP:-$PHP_IP}"; }
+            [[ "$DEPLOY_JAVA" == "true" ]]   && { WIN_JAVA_IP="$(terraform output -raw win_java_vm_ip 2>/dev/null || echo "")"; JAVA_IP="${WIN_JAVA_IP:-$JAVA_IP}"; } || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && { WIN_DOTNET_IP="$(terraform output -raw win_dotnet_vm_ip 2>/dev/null || echo "")"; DOTNET_IP="${WIN_DOTNET_IP:-$DOTNET_IP}"; } || true
+            [[ "$DEPLOY_PHP" == "true" ]]    && { WIN_PHP_IP="$(terraform output -raw win_php_vm_ip 2>/dev/null || echo "")"; PHP_IP="${WIN_PHP_IP:-$PHP_IP}"; } || true
             ;;
         linux-3tier)
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
@@ -279,7 +279,7 @@ load_previous() {
         PREV_VM_MASK="$(tfval vm_netmask "24")"
         PREV_VM_DOMAIN="$(tfval vm_domain "lab.local")"
         local raw_dns; raw_dns=$(grep -m1 "^vm_dns_servers" "$TFVARS_FILE" 2>/dev/null | sed 's/.*\[\(.*\)\]/\1/;s/"//g;s/ //g' || echo "")
-        [[ -n "$raw_dns" ]] && PREV_VM_DNS="$raw_dns"
+        [[ -n "$raw_dns" ]] && PREV_VM_DNS="$raw_dns" || true
         PREV_SSH_USER="$(tfval vm_ssh_user "ubuntu")"
         PREV_SSH_AUTH_METHOD="$(tfval vm_ssh_auth_method "password")"
         PREV_SSH_KEY="$(tfval vm_ssh_private_key_path "\$HOME/.ssh/id_rsa")"
@@ -533,15 +533,15 @@ collect_vms() {
         DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-${PREV_DOTNET_FE_IP:-10.1.2.23}}"; DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-${PREV_DOTNET_APP_IP:-10.1.2.24}}"; DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-${PREV_DOTNET_DB_IP:-10.1.2.25}}"
         PHP_FE_IP="${PREV_WIN_PHP_FE_IP:-${PREV_PHP_FE_IP:-10.1.2.26}}"; PHP_APP_IP="${PREV_WIN_PHP_APP_IP:-${PREV_PHP_APP_IP:-10.1.2.27}}"; PHP_DB_IP="${PREV_WIN_PHP_DB_IP:-${PREV_PHP_DB_IP:-10.1.2.28}}"
         # Hostnames: discard stale win_ values that match linux_ (from previous cascading bug)
-        [[ "$PREV_WIN_JAVA_FE_HOSTNAME" == "$PREV_JAVA_FE_HOSTNAME" ]] && PREV_WIN_JAVA_FE_HOSTNAME=""
-        [[ "$PREV_WIN_JAVA_APP_HOSTNAME" == "$PREV_JAVA_APP_HOSTNAME" ]] && PREV_WIN_JAVA_APP_HOSTNAME=""
-        [[ "$PREV_WIN_JAVA_DB_HOSTNAME" == "$PREV_JAVA_DB_HOSTNAME" ]] && PREV_WIN_JAVA_DB_HOSTNAME=""
-        [[ "$PREV_WIN_DOTNET_FE_HOSTNAME" == "$PREV_DOTNET_FE_HOSTNAME" ]] && PREV_WIN_DOTNET_FE_HOSTNAME=""
-        [[ "$PREV_WIN_DOTNET_APP_HOSTNAME" == "$PREV_DOTNET_APP_HOSTNAME" ]] && PREV_WIN_DOTNET_APP_HOSTNAME=""
-        [[ "$PREV_WIN_DOTNET_DB_HOSTNAME" == "$PREV_DOTNET_DB_HOSTNAME" ]] && PREV_WIN_DOTNET_DB_HOSTNAME=""
-        [[ "$PREV_WIN_PHP_FE_HOSTNAME" == "$PREV_PHP_FE_HOSTNAME" ]] && PREV_WIN_PHP_FE_HOSTNAME=""
-        [[ "$PREV_WIN_PHP_APP_HOSTNAME" == "$PREV_PHP_APP_HOSTNAME" ]] && PREV_WIN_PHP_APP_HOSTNAME=""
-        [[ "$PREV_WIN_PHP_DB_HOSTNAME" == "$PREV_PHP_DB_HOSTNAME" ]] && PREV_WIN_PHP_DB_HOSTNAME=""
+        [[ "$PREV_WIN_JAVA_FE_HOSTNAME" == "$PREV_JAVA_FE_HOSTNAME" ]] && PREV_WIN_JAVA_FE_HOSTNAME="" || true
+        [[ "$PREV_WIN_JAVA_APP_HOSTNAME" == "$PREV_JAVA_APP_HOSTNAME" ]] && PREV_WIN_JAVA_APP_HOSTNAME="" || true
+        [[ "$PREV_WIN_JAVA_DB_HOSTNAME" == "$PREV_JAVA_DB_HOSTNAME" ]] && PREV_WIN_JAVA_DB_HOSTNAME="" || true
+        [[ "$PREV_WIN_DOTNET_FE_HOSTNAME" == "$PREV_DOTNET_FE_HOSTNAME" ]] && PREV_WIN_DOTNET_FE_HOSTNAME="" || true
+        [[ "$PREV_WIN_DOTNET_APP_HOSTNAME" == "$PREV_DOTNET_APP_HOSTNAME" ]] && PREV_WIN_DOTNET_APP_HOSTNAME="" || true
+        [[ "$PREV_WIN_DOTNET_DB_HOSTNAME" == "$PREV_DOTNET_DB_HOSTNAME" ]] && PREV_WIN_DOTNET_DB_HOSTNAME="" || true
+        [[ "$PREV_WIN_PHP_FE_HOSTNAME" == "$PREV_PHP_FE_HOSTNAME" ]] && PREV_WIN_PHP_FE_HOSTNAME="" || true
+        [[ "$PREV_WIN_PHP_APP_HOSTNAME" == "$PREV_PHP_APP_HOSTNAME" ]] && PREV_WIN_PHP_APP_HOSTNAME="" || true
+        [[ "$PREV_WIN_PHP_DB_HOSTNAME" == "$PREV_PHP_DB_HOSTNAME" ]] && PREV_WIN_PHP_DB_HOSTNAME="" || true
         JAVA_FE_HOSTNAME="${PREV_WIN_JAVA_FE_HOSTNAME:-win-java-fe}"; JAVA_APP_HOSTNAME="${PREV_WIN_JAVA_APP_HOSTNAME:-win-java-app}"; JAVA_DB_HOSTNAME="${PREV_WIN_JAVA_DB_HOSTNAME:-win-java-db}"
         DOTNET_FE_HOSTNAME="${PREV_WIN_DOTNET_FE_HOSTNAME:-win-dotnet-fe}"; DOTNET_APP_HOSTNAME="${PREV_WIN_DOTNET_APP_HOSTNAME:-win-dotnet-app}"; DOTNET_DB_HOSTNAME="${PREV_WIN_DOTNET_DB_HOSTNAME:-win-dotnet-db}"
         PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
@@ -777,7 +777,7 @@ collect_vms() {
             # --- Single OS mode ---
             if [[ "$DEPLOY_JAVA" == "true" ]]; then
                 local jlabel="Java VM (PetClinic + PostgreSQL)"
-                [[ "$OS_CHOICE" == "windows" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows"
+                [[ "$OS_CHOICE" == "windows" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows" || true
                 echo -e "  ${Y}--- $jlabel ---${NC}"
                 prompt "  Hostname" "$PREV_JAVA_HOSTNAME"; JAVA_HOSTNAME="$REPLY"
                 prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
@@ -788,7 +788,7 @@ collect_vms() {
 
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
                 local dlabel=".NET VM (ASP.NET + SQL Server)"
-                [[ "$OS_CHOICE" == "windows" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows"
+                [[ "$OS_CHOICE" == "windows" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows" || true
                 echo -e "  ${Y}--- $dlabel ---${NC}"
                 prompt "  Hostname" "$PREV_DOTNET_HOSTNAME"; DOTNET_HOSTNAME="$REPLY"
                 prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
@@ -799,7 +799,7 @@ collect_vms() {
 
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 local plabel="PHP VM (Laravel + MySQL)"
-                [[ "$OS_CHOICE" == "windows" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows"
+                [[ "$OS_CHOICE" == "windows" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows" || true
                 echo -e "  ${Y}--- $plabel ---${NC}"
                 prompt "  Hostname" "$PREV_PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
                 prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
@@ -824,8 +824,8 @@ collect_apps() {
     if $QUICK_MODE; then
         step "Using saved app config from previous run"
         echo -e "  ${GR}Only prompting for database passwords (not saved)${NC}"
-        [[ "$DEPLOY_JAVA" == "true" ]]   && { prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"; }
-        [[ "$DEPLOY_DOTNET" == "true" ]] && { prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"; }
+        [[ "$DEPLOY_JAVA" == "true" ]]   && { prompt_secret "  PostgreSQL password"; PG_PASS="$REPLY"; } || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && { prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"; } || true
         if [[ "$DEPLOY_PHP" == "true" ]]; then
             prompt_secret "  MySQL root password"; MYSQL_ROOT="$REPLY"
             prompt_secret "  MySQL app user password"; MYSQL_APP="$REPLY"
@@ -893,7 +893,7 @@ show_summary() {
 
     for mode in "${DEPLOY_MODES[@]}"; do
         local os_label="Linux"
-        [[ "$mode" == windows* ]] && os_label="Windows"
+        [[ "$mode" == windows* ]] && os_label="Windows" || true
         echo -e "  ${C}--- $os_label Deployment ---${NC}"
 
         if [[ "$ARCH_CHOICE" == "3tier" ]]; then
@@ -1161,17 +1161,17 @@ write_inventory() {
         else
             AUTH_LINE="ansible_ssh_private_key_file=$SSH_KEY"
         fi
-        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [java_servers]
 $JAVA_IP ansible_user=$SSH_USER $AUTH_LINE
 EOF
-        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [dotnet_servers]
 $DOTNET_IP ansible_user=$SSH_USER $AUTH_LINE
 EOF
-        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [php_servers]
 $PHP_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -1179,9 +1179,9 @@ EOF
         {
             echo ""
             echo "[legacy_apps:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_servers"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_servers"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_servers"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_servers" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_servers" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_servers" || true
         } >> "$inv_file"
 
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
@@ -1192,17 +1192,17 @@ EOF
             w_dotnet_ip="${WIN_DOTNET_IP:-$DOTNET_IP}"
             w_php_ip="${WIN_PHP_IP:-$PHP_IP}"
         fi
-        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_java_servers]
 $w_java_ip
 EOF
-        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_dotnet_servers]
 $w_dotnet_ip
 EOF
-        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_php_servers]
 $w_php_ip
@@ -1210,9 +1210,9 @@ EOF
         {
             echo ""
             echo "[win_servers:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_servers"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_servers"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_servers"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_servers" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_servers" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_servers" || true
             echo ""
             echo "[win_servers:vars]"
             echo "ansible_connection=winrm"
@@ -1232,7 +1232,7 @@ EOF
         fi
 
 
-        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [java_frontend]
 $JAVA_FE_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -1243,7 +1243,7 @@ $JAVA_APP_IP ansible_user=$SSH_USER $AUTH_LINE
 [java_database]
 $JAVA_DB_IP ansible_user=$SSH_USER $AUTH_LINE
 EOF
-        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [dotnet_frontend]
 $DOTNET_FE_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -1254,7 +1254,7 @@ $DOTNET_APP_IP ansible_user=$SSH_USER $AUTH_LINE
 [dotnet_database]
 $DOTNET_DB_IP ansible_user=$SSH_USER $AUTH_LINE
 EOF
-        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [php_frontend]
 $PHP_FE_IP ansible_user=$SSH_USER $AUTH_LINE
@@ -1268,19 +1268,19 @@ EOF
         {
             echo ""
             echo "[frontends:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_frontend"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_frontend"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_frontend"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_frontend" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_frontend" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_frontend" || true
             echo ""
             echo "[appservers:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_appserver"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_appserver"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_appserver"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_appserver" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_appserver" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_appserver" || true
             echo ""
             echo "[databases:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_database"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_database"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_database"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "java_database" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "dotnet_database" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "php_database" || true
             echo ""
             echo "[legacy_apps_3tier:children]"
             echo "frontends"
@@ -1300,7 +1300,7 @@ EOF
             w_php_fe_ip="${WIN_PHP_FE_IP:-${PHP_FE_IP:-}}"; w_php_app_ip="${WIN_PHP_APP_IP:-${PHP_APP_IP:-}}"; w_php_db_ip="${WIN_PHP_DB_IP:-${PHP_DB_IP:-}}"
         fi
 
-        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_JAVA" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_java_frontend]
 $w_java_fe_ip
@@ -1311,7 +1311,7 @@ $w_java_app_ip
 [win_java_database]
 $w_java_db_ip
 EOF
-        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_dotnet_frontend]
 $w_dotnet_fe_ip
@@ -1322,7 +1322,7 @@ $w_dotnet_app_ip
 [win_dotnet_database]
 $w_dotnet_db_ip
 EOF
-        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF
+        [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_php_frontend]
 $w_php_fe_ip
@@ -1336,19 +1336,19 @@ EOF
         {
             echo ""
             echo "[win_frontends:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_frontend"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_frontend"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_frontend"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_frontend" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_frontend" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_frontend" || true
             echo ""
             echo "[win_appservers:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_appserver"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_appserver"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_appserver"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_appserver" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_appserver" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_appserver" || true
             echo ""
             echo "[win_databases:children]"
-            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_database"
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_database"
-            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_database"
+            [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_database" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_database" || true
+            [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_database" || true
             echo ""
             echo "[win_servers_3tier:children]"
             echo "win_frontends"
@@ -1417,9 +1417,9 @@ run_terraform() {
 
         # Merge app-level flags
         local tf_java="$DEPLOY_JAVA" tf_dotnet="$DEPLOY_DOTNET" tf_php="$DEPLOY_PHP"
-        echo "$existing_resources" | grep -q "java" && tf_java="true"
-        echo "$existing_resources" | grep -q "dotnet" && tf_dotnet="true"
-        echo "$existing_resources" | grep -q "php" && tf_php="true"
+        echo "$existing_resources" | grep -q "java" && tf_java="true" || true
+        echo "$existing_resources" | grep -q "dotnet" && tf_dotnet="true" || true
+        echo "$existing_resources" | grep -q "php" && tf_php="true" || true
         if [[ "$tf_java" != "$DEPLOY_JAVA" || "$tf_dotnet" != "$DEPLOY_DOTNET" || "$tf_php" != "$DEPLOY_PHP" ]]; then
             step "Adjusted: deploy_java=$tf_java deploy_dotnet=$tf_dotnet deploy_php=$tf_php"
             sed -i "s/^deploy_java   = .*/deploy_java   = $tf_java/" terraform.tfvars
@@ -1451,7 +1451,7 @@ run_terraform() {
             local resource="$1" vm_key="$2" prefix="$3"
             local state_block
             state_block=$(terraform state show "${resource}[\"${vm_key}\"]" 2>/dev/null || true)
-            [[ -z "$state_block" ]] && return
+            [[ -z "$state_block" ]] && return || true
             local cur_name
             cur_name=$(echo "$state_block" | grep '^\s*name\s*=' | head -1 \
                        | sed 's/.*= *"\(.*\)"/\1/')
@@ -1553,21 +1553,21 @@ run_ansible() {
     # Build --limit to only target the stacks the user selected (not merged ones)
     local limit_groups=""
     if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_frontend:java_appserver:java_database"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_frontend:dotnet_appserver:dotnet_database"
-        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_frontend:php_appserver:php_database"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_frontend:java_appserver:java_database" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_frontend:dotnet_appserver:dotnet_database" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_frontend:php_appserver:php_database" || true
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_frontend:win_java_appserver:win_java_database"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_frontend:win_dotnet_appserver:win_dotnet_database"
-        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_frontend:win_php_appserver:win_php_database"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_frontend:win_java_appserver:win_java_database" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_frontend:win_dotnet_appserver:win_dotnet_database" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_frontend:win_php_appserver:win_php_database" || true
     elif [[ "$DEPLOY_MODE" == "linux" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_servers"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_servers"
-        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_servers"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_servers" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_servers" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_servers" || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_servers"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers"
-        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_servers"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_servers" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_servers" || true
     fi
     local limit_arg=""
     if [[ -n "$limit_groups" ]]; then
@@ -1595,10 +1595,10 @@ run_ansible() {
     while [[ $attempt -le $max_retries ]]; do
         if [[ $attempt -eq 1 && -z "$retry_file" ]]; then
             step "Running master playbook (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v $limit_arg && break
+            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v $limit_arg && break || true
         else
             step "Retrying failed tasks (attempt $attempt/$max_retries)..."
-            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v --limit "@$retry_name" && break
+            ansible-playbook -i inventory/hosts.ini "$master_playbook" -v --limit "@$retry_name" && break || true
         fi
 
         if [[ -f "$retry_name" ]]; then
@@ -1634,45 +1634,45 @@ run_verify() {
     echo ""
     local checks=()
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Java PetClinic|$JAVA_IP|8080")
-        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(".NET MVC App|$DOTNET_IP|80")
-        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Java PetClinic|$JAVA_IP|8080") || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(".NET MVC App|$DOTNET_IP|80") || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080")
-        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET IIS App|$DOTNET_IP|80")
-        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80")
+        [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080") || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET IIS App|$DOTNET_IP|80") || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
             "Java Frontend (Angular)|$JAVA_FE_IP|80"
             "Java App Server (REST)|$JAVA_APP_IP|9966"
             "Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
-        )
+        ) || true
         [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(
             ".NET Frontend (Nginx)|$DOTNET_FE_IP|80"
             ".NET App Server (ASP.NET)|$DOTNET_APP_IP|5000"
             ".NET Database (SQL Server)|$DOTNET_DB_IP|1433"
-        )
+        ) || true
         [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "PHP Frontend (Nginx)|$PHP_FE_IP|80"
             "PHP App Server (Laravel)|$PHP_APP_IP|8000"
             "PHP Database (MySQL)|$PHP_DB_IP|3306"
-        )
+        ) || true
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
             "Win Java Frontend (IIS+ARR)|$JAVA_FE_IP|80"
             "Win Java App Server (NSSM)|$JAVA_APP_IP|9966"
             "Win Java Database (PostgreSQL)|$JAVA_DB_IP|5432"
-        )
+        ) || true
         [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=(
             "Win .NET Frontend (IIS+ARR)|$DOTNET_FE_IP|80"
             "Win .NET App Server (Kestrel)|$DOTNET_APP_IP|5000"
             "Win .NET Database (SQL Server)|$DOTNET_DB_IP|1433"
-        )
+        ) || true
         [[ "$DEPLOY_PHP" == "true" ]] && checks+=(
             "Win PHP Frontend (IIS+ARR)|$PHP_FE_IP|80"
             "Win PHP App Server (Laravel)|$PHP_APP_IP|8000"
             "Win PHP Database (MySQL)|$PHP_DB_IP|3306"
-        )
+        ) || true
     fi
     for pair in "${checks[@]}"; do
         IFS='|' read -r name ip port <<< "$pair"
@@ -1686,13 +1686,13 @@ run_verify() {
     header "Deployment Complete ($DEPLOY_MODE)!"
     echo -e "  Access your apps:"
     if [[ "$DEPLOY_MODE" == "linux" || "$DEPLOY_MODE" == "windows" ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET App:${NC}        http://$DOTNET_IP"
-        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java PetClinic:${NC}  http://$JAVA_IP:8080" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET App:${NC}        http://$DOTNET_IP" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Laravel:${NC}     http://$PHP_IP" || true
     elif [[ "$DEPLOY_MODE" == *"3tier"* ]]; then
-        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP"
-        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP"
-        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Frontend:${NC}    http://$PHP_FE_IP"
+        [[ "$DEPLOY_JAVA" == "true" ]]   && echo -e "    ${C}Java Frontend:${NC}   http://$JAVA_FE_IP" || true
+        [[ "$DEPLOY_DOTNET" == "true" ]] && echo -e "    ${C}.NET Frontend:${NC}   http://$DOTNET_FE_IP" || true
+        [[ "$DEPLOY_PHP" == "true" ]]    && echo -e "    ${C}PHP Frontend:${NC}    http://$PHP_FE_IP" || true
     fi
     echo ""
     echo -e "  ${G}All VMs ready for Azure Migrate discovery.${NC}"
@@ -1752,18 +1752,18 @@ show_inventory_vms() {
     local linux_vms="" windows_vms="" current_section="" line host ip
     while IFS= read -r line; do
         # Skip comments and blank lines
-        [[ "$line" =~ ^[[:space:]]*# ]] && continue
-        [[ -z "${line// /}" ]] && continue
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue || true
+        [[ -z "${line// /}" ]] && continue || true
         # Track section headers
         if [[ "$line" =~ ^\[(.+)\]$ ]]; then
             current_section="${BASH_REMATCH[1]}"
             continue
         fi
         # Skip :children and :vars meta-sections
-        [[ "$current_section" == *:children* || "$current_section" == *:vars* ]] && continue
+        [[ "$current_section" == *:children* || "$current_section" == *:vars* ]] && continue || true
         # Extract host IP (first token on the line)
         host="${line%% *}"
-        [[ -z "$host" ]] && continue
+        [[ -z "$host" ]] && continue || true
         # Classify as Linux or Windows based on section name prefix
         if [[ "$current_section" == win_* ]]; then
             windows_vms+="    $current_section: $host\n"
@@ -2151,8 +2151,8 @@ main() {
         # Prompt for credentials based on active tiers
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
-            [[ "$m" == linux* ]] && need_linux=true
-            [[ "$m" == windows* ]] && need_windows=true
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
@@ -2210,8 +2210,8 @@ main() {
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
-            [[ "$m" == linux* ]] && need_linux=true
-            [[ "$m" == windows* ]] && need_windows=true
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
@@ -2268,8 +2268,8 @@ main() {
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
-            [[ "$m" == linux* ]] && need_linux=true
-            [[ "$m" == windows* ]] && need_windows=true
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
@@ -2332,8 +2332,8 @@ main() {
 
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
-            [[ "$m" == linux* ]] && need_linux=true
-            [[ "$m" == windows* ]] && need_windows=true
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
@@ -2464,8 +2464,8 @@ main() {
         # Prompt for credentials (passwords are never saved)
         local need_linux=false need_windows=false
         for m in "${DEPLOY_MODES[@]}"; do
-            [[ "$m" == linux* ]] && need_linux=true
-            [[ "$m" == windows* ]] && need_windows=true
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
         done
         if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
@@ -2585,8 +2585,8 @@ main() {
             echo -e "    ${G}3)${NC} Skip"
             read -rp "  Choice [3]: " post_choice
             post_choice="${post_choice:-3}"
-            [[ "$post_choice" == "1" ]] && run_dns_register
-            [[ "$post_choice" == "2" ]] && run_domain_join
+            [[ "$post_choice" == "1" ]] && run_dns_register || true
+            [[ "$post_choice" == "2" ]] && run_domain_join || true
         elif [[ "$qchoice" == "2" ]]; then
             for mode in "${DEPLOY_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
@@ -2599,8 +2599,8 @@ main() {
             echo -e "    ${G}3)${NC} Skip"
             read -rp "  Choice [3]: " post_choice
             post_choice="${post_choice:-3}"
-            [[ "$post_choice" == "1" ]] && run_dns_register
-            [[ "$post_choice" == "2" ]] && run_domain_join
+            [[ "$post_choice" == "1" ]] && run_dns_register || true
+            [[ "$post_choice" == "2" ]] && run_domain_join || true
         elif [[ "$qchoice" == "4" ]]; then
             run_dns_register
         elif [[ "$qchoice" == "5" ]]; then
@@ -2793,12 +2793,12 @@ main() {
            echo -e "    ${G}3)${NC} Skip"
            read -rp "  Choice [3]: " post_choice
            post_choice="${post_choice:-3}"
-           [[ "$post_choice" == "1" ]] && run_dns_register
-           [[ "$post_choice" == "2" ]] && run_domain_join ;;
+           [[ "$post_choice" == "1" ]] && run_dns_register || true
+           [[ "$post_choice" == "2" ]] && run_domain_join || true ;;
         2) step "Config files saved. Run manually when ready:"
            echo -e "    ${GR}cd terraform && terraform init && terraform apply${NC}"
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
-           [[ "$ARCH_CHOICE" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" ;;
+           [[ "$ARCH_CHOICE" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" || true ;;
         3) run_terraform ;;
         4) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
@@ -2811,8 +2811,8 @@ main() {
            echo -e "    ${G}3)${NC} Skip"
            read -rp "  Choice [3]: " post_choice
            post_choice="${post_choice:-3}"
-           [[ "$post_choice" == "1" ]] && run_dns_register
-           [[ "$post_choice" == "2" ]] && run_domain_join ;;
+           [[ "$post_choice" == "1" ]] && run_dns_register || true
+           [[ "$post_choice" == "2" ]] && run_domain_join || true ;;
         5) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                run_ansible_resume; run_verify
