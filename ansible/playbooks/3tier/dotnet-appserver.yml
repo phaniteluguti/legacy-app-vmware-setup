@@ -48,12 +48,17 @@
         state: absent
       ignore_errors: true
 
-    - name: Install .NET SDK via install script
+    - name: Check if .NET 8.0 SDK is already installed
+      shell: /usr/share/dotnet/dotnet --list-sdks 2>/dev/null | grep -q '^8\.' && echo yes || echo no
+      register: dotnet8_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Install .NET SDK 8.0 via install script
       shell: |
         curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
         ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
-      args:
-        creates: /usr/share/dotnet/dotnet
+      when: dotnet8_installed.stdout != 'yes'
 
     - name: Create app directory
       file:
