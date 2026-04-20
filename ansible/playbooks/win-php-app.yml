@@ -160,10 +160,12 @@
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
         # Try setting root password (may already be set)
         & $mysqlBin -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '{{ mysql_root_password }}';" 2>$null
-        # Create database and user
+        # Create database and user (localhost for socket, 127.0.0.1 for TCP)
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE DATABASE IF NOT EXISTS {{ mysql_db_name }};"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'localhost' IDENTIFIED BY '{{ mysql_db_password }}';"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "CREATE USER IF NOT EXISTS '{{ mysql_db_user }}'@'127.0.0.1' IDENTIFIED BY '{{ mysql_db_password }}';"
         & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'localhost'; FLUSH PRIVILEGES;"
+        & $mysqlBin -u root -p"{{ mysql_root_password }}" -e "GRANT ALL PRIVILEGES ON {{ mysql_db_name }}.* TO '{{ mysql_db_user }}'@'127.0.0.1'; FLUSH PRIVILEGES;"
       changed_when: false
 
     # ---------------------------------------------------------------

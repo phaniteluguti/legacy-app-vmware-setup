@@ -113,12 +113,22 @@
         login_user: root
         login_password: "{{ mysql_root_password }}"
 
-    - name: Create Laravel database user
+    - name: Create Laravel database user (socket — localhost)
       community.mysql.mysql_user:
         name: "{{ mysql_db_user }}"
         password: "{{ mysql_db_password }}"
         priv: "{{ mysql_db_name }}.*:ALL"
         host: "localhost"
+        state: present
+        login_user: root
+        login_password: "{{ mysql_root_password }}"
+
+    - name: Create Laravel database user (TCP — 127.0.0.1)
+      community.mysql.mysql_user:
+        name: "{{ mysql_db_user }}"
+        password: "{{ mysql_db_password }}"
+        priv: "{{ mysql_db_name }}.*:ALL"
+        host: "127.0.0.1"
         state: present
         login_user: root
         login_password: "{{ mysql_root_password }}"
