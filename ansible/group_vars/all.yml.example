@@ -20,7 +20,7 @@ postgres_user: "petclinic"
 postgres_password: "P@ssw0rd!Change"  # CHANGE THIS
 
 # --- .NET / ASP.NET Core ---
-dotnet_sdk_version: "6.0"
+dotnet_sdk_version: "8.0"
 dotnet_app_repo: "https://github.com/dotnet/eShop.git"
 dotnet_app_branch: "main"
 dotnet_app_port: 5000

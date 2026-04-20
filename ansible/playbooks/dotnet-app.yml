@@ -1,8 +1,9 @@
 ---
 # =============================================================================
-# .NET VM — ASP.NET Core MVC sample + SQL Server 2022 Express on Ubuntu
+# .NET VM — eShopOnWeb ASP.NET Core 8 + SQL Server 2022 Express on Ubuntu
+# Same eShopOnWeb app as 3-tier, running on a single VM with local SQL Server
 # =============================================================================
-- name: Deploy ASP.NET Core App + SQL Server
+- name: Deploy eShopOnWeb + SQL Server (1-Tier)
   hosts: dotnet_servers
   become: true
   vars_files:
@@ -32,15 +33,7 @@
 
     - name: Install base packages
       apt:
-        name:
-          - git
-          - curl
-          - wget
-          - gnupg2
-          - software-properties-common
-          - apt-transport-https
-          - ca-certificates
-          - nginx
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, nginx]
         state: present
 
     # ---------------------------------------------------------------
@@ -56,18 +49,13 @@
 
     - name: Remove conflicting dotnet packages
       apt:
-        name:
-          - dotnet-sdk-6.0
-          - dotnet-sdk-8.0
-          - dotnet-host
-          - dotnet-hostfxr-6.0
-          - dotnet-hostfxr-8.0
+        name: [dotnet-sdk-6.0, dotnet-sdk-8.0, dotnet-host, dotnet-hostfxr-6.0, dotnet-hostfxr-8.0]
         state: absent
       ignore_errors: true
 
     - name: Install .NET SDK via install script
       shell: |
-        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel {{ dotnet_sdk_version }} --install-dir /usr/share/dotnet
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
         ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
       args:
         creates: /usr/share/dotnet/dotnet
@@ -141,50 +129,72 @@
       retries: 10
       delay: 5
       until: sql_ready.rc == 0
+      changed_when: false
 
     - name: Create application database
       shell: |
         /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "
         IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '{{ mssql_db_name }}')
         BEGIN CREATE DATABASE [{{ mssql_db_name }}] END"
+      changed_when: false
 
     # ---------------------------------------------------------------
-    # Sample .NET App — Create a simple MVC app
+    # eShopOnWeb Application (same as 3-tier app server)
     # ---------------------------------------------------------------
     - name: Create app directory
       file:
-        path: /opt/dotnet-app
+        path: /opt/eshop
         state: directory
         owner: "{{ ansible_user }}"
         mode: "0755"
 
-    - name: Scaffold a new ASP.NET Core MVC application
-      shell: |
-        sudo -u {{ ansible_user }} dotnet new mvc -n LegacyWebApp -o /opt/dotnet-app/LegacyWebApp --no-https
-      args:
-        creates: /opt/dotnet-app/LegacyWebApp/LegacyWebApp.csproj
-        executable: /bin/bash
+    - name: Set git safe.directory globally
+      command: git config --global --add safe.directory '*'
+      changed_when: false
+      failed_when: false
 
-    - name: Add SQL Server EF Core packages
-      shell: |
-        cd /opt/dotnet-app/LegacyWebApp
-        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.SqlServer --version 6.0.*
-        sudo -u {{ ansible_user }} dotnet add package Microsoft.EntityFrameworkCore.Design --version 6.0.*
-      args:
-        executable: /bin/bash
+    - name: Clone eShopOnWeb repository (archived .NET 8 version)
+      git:
+        repo: https://github.com/dotnet-architecture/eShopOnWeb.git
+        dest: /opt/eshop/repo
+        version: main
+        update: false
 
-    - name: Set connection string in appsettings.json
+    - name: Remove environment-specific appsettings overrides
+      file:
+        path: "{{ item }}"
+        state: absent
+      loop:
+        - /opt/eshop/repo/src/Web/appsettings.Docker.json
+        - /opt/eshop/repo/src/Web/appsettings.Development.json
+
+    - name: Fix repo ownership
+      file:
+        path: /opt/eshop/repo
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
+
+    - name: Update Web project connection string for local SQL Server
       copy:
-        dest: /opt/dotnet-app/LegacyWebApp/appsettings.json
+        dest: /opt/eshop/repo/src/Web/appsettings.json
         content: |
           {
-            "ConnectionStrings": {
-              "DefaultConnection": "Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
+            "baseUrls": {
+              "apiBase": "http://0.0.0.0:{{ dotnet_app_port }}/api/",
+              "webBase": "http://0.0.0.0:{{ dotnet_app_port }}/"
             },
+            "ConnectionStrings": {
+              "CatalogConnection": "Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;",
+              "IdentityConnection": "Server=localhost;Database={{ mssql_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;"
+            },
+            "CatalogBaseUrl": "",
             "Logging": {
               "LogLevel": {
-                "Default": "Information",
-                "Microsoft.AspNetCore": "Warning"
+                "Default": "Warning",
+                "Microsoft": "Warning",
+                "System": "Warning"
               }
             },
             "AllowedHosts": "*",
@@ -198,44 +208,45 @@
           }
         owner: "{{ ansible_user }}"
 
-    - name: Build the .NET application
+    - name: Build and publish eShopOnWeb Web project
       shell: |
-        cd /opt/dotnet-app/LegacyWebApp
-        sudo -u {{ ansible_user }} dotnet publish -c Release -o /opt/dotnet-app/published
+        cd /opt/eshop/repo
+        sudo -u {{ ansible_user }} dotnet publish src/Web/Web.csproj -c Release -o /opt/eshop/published
       args:
         executable: /bin/bash
+        creates: /opt/eshop/published/Web.dll
 
     # ---------------------------------------------------------------
     # systemd service
     # ---------------------------------------------------------------
-    - name: Create .NET app systemd service
+    - name: Create eShopOnWeb systemd service
       copy:
-        dest: /etc/systemd/system/dotnet-app.service
+        dest: /etc/systemd/system/eshop-web.service
         content: |
           [Unit]
-          Description=ASP.NET Core Legacy Web Application
+          Description=eShopOnWeb ASP.NET Core Application
           After=network.target mssql-server.service
           Requires=mssql-server.service
 
           [Service]
           Type=simple
           User={{ ansible_user }}
-          WorkingDirectory=/opt/dotnet-app/published
-          ExecStart=/usr/local/bin/dotnet /opt/dotnet-app/published/LegacyWebApp.dll
+          WorkingDirectory=/opt/eshop/published
+          ExecStart=/usr/local/bin/dotnet /opt/eshop/published/Web.dll
           Restart=on-failure
           RestartSec=10
           StandardOutput=journal
           StandardError=journal
-          Environment=ASPNETCORE_ENVIRONMENT=Production
+          Environment=ASPNETCORE_ENVIRONMENT=Docker
           Environment=DOTNET_CLI_HOME=/tmp
 
           [Install]
           WantedBy=multi-user.target
-      notify: Restart DotNet App
+      notify: Restart eShop
 
-    - name: Enable and start .NET app
+    - name: Enable and start eShopOnWeb service
       systemd:
-        name: dotnet-app
+        name: eshop-web
         daemon_reload: true
         enabled: true
         state: started
@@ -243,7 +254,7 @@
     # ---------------------------------------------------------------
     # Nginx reverse proxy
     # ---------------------------------------------------------------
-    - name: Configure Nginx as reverse proxy for .NET app
+    - name: Configure Nginx as reverse proxy for eShopOnWeb
       copy:
         dest: /etc/nginx/sites-available/dotnet-app
         content: |
@@ -295,9 +306,9 @@
       ignore_errors: true
 
   handlers:
-    - name: Restart DotNet App
+    - name: Restart eShop
       systemd:
-        name: dotnet-app
+        name: eshop-web
         state: restarted
 
     - name: Restart Nginx

@@ -1,12 +1,15 @@
 ---
 # =============================================================================
-# PHP VM — Laravel sample app + MySQL 8.0 + Apache2
+# PHP VM — Laravel app via artisan serve + Nginx reverse proxy + MySQL 8.0
+# Same deployment strategy as 3-tier (artisan serve + Nginx) on a single VM
 # =============================================================================
-- name: Deploy PHP Laravel App + MySQL
+- name: Deploy PHP Laravel App + MySQL (1-Tier)
   hosts: php_servers
   become: true
   vars_files:
     - ../group_vars/all.yml
+  vars:
+    laravel_port: 8000
 
   tasks:
     # ---- Passwordless sudo ----
@@ -27,20 +30,11 @@
 
     - name: Install base packages
       apt:
-        name:
-          - git
-          - curl
-          - wget
-          - gnupg2
-          - software-properties-common
-          - apt-transport-https
-          - ca-certificates
-          - unzip
-          - acl
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates, unzip, acl]
         state: present
 
     # ---------------------------------------------------------------
-    # PHP 8.1
+    # PHP
     # ---------------------------------------------------------------
     - name: Add PHP PPA repository
       ansible.builtin.apt_repository:
@@ -62,7 +56,6 @@
           - "php{{ php_version }}-bcmath"
           - "php{{ php_version }}-intl"
           - "php{{ php_version }}-readline"
-          - "libapache2-mod-php{{ php_version }}"
         state: present
         update_cache: true
 
@@ -131,27 +124,7 @@
         login_password: "{{ mysql_root_password }}"
 
     # ---------------------------------------------------------------
-    # Apache2
-    # ---------------------------------------------------------------
-    - name: Install Apache2
-      apt:
-        name: apache2
-        state: present
-
-    - name: Enable Apache mod_rewrite
-      apache2_module:
-        name: rewrite
-        state: present
-      notify: Restart Apache
-
-    - name: Enable Apache mod_php
-      apache2_module:
-        name: "php{{ php_version }}"
-        state: present
-      notify: Restart Apache
-
-    # ---------------------------------------------------------------
-    # Deploy Laravel App
+    # Deploy Laravel App (same as 3-tier app server)
     # ---------------------------------------------------------------
     - name: Create web app directory
       file:
@@ -165,7 +138,6 @@
       command: git clone -b {{ php_app_branch }} {{ php_app_repo }} /var/www/laravel
       args:
         creates: /var/www/laravel/composer.json
-      notify: Set Laravel permissions
 
     - name: Install Composer dependencies
       shell: |
@@ -197,6 +169,7 @@
         - { regexp: '^DB_DATABASE=', line: 'DB_DATABASE={{ mysql_db_name }}' }
         - { regexp: '^DB_USERNAME=', line: 'DB_USERNAME={{ mysql_db_user }}' }
         - { regexp: '^DB_PASSWORD=', line: 'DB_PASSWORD={{ mysql_db_password }}' }
+        - { regexp: '^APP_URL=', line: 'APP_URL=http://0.0.0.0:{{ laravel_port }}' }
 
     - name: Generate Laravel application key
       shell: |
@@ -223,38 +196,84 @@
         - /var/www/laravel/bootstrap/cache
 
     # ---------------------------------------------------------------
-    # Apache Virtual Host
+    # Laravel systemd service (artisan serve — same as 3-tier)
     # ---------------------------------------------------------------
-    - name: Configure Apache virtual host for Laravel
+    - name: Create Laravel systemd service (artisan serve)
       copy:
-        dest: /etc/apache2/sites-available/laravel.conf
+        dest: /etc/systemd/system/laravel-api.service
         content: |
-          <VirtualHost *:80>
-              ServerName localhost
-              DocumentRoot /var/www/laravel/public
+          [Unit]
+          Description=Laravel API Server
+          After=network.target
 
-              <Directory /var/www/laravel/public>
-                  AllowOverride All
-                  Require all granted
-                  Options -Indexes +FollowSymLinks
-              </Directory>
+          [Service]
+          Type=simple
+          User=www-data
+          Group=www-data
+          WorkingDirectory=/var/www/laravel
+          ExecStart=/usr/bin/php artisan serve --host=0.0.0.0 --port={{ laravel_port }}
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
 
-              ErrorLog ${APACHE_LOG_DIR}/laravel-error.log
-              CustomLog ${APACHE_LOG_DIR}/laravel-access.log combined
-          </VirtualHost>
-      notify: Restart Apache
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart Laravel API
 
-    - name: Enable Laravel site
-      shell: a2ensite laravel.conf
-      notify: Restart Apache
-
-    - name: Disable default Apache site
-      shell: a2dissite 000-default.conf
-      notify: Restart Apache
-
-    - name: Ensure Apache is started and enabled
+    - name: Enable and start Laravel API service
       systemd:
-        name: apache2
+        name: laravel-api
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    # ---------------------------------------------------------------
+    # Nginx reverse proxy (same as 3-tier frontend, proxying to local)
+    # ---------------------------------------------------------------
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx as reverse proxy for Laravel
+      copy:
+        dest: /etc/nginx/sites-available/laravel
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ laravel_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/laravel
+        dest: /etc/nginx/sites-enabled/laravel
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
         state: started
         enabled: true
 
@@ -276,14 +295,12 @@
       ignore_errors: true
 
   handlers:
-    - name: Restart Apache
+    - name: Restart Laravel API
       systemd:
-        name: apache2
+        name: laravel-api
         state: restarted
 
-    - name: Set Laravel permissions
-      file:
-        path: /var/www/laravel
-        owner: www-data
-        group: www-data
-        recurse: true
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted
