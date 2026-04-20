@@ -219,7 +219,8 @@
         sudo -u {{ ansible_user }} dotnet publish src/Web/Web.csproj -c Release -o /opt/eshop/published
       args:
         executable: /bin/bash
-        creates: /opt/eshop/published/Web.dll
+      register: dotnet_build
+      changed_when: dotnet_build.rc == 0
 
     # ---------------------------------------------------------------
     # systemd service
@@ -242,7 +243,7 @@
           RestartSec=10
           StandardOutput=journal
           StandardError=journal
-          Environment=ASPNETCORE_ENVIRONMENT=Docker
+          Environment=ASPNETCORE_ENVIRONMENT=Production
           Environment=DOTNET_CLI_HOME=/tmp
 
           [Install]

@@ -380,8 +380,64 @@
         state: started
 
     # ---------------------------------------------------------------
+    # Nginx reverse proxy (port 80 → Tomcat on petclinic_rest_port)
+    # ---------------------------------------------------------------
+    - name: Install Nginx
+      apt:
+        name: nginx
+        state: present
+
+    - name: Configure Nginx as reverse proxy for PetClinic
+      copy:
+        dest: /etc/nginx/sites-available/petclinic
+        content: |
+          server {
+              listen 80;
+              server_name _;
+
+              location / {
+                  proxy_pass         http://127.0.0.1:{{ petclinic_rest_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_cache_bypass $http_upgrade;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/petclinic
+        dest: /etc/nginx/sites-enabled/petclinic
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+
+    # ---------------------------------------------------------------
     # Firewall
     # ---------------------------------------------------------------
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
     - name: Allow Tomcat port through UFW
       ufw:
         rule: allow
@@ -398,4 +454,9 @@
     - name: Restart Tomcat
       systemd:
         name: tomcat
+        state: restarted
+
+    - name: Restart Nginx
+      systemd:
+        name: nginx
         state: restarted
