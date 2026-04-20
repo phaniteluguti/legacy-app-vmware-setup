@@ -294,6 +294,12 @@
         state: absent
       notify: Restart Nginx
 
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+
     # ---------------------------------------------------------------
     # Firewall
     # ---------------------------------------------------------------

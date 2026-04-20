@@ -380,36 +380,119 @@
         state: started
 
     # ---------------------------------------------------------------
-    # Nginx reverse proxy (port 80 → Tomcat on petclinic_rest_port)
+    # Angular SPA Frontend (same as 3-tier java-frontend)
+    # ---------------------------------------------------------------
+    - name: Install Node.js 18.x repository
+      shell: |
+        curl -fsSL https://deb.nodesource.com/setup_18.x | bash -
+      args:
+        creates: /etc/apt/sources.list.d/nodesource.list
+        executable: /bin/bash
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+        update_cache: true
+
+    - name: Clone spring-petclinic-angular repository
+      git:
+        repo: https://github.com/spring-petclinic/spring-petclinic-angular.git
+        dest: /opt/petclinic-angular
+        version: master
+        update: false
+
+    - name: Install npm dependencies
+      shell: npm install
+      args:
+        chdir: /opt/petclinic-angular
+        creates: /opt/petclinic-angular/node_modules
+
+    - name: Patch Angular environment to use Nginx reverse proxy for API
+      shell: |
+        # Change REST_API_URL from http://localhost:9966/petclinic/api/ to relative /petclinic/api/
+        grep -rl 'http://localhost:9966/petclinic/api/' /opt/petclinic-angular/src/environments/ && \
+          find /opt/petclinic-angular/src -name 'environment*.ts' -exec \
+            sed -i "s|http://localhost:9966/petclinic/api/|/petclinic/api/|g" {} + && \
+          rm -rf /opt/petclinic-angular/dist
+      args:
+        chdir: /opt/petclinic-angular
+      register: patch_result
+      changed_when: patch_result.rc == 0
+      failed_when: false
+
+    - name: Build Angular app for production
+      shell: npx ng build --configuration production
+      args:
+        chdir: /opt/petclinic-angular
+        creates: /opt/petclinic-angular/dist
+      environment:
+        NODE_OPTIONS: "--max-old-space-size=2048"
+
+    - name: Find Angular dist output directory (where index.html lives)
+      shell: |
+        # Angular may output to dist/ directly, dist/<project>/, or dist/<project>/browser/
+        if [ -f /opt/petclinic-angular/dist/index.html ]; then
+          echo /opt/petclinic-angular/dist
+        else
+          find /opt/petclinic-angular/dist -name index.html -type f -print -quit | xargs dirname
+        fi
+      register: dist_dir_result
+      changed_when: false
+
+    - name: Set dist path fact
+      set_fact:
+        angular_dist: "{{ dist_dir_result.stdout | trim }}"
+
+    - name: Copy built Angular app to Nginx web root
+      shell: cp -a {{ angular_dist }}/. /var/www/petclinic/
+      args:
+        creates: /var/www/petclinic/index.html
+
+    - name: Set Nginx web root ownership
+      file:
+        path: /var/www/petclinic
+        state: directory
+        owner: www-data
+        group: www-data
+        recurse: true
+
+    # ---------------------------------------------------------------
+    # Nginx — Angular SPA + API reverse proxy (port 80)
     # ---------------------------------------------------------------
     - name: Install Nginx
       apt:
         name: nginx
         state: present
 
-    - name: Configure Nginx as reverse proxy for PetClinic
+    - name: Configure Nginx for Angular SPA with API proxy
       copy:
         dest: /etc/nginx/sites-available/petclinic
         content: |
           server {
               listen 80;
               server_name _;
+              root /var/www/petclinic;
+              index index.html;
 
+              # Angular SPA — serve index.html for all routes
               location / {
-                  proxy_pass         http://127.0.0.1:{{ petclinic_rest_port }};
+                  try_files $uri $uri/ /index.html;
+              }
+
+              # Proxy API requests to the local Tomcat
+              location /petclinic/api/ {
+                  proxy_pass http://127.0.0.1:{{ petclinic_rest_port }}/petclinic/api/;
                   proxy_http_version 1.1;
-                  proxy_set_header   Host $host;
-                  proxy_set_header   X-Real-IP $remote_addr;
-                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
-                  proxy_set_header   X-Forwarded-Proto $scheme;
-                  proxy_set_header   Upgrade $http_upgrade;
-                  proxy_set_header   Connection keep-alive;
-                  proxy_cache_bypass $http_upgrade;
+                  proxy_set_header Host $host;
+                  proxy_set_header X-Real-IP $remote_addr;
+                  proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header X-Forwarded-Proto $scheme;
               }
           }
       notify: Restart Nginx
 
-    - name: Enable the Nginx site
+    - name: Enable petclinic Nginx site
       file:
         src: /etc/nginx/sites-available/petclinic
         dest: /etc/nginx/sites-enabled/petclinic
