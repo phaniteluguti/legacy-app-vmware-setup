@@ -241,6 +241,13 @@
     # ---------------------------------------------------------------
     # Nginx reverse proxy (same as 3-tier frontend, proxying to local)
     # ---------------------------------------------------------------
+    - name: Stop and disable Apache2 (conflicts with Nginx on port 80)
+      systemd:
+        name: apache2
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
     - name: Install Nginx
       apt:
         name: nginx
