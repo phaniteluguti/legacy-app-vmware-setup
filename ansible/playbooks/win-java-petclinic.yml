@@ -35,7 +35,7 @@
     # ---------------------------------------------------------------
     - name: Install OpenJDK {{ java_version }} via Chocolatey
       win_chocolatey:
-        name: "microsoft-openjdk-{{ java_version }}"
+        name: "microsoft-openjdk{{ java_version }}"
         state: present
 
     - name: Detect JDK install path
