@@ -15,6 +15,8 @@
     tomcat_version: "10.1.28"
     tomcat_major: "10"
     tomcat_install_dir: 'C:\Tomcat'
+    angular_src: C:\Apps\petclinic-angular
+    iis_site_path: C:\inetpub\PetClinicFrontend
 
   tasks:
     # ---------------------------------------------------------------
@@ -434,6 +436,231 @@
         action: allow
         state: present
         enabled: true
+
+    # ---------------------------------------------------------------
+    # IIS + Angular SPA Frontend (same as 3-tier win-java-frontend)
+    # ---------------------------------------------------------------
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    - name: Install IIS URL Rewrite, ARR, and Node.js via Chocolatey
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - urlrewrite
+        - iis-arr
+        - nodejs-lts
+
+    - name: Enable ARR proxy globally
+      win_shell: |
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      register: arr_result
+      changed_when: "'HRESULT' not in arr_result.stderr"
+      ignore_errors: false
+
+    - name: Set ARR preserveHostHeader to false
+      win_shell: |
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config -section:system.webServer/proxy /preserveHostHeader:"False" /commit:apphost
+      changed_when: false
+      ignore_errors: true
+
+    - name: Unlock httpErrors section so web.config can override
+      win_shell: |
+        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config -section:system.webServer/httpErrors
+      changed_when: false
+      ignore_errors: true
+
+    # --- Build Angular SPA ---
+    - name: Clone spring-petclinic-angular repository
+      win_shell: |
+        & "C:\Program Files\Git\bin\git.exe" clone https://github.com/spring-petclinic/spring-petclinic-angular.git {{ angular_src }}
+      args:
+        creates: '{{ angular_src }}\package.json'
+
+    - name: Refresh environment PATH (pick up Node.js)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        node --version
+        npm --version
+      register: node_check
+      changed_when: false
+
+    - name: Install npm dependencies
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ angular_src }}"
+        npm install
+      args:
+        creates: '{{ angular_src }}\node_modules'
+      timeout: 600
+
+    - name: Patch Angular environment to use reverse proxy for API
+      win_shell: |
+        $changed = $false
+        Get-ChildItem "{{ angular_src }}\src\environments" -Filter "environment*.ts" | ForEach-Object {
+          $content = Get-Content $_.FullName -Raw
+          if ($content -match "http://localhost:9966/petclinic/api/") {
+            $content -replace "http://localhost:9966/petclinic/api/", "/petclinic/api/" | Set-Content $_.FullName
+            $changed = $true
+          }
+        }
+        if ($changed -and (Test-Path "{{ angular_src }}\dist")) {
+          Remove-Item "{{ angular_src }}\dist" -Recurse -Force
+        }
+
+    - name: Build Angular app for production
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:NODE_OPTIONS = "--max-old-space-size=2048"
+        Set-Location "{{ angular_src }}"
+        npx ng build --configuration production
+      args:
+        creates: '{{ angular_src }}\dist'
+      timeout: 600
+
+    - name: Find Angular dist output directory (where index.html lives)
+      win_shell: |
+        $distRoot = "{{ angular_src }}\dist"
+        if (Test-Path "$distRoot\index.html") {
+          Write-Output $distRoot
+        } else {
+          $indexFile = Get-ChildItem $distRoot -Recurse -Filter index.html -File | Select-Object -First 1
+          if ($indexFile) {
+            Write-Output $indexFile.DirectoryName
+          } else {
+            Write-Output $distRoot
+          }
+        }
+      register: dist_dir_result
+      changed_when: false
+
+    - name: Set dist path fact
+      set_fact:
+        angular_dist: "{{ dist_dir_result.stdout | trim }}"
+
+    # --- Deploy to IIS ---
+    - name: Create IIS site directory
+      win_file:
+        path: '{{ iis_site_path }}'
+        state: directory
+
+    - name: Check if Angular app is already deployed to IIS
+      win_stat:
+        path: '{{ iis_site_path }}\index.html'
+      register: iis_index
+
+    - name: Clear IIS site directory
+      win_shell: Remove-Item "{{ iis_site_path }}/*" -Recurse -Force -ErrorAction SilentlyContinue
+      when: not iis_index.stat.exists
+
+    - name: Copy built Angular app to IIS site directory
+      win_shell: Copy-Item "{{ angular_dist }}/*" "{{ iis_site_path }}/" -Recurse -Force
+      when: not iis_index.stat.exists
+
+    - name: Create web.config for SPA routing and API proxy
+      win_copy:
+        dest: '{{ iis_site_path }}\web.config'
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <httpErrors existingResponse="PassThrough" />
+              <rewrite>
+                <rules>
+                  <rule name="Proxy to PetClinic API" stopProcessing="true">
+                    <match url="^petclinic/api/(.*)" />
+                    <action type="Rewrite" url="http://localhost:{{ petclinic_rest_port }}/petclinic/api/{R:1}" />
+                  </rule>
+                  <rule name="Angular SPA fallback" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/index.html" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool (No Managed Code)
+      win_iis_webapppool:
+        name: PetClinicFrontendPool
+        state: started
+        attributes:
+          managedRuntimeVersion: ''
+          managedPipelineMode: 'Integrated'
+
+    - name: Create IIS website
+      win_iis_website:
+        name: PetClinicFrontend
+        state: started
+        port: 80
+        physical_path: '{{ iis_site_path }}'
+        application_pool: PetClinicFrontendPool
+
+    - name: Allow HTTP through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Reset IIS to apply changes
+      win_shell: iisreset /restart
+      changed_when: false
+
+    # --- Verification ---
+    - name: Smoke-test Angular SPA via IIS
+      win_uri:
+        url: http://localhost/
+        return_content: false
+        status_code: 200
+      register: local_check
+      retries: 3
+      delay: 5
+      until: local_check.status_code == 200
+      ignore_errors: true
+
+    - name: Dump IIS error details if smoke-test failed
+      win_shell: |
+        Write-Output "=== IIS Sites ==="
+        & "$env:windir\system32\inetsrv\appcmd.exe" list site
+        Write-Output ""
+        Write-Output "=== App Pools ==="
+        & "$env:windir\system32\inetsrv\appcmd.exe" list apppool
+        Write-Output ""
+        Write-Output "=== Last 20 lines of IIS error log ==="
+        $logDir = "$env:SystemDrive\inetpub\logs\LogFiles"
+        $latestLog = Get-ChildItem $logDir -Recurse -Filter *.log -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($latestLog) { Get-Content $latestLog.FullName -Tail 20 } else { Write-Output '(no IIS log found)' }
+      register: iis_diag
+      when: local_check is failed
+
+    - name: Display IIS diagnostics
+      debug:
+        var: iis_diag.stdout_lines
+      when: local_check is failed
 
     # ---------------------------------------------------------------
     # WinRM + RDP — keep available for Azure Migrate
