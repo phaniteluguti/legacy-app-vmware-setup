@@ -1,0 +1,61 @@
+---
+# Quick diagnostic for Windows 1-tier Java + .NET VMs
+- name: Diagnose Windows Java VM
+  hosts: win_java_servers
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: Java VM diagnostics
+      win_shell: |
+        Write-Output "=== Tomcat Service ==="
+        Get-Service Tomcat -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+        Write-Output ""
+        Write-Output "=== Port 9966 ==="
+        netstat -an | Select-String ":9966.*LISTEN"
+        Write-Output ""
+        Write-Output "=== PostgreSQL Service ==="
+        Get-Service postgresql* -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+        Write-Output ""
+        Write-Output "=== Port 5432 ==="
+        netstat -an | Select-String ":5432.*LISTEN"
+        Write-Output ""
+        Write-Output "=== Tomcat stderr.log (last 30) ==="
+        if (Test-Path "C:\Tomcat\logs\stderr.log") { Get-Content "C:\Tomcat\logs\stderr.log" -Tail 30 } else { Write-Output "(not found)" }
+        Write-Output ""
+        Write-Output "=== Catalina log (last 30) ==="
+        $clog = Get-ChildItem "C:\Tomcat\logs" -Filter "catalina*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($clog) { Get-Content $clog.FullName -Tail 30 } else { Write-Output "(not found)" }
+        Write-Output ""
+        Write-Output "=== HTTP test ==="
+        try { $r = Invoke-WebRequest -Uri "http://localhost:9966/petclinic/api/owners" -UseBasicParsing -TimeoutSec 5; Write-Output "Status: $($r.StatusCode)" } catch { Write-Output "FAIL: $_" }
+      register: java_diag
+    - debug: var=java_diag.stdout_lines
+
+- name: Diagnose Windows .NET VM
+  hosts: win_dotnet_servers
+  gather_facts: false
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+  tasks:
+    - name: .NET VM diagnostics
+      win_shell: |
+        Write-Output "=== eShopOnWeb Service ==="
+        $nssm = Get-Command nssm -ErrorAction SilentlyContinue
+        if ($nssm) { & nssm status eShopOnWeb } else { Write-Output "NSSM not found" }
+        Write-Output ""
+        Write-Output "=== SQL Server Service ==="
+        Get-Service MSSQLSERVER -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+        Write-Output ""
+        Write-Output "=== Port 5000 ==="
+        netstat -an | Select-String ":5000.*LISTEN"
+        Write-Output ""
+        Write-Output "=== stderr.log (last 30) ==="
+        if (Test-Path "C:\Apps\eShopOnWeb\logs\stderr.log") { Get-Content "C:\Apps\eShopOnWeb\logs\stderr.log" -Tail 30 } else { Write-Output "(not found)" }
+        Write-Output ""
+        Write-Output "=== HTTP test ==="
+        try { $r = Invoke-WebRequest -Uri "http://localhost:5000/" -UseBasicParsing -TimeoutSec 5; Write-Output "Status: $($r.StatusCode)" } catch { Write-Output "FAIL: $_" }
+      register: dotnet_diag
+    - debug: var=dotnet_diag.stdout_lines
