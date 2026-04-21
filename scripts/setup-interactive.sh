@@ -2128,17 +2128,8 @@ EOF
         -e "mysql_root_password=$mysql_admin_pass"
     )
 
-    # If inventory has Linux hosts without ansible_ssh_pass, use --ask-pass
-    local ask_flags=""
-    if grep 'ansible_user=' inventory/hosts.ini 2>/dev/null | grep -qv 'ansible_ssh_pass='; then
-        echo ""
-        echo -e "  ${Y}Linux hosts detected in inventory without saved SSH credentials.${NC}"
-        echo -e "  ${Y}Ansible will prompt you for the SSH password.${NC}"
-        ask_flags="-k -K"
-    fi
-
     ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
-        "${extra_args[@]}" $ask_flags -v
+        "${extra_args[@]}" -v
 
     local rc=$?
     if [[ $rc -eq 0 ]]; then
@@ -2328,22 +2319,18 @@ main() {
             prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
         fi
 
-        # Only rebuild inventory if hosts.ini doesn't already exist.
-        if [[ -f "$ANSIBLE_DIR/inventory/hosts.ini" ]]; then
-            step "Using existing inventory: $ANSIBLE_DIR/inventory/hosts.ini (not overwriting)"
-        else
-            pushd "$TF_DIR" > /dev/null
-            terraform init -input=false > /dev/null 2>&1
-            INVENTORY_INITIALIZED=""
-            for mode in "${DEPLOY_MODES[@]}"; do
-                DEPLOY_MODE="$mode"
-                step "Reading Terraform IPs for mode: $DEPLOY_MODE"
-                _read_mode_ips_from_terraform "$DEPLOY_MODE"
-                write_inventory
-            done
-            popd > /dev/null
-            step "Inventory rebuilt from Terraform state"
-        fi
+        # Always rebuild inventory with proper credentials per mode
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
+            write_inventory
+        done
+        popd > /dev/null
+        step "Inventory rebuilt from Terraform state"
 
         run_azmigrate_db
         exit 0
