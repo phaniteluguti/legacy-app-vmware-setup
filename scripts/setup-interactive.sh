@@ -1175,7 +1175,7 @@ write_inventory() {
 
     if [[ "$DEPLOY_MODE" == "linux" ]]; then
         if [[ "$SSH_AUTH_METHOD" == "password" && -n "$SSH_PASSWORD" ]]; then
-            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
         elif [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             # Password auth but no password available (e.g. OS=windows selected)
             AUTH_LINE="ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
@@ -1247,7 +1247,7 @@ EOF
 
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         if [[ "$SSH_AUTH_METHOD" == "password" && -n "$SSH_PASSWORD" ]]; then
-            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_become_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
+            AUTH_LINE="ansible_ssh_pass=$SSH_PASSWORD ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
         elif [[ "$SSH_AUTH_METHOD" == "password" ]]; then
             AUTH_LINE="ansible_ssh_common_args='-o StrictHostKeyChecking=no'"
         else
