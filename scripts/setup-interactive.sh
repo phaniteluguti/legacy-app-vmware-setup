@@ -2090,13 +2090,24 @@ run_azmigrate_db() {
         err "Appliance IP is required for PostgreSQL pg_hba.conf access"; popd > /dev/null; return 1
     fi
 
-    # Prompt for DB admin passwords (needed for Windows VMs where peer auth isn't available)
-    echo ""
-    echo -e "  ${Y}Database admin passwords (needed for Windows DB VMs):${NC}"
-    read -srp "  PostgreSQL superuser (postgres) password: " pg_admin_pass
-    echo ""
-    read -srp "  MySQL root password: " mysql_admin_pass
-    echo ""
+    # Reuse DB admin passwords from Step 5 if available; otherwise prompt
+    local pg_admin_pass="${PG_PASS:-}"
+    local mysql_admin_pass="${MYSQL_ROOT:-}"
+    if [[ -z "$pg_admin_pass" || "$pg_admin_pass" == "placeholder" ]] || [[ -z "$mysql_admin_pass" || "$mysql_admin_pass" == "placeholder" ]]; then
+        echo ""
+        echo -e "  ${Y}Database admin passwords (needed for DB VMs):${NC}"
+        if [[ -z "$pg_admin_pass" || "$pg_admin_pass" == "placeholder" ]]; then
+            read -srp "  PostgreSQL superuser (postgres) password: " pg_admin_pass
+            echo ""
+        fi
+        if [[ -z "$mysql_admin_pass" || "$mysql_admin_pass" == "placeholder" ]]; then
+            read -srp "  MySQL root password: " mysql_admin_pass
+            echo ""
+        fi
+    else
+        echo ""
+        echo -e "  ${GR}Reusing PostgreSQL and MySQL passwords from Step 5.${NC}"
+    fi
 
     # Save settings for next run (passwords are NEVER saved)
     cat > "$azmig_conf" <<EOF
