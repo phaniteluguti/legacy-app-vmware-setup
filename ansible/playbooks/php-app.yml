@@ -90,6 +90,13 @@
         state: started
         enabled: true
 
+    - name: Configure MySQL to listen on all interfaces
+      lineinfile:
+        path: /etc/mysql/mysql.conf.d/mysqld.cnf
+        regexp: "^bind-address"
+        line: "bind-address = 0.0.0.0"
+      notify: Restart MySQL
+
     - name: Set MySQL root password and create .my.cnf
       shell: |
         # Try socket auth first (fresh install), then password auth (re-run)
@@ -312,6 +319,11 @@
       ignore_errors: true
 
   handlers:
+    - name: Restart MySQL
+      systemd:
+        name: mysql
+        state: restarted
+
     - name: Restart Laravel API
       systemd:
         name: laravel-api
