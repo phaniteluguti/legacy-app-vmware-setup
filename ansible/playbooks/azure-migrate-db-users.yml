@@ -30,7 +30,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
 
     - name: Create Azure Migrate PostgreSQL user with least privileges
-      no_log: true
+      #no_log: true   # Temporarily disabled for debugging — re-enable after fix
       shell: |
         sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"

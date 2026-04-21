@@ -905,7 +905,11 @@ show_summary() {
     fi
     echo -e "  Network:        $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
 
-    for mode in "${DEPLOY_MODES[@]}"; do
+    # Use SELECTED_MODES for display when available; fall back to DEPLOY_MODES
+    local -a summary_modes=("${SELECTED_MODES[@]:-}")
+    [[ ${#summary_modes[@]} -eq 0 || -z "${summary_modes[0]}" ]] && summary_modes=("${DEPLOY_MODES[@]}")
+
+    for mode in "${summary_modes[@]}"; do
         local os_label="Linux"
         [[ "$mode" == windows* ]] && os_label="Windows" || true
         echo -e "  ${C}--- $os_label Deployment ---${NC}"
@@ -2113,32 +2117,17 @@ EOF
         -e "mysql_root_password=$mysql_admin_pass"
     )
 
-    # If inventory has Linux hosts without ansible_ssh_pass, prompt and patch inventory
+    # If inventory has Linux hosts without ansible_ssh_pass, use --ask-pass
+    local ask_flags=""
     if grep 'ansible_user=' inventory/hosts.ini 2>/dev/null | grep -qv 'ansible_ssh_pass='; then
-        local ssh_user; ssh_user=$(grep -m1 'ansible_user=' inventory/hosts.ini | sed 's/.*ansible_user=\([^ ]*\).*/\1/')
-        ssh_user="${ssh_user:-ubuntu}"
         echo ""
-        echo -e "  ${Y}Linux hosts detected in inventory with no saved SSH password.${NC}"
-        read -srp "  SSH password for $ssh_user: " linux_ssh_pass
-        echo ""
-        if [[ -n "$linux_ssh_pass" ]]; then
-            # Patch inventory in-place: add SSH creds to Linux host lines that lack them
-            # (safer than -e override which can conflict with empty host vars)
-            local tmp_inv; tmp_inv=$(mktemp)
-            while IFS= read -r line; do
-                if echo "$line" | grep -q 'ansible_user=' && ! echo "$line" | grep -q 'ansible_ssh_pass='; then
-                    echo "$line ansible_ssh_pass=$linux_ssh_pass ansible_become_pass=$linux_ssh_pass"
-                else
-                    echo "$line"
-                fi
-            done < inventory/hosts.ini > "$tmp_inv"
-            cp "$tmp_inv" inventory/hosts.ini
-            rm -f "$tmp_inv"
-        fi
+        echo -e "  ${Y}Linux hosts detected in inventory without saved SSH credentials.${NC}"
+        echo -e "  ${Y}Ansible will prompt you for the SSH password.${NC}"
+        ask_flags="-k -K"
     fi
 
     ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
-        "${extra_args[@]}" -v
+        "${extra_args[@]}" $ask_flags -v
 
     local rc=$?
     if [[ $rc -eq 0 ]]; then
