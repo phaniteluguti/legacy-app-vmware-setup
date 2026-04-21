@@ -7,55 +7,52 @@
   vars_files:
     - ../group_vars/all.yml
   tasks:
-    - name: Java VM diagnostics
+    - name: Check WAR contents for properties file
       win_shell: |
-        Write-Output "=== Tomcat Service ==="
-        Get-Service Tomcat -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+        Write-Output "=== WAR file ==="
+        $war = Get-ChildItem "C:\Tomcat\webapps" -Filter "petclinic.war" -ErrorAction SilentlyContinue
+        if ($war) { Write-Output "Found: $($war.FullName) ($([math]::Round($war.Length/1MB,2)) MB)" } else { Write-Output "NO WAR FOUND" }
         Write-Output ""
-        Write-Output "=== Port 9966 ==="
-        netstat -an | Select-String ":9966.*LISTEN"
+        Write-Output "=== Extracted webapp ==="
+        if (Test-Path "C:\Tomcat\webapps\petclinic") { Write-Output "Extracted: YES" } else { Write-Output "Extracted: NO" }
         Write-Output ""
-        Write-Output "=== PostgreSQL Service ==="
-        Get-Service postgresql* -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
+        Write-Output "=== application-postgresql.properties in WAR ==="
+        Add-Type -AssemblyName System.IO.Compression.FileSystem
+        if ($war) {
+          $zip = [System.IO.Compression.ZipFile]::OpenRead($war.FullName)
+          $entry = $zip.Entries | Where-Object { $_.Name -eq "application-postgresql.properties" }
+          if ($entry) {
+            Write-Output "FOUND in WAR: $($entry.FullName)"
+            $sr = New-Object System.IO.StreamReader($entry.Open())
+            Write-Output $sr.ReadToEnd()
+            $sr.Close()
+          } else {
+            Write-Output "MISSING FROM WAR!"
+          }
+          $zip.Dispose()
+        }
         Write-Output ""
-        Write-Output "=== Port 5432 ==="
-        netstat -an | Select-String ":5432.*LISTEN"
+        Write-Output "=== Source properties file ==="
+        $src = "C:\Apps\petclinic-rest\src\main\resources\application-postgresql.properties"
+        if (Test-Path $src) { Get-Content $src } else { Write-Output "MISSING from source!" }
         Write-Output ""
-        Write-Output "=== Tomcat stderr.log (last 30) ==="
-        if (Test-Path "C:\Tomcat\logs\stderr.log") { Get-Content "C:\Tomcat\logs\stderr.log" -Tail 30 } else { Write-Output "(not found)" }
+        Write-Output "=== Spring logs (petclinic dir) ==="
+        $springLog = Get-ChildItem "C:\Tomcat\webapps\petclinic" -Recurse -Filter "*.log" -ErrorAction SilentlyContinue | Select-Object -First 3
+        if ($springLog) { $springLog | ForEach-Object { Write-Output "LOG: $($_.FullName)"; Get-Content $_.FullName -Tail 20 } } else { Write-Output "(no logs in webapp dir)" }
         Write-Output ""
-        Write-Output "=== Catalina log (last 30) ==="
-        $clog = Get-ChildItem "C:\Tomcat\logs" -Filter "catalina*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
-        if ($clog) { Get-Content $clog.FullName -Tail 30 } else { Write-Output "(not found)" }
+        Write-Output "=== Tomcat localhost log ==="
+        $llog = Get-ChildItem "C:\Tomcat\logs" -Filter "localhost*.log" -ErrorAction SilentlyContinue | Sort-Object LastWriteTime -Descending | Select-Object -First 1
+        if ($llog) { Write-Output "File: $($llog.Name)"; Get-Content $llog.FullName -Tail 50 } else { Write-Output "(not found)" }
         Write-Output ""
-        Write-Output "=== HTTP test ==="
-        try { $r = Invoke-WebRequest -Uri "http://localhost:9966/petclinic/api/owners" -UseBasicParsing -TimeoutSec 5; Write-Output "Status: $($r.StatusCode)" } catch { Write-Output "FAIL: $_" }
+        Write-Output "=== HTTP tests (15s timeout) ==="
+        try { $r = Invoke-WebRequest -Uri "http://localhost:9966/petclinic/" -UseBasicParsing -TimeoutSec 15; Write-Output "/petclinic/ => Status: $($r.StatusCode)" } catch { Write-Output "/petclinic/ => FAIL: $_" }
+        try { $r = Invoke-WebRequest -Uri "http://localhost:9966/petclinic/api/owners" -UseBasicParsing -TimeoutSec 15; Write-Output "/petclinic/api/owners => Status: $($r.StatusCode)" } catch { Write-Output "/petclinic/api/owners => FAIL: $_" }
+        try { $r = Invoke-WebRequest -Uri "http://localhost:9966/" -UseBasicParsing -TimeoutSec 15; Write-Output "/ => Status: $($r.StatusCode)" } catch { Write-Output "/ => FAIL: $_" }
+        Write-Output ""
+        Write-Output "=== DB connectivity test ==="
+        $env:PGPASSWORD = "{{ postgres_password }}"
+        & "C:\Program Files\PostgreSQL\15\bin\psql.exe" -U {{ postgres_user }} -d {{ postgres_db }} -h localhost -tAc "SELECT count(*) FROM pg_tables WHERE schemaname='public'" 2>&1
       register: java_diag
+      timeout: 120
     - debug: var=java_diag.stdout_lines
 
-- name: Diagnose Windows .NET VM
-  hosts: win_dotnet_servers
-  gather_facts: false
-  become: false
-  vars_files:
-    - ../group_vars/all.yml
-  tasks:
-    - name: .NET VM diagnostics
-      win_shell: |
-        Write-Output "=== eShopOnWeb Service ==="
-        $nssm = Get-Command nssm -ErrorAction SilentlyContinue
-        if ($nssm) { & nssm status eShopOnWeb } else { Write-Output "NSSM not found" }
-        Write-Output ""
-        Write-Output "=== SQL Server Service ==="
-        Get-Service MSSQLSERVER -ErrorAction SilentlyContinue | Format-List Name, Status, StartType
-        Write-Output ""
-        Write-Output "=== Port 5000 ==="
-        netstat -an | Select-String ":5000.*LISTEN"
-        Write-Output ""
-        Write-Output "=== stderr.log (last 30) ==="
-        if (Test-Path "C:\Apps\eShopOnWeb\logs\stderr.log") { Get-Content "C:\Apps\eShopOnWeb\logs\stderr.log" -Tail 30 } else { Write-Output "(not found)" }
-        Write-Output ""
-        Write-Output "=== HTTP test ==="
-        try { $r = Invoke-WebRequest -Uri "http://localhost:5000/" -UseBasicParsing -TimeoutSec 5; Write-Output "Status: $($r.StatusCode)" } catch { Write-Output "FAIL: $_" }
-      register: dotnet_diag
-    - debug: var=dotnet_diag.stdout_lines
