@@ -547,6 +547,20 @@ collect_vms() {
         PHP_FE_HOSTNAME="${PREV_WIN_PHP_FE_HOSTNAME:-win-php-fe}"; PHP_APP_HOSTNAME="${PREV_WIN_PHP_APP_HOSTNAME:-win-php-app}"; PHP_DB_HOSTNAME="${PREV_WIN_PHP_DB_HOSTNAME:-win-php-db}"
     fi
 
+    # Override with Windows single-VM values when deploying Windows
+    if [[ "$DEPLOY_MODE" == "windows" ]]; then
+        JAVA_IP="${PREV_WIN_JAVA_IP:-${PREV_JAVA_IP:-10.1.2.7}}"
+        DOTNET_IP="${PREV_WIN_DOTNET_IP:-${PREV_DOTNET_IP:-10.1.2.8}}"
+        PHP_IP="${PREV_WIN_PHP_IP:-${PREV_PHP_IP:-10.1.2.9}}"
+        # Hostnames: discard stale win_ values that match linux_ (from previous cascading bug)
+        [[ "$PREV_WIN_JAVA_HOSTNAME" == "$PREV_JAVA_HOSTNAME" ]] && PREV_WIN_JAVA_HOSTNAME="" || true
+        [[ "$PREV_WIN_DOTNET_HOSTNAME" == "$PREV_DOTNET_HOSTNAME" ]] && PREV_WIN_DOTNET_HOSTNAME="" || true
+        [[ "$PREV_WIN_PHP_HOSTNAME" == "$PREV_PHP_HOSTNAME" ]] && PREV_WIN_PHP_HOSTNAME="" || true
+        JAVA_HOSTNAME="${PREV_WIN_JAVA_HOSTNAME:-win-java}"
+        DOTNET_HOSTNAME="${PREV_WIN_DOTNET_HOSTNAME:-win-dotnet}"
+        PHP_HOSTNAME="${PREV_WIN_PHP_HOSTNAME:-win-php}"
+    fi
+
     # Populate WIN_ variables from saved values for "both" mode (used by summary + write_tfvars)
     if [[ "$OS_CHOICE" == "both" ]]; then
         # 3-Tier WIN_ variables
@@ -779,8 +793,8 @@ collect_vms() {
                 local jlabel="Java VM (PetClinic + PostgreSQL)"
                 [[ "$OS_CHOICE" == "windows" ]] && jlabel="Java VM (PetClinic + PostgreSQL) — Windows" || true
                 echo -e "  ${Y}--- $jlabel ---${NC}"
-                prompt "  Hostname" "$PREV_JAVA_HOSTNAME"; JAVA_HOSTNAME="$REPLY"
-                prompt_ip "  IP" "$PREV_JAVA_IP"; JAVA_IP="$REPLY"
+                prompt "  Hostname" "$JAVA_HOSTNAME"; JAVA_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$JAVA_IP"; JAVA_IP="$REPLY"
                 prompt "  CPUs" "$PREV_JAVA_CPU"; JAVA_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_JAVA_MEM"; JAVA_MEM="$REPLY"
                 echo ""
@@ -790,8 +804,8 @@ collect_vms() {
                 local dlabel=".NET VM (ASP.NET + SQL Server)"
                 [[ "$OS_CHOICE" == "windows" ]] && dlabel=".NET VM (IIS + ASP.NET + SQL Server) — Windows" || true
                 echo -e "  ${Y}--- $dlabel ---${NC}"
-                prompt "  Hostname" "$PREV_DOTNET_HOSTNAME"; DOTNET_HOSTNAME="$REPLY"
-                prompt_ip "  IP" "$PREV_DOTNET_IP"; DOTNET_IP="$REPLY"
+                prompt "  Hostname" "$DOTNET_HOSTNAME"; DOTNET_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$DOTNET_IP"; DOTNET_IP="$REPLY"
                 prompt "  CPUs" "$PREV_DOTNET_CPU"; DOTNET_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_DOTNET_MEM"; DOTNET_MEM="$REPLY"
                 echo ""
@@ -801,8 +815,8 @@ collect_vms() {
                 local plabel="PHP VM (Laravel + MySQL)"
                 [[ "$OS_CHOICE" == "windows" ]] && plabel="PHP VM (IIS + Laravel + MySQL) — Windows" || true
                 echo -e "  ${Y}--- $plabel ---${NC}"
-                prompt "  Hostname" "$PREV_PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
-                prompt_ip "  IP" "$PREV_PHP_IP"; PHP_IP="$REPLY"
+                prompt "  Hostname" "$PHP_HOSTNAME"; PHP_HOSTNAME="$REPLY"
+                prompt_ip "  IP" "$PHP_IP"; PHP_IP="$REPLY"
                 prompt "  CPUs" "$PREV_PHP_CPU"; PHP_CPU="$REPLY"
                 prompt "  Memory MB" "$PREV_PHP_MEM"; PHP_MEM="$REPLY"
             fi
