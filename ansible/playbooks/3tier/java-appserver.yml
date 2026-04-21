@@ -170,10 +170,32 @@
         group: "{{ ansible_user }}"
         recurse: true
 
+    - name: Check if postgresql properties exist in deployed WAR
+      stat:
+        path: "{{ tomcat_install_dir }}/webapps/petclinic/WEB-INF/classes/application-postgresql.properties"
+      register: war_pg_props
+
+    - name: Force rebuild if properties missing from deployed WAR
+      file:
+        path: /opt/petclinic-rest/repo/target
+        state: absent
+      when: war_pg_props.stat.exists is defined and not war_pg_props.stat.exists
+
+    - name: Remove stale deployed WAR when rebuild needed
+      file:
+        path: "{{ tomcat_install_dir }}/webapps/{{ item }}"
+        state: absent
+      loop:
+        - petclinic.war
+        - petclinic
+      when: war_pg_props.stat.exists is defined and not war_pg_props.stat.exists
+      notify: Restart Tomcat
+
     - name: Configure PostgreSQL connection
       copy:
         dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
+          database=postgres
           spring.sql.init.platform=postgres
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
