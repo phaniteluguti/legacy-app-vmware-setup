@@ -231,6 +231,24 @@
     # ---------------------------------------------------------------
     # systemd service
     # ---------------------------------------------------------------
+    - name: Stop and disable old dotnet-app service if present
+      systemd:
+        name: dotnet-app
+        state: stopped
+        enabled: false
+      ignore_errors: true
+
+    - name: Remove old dotnet-app service file
+      file:
+        path: /etc/systemd/system/dotnet-app.service
+        state: absent
+      notify: Restart eShop
+
+    - name: Remove old LegacyWebApp deployment
+      file:
+        path: /opt/dotnet-app
+        state: absent
+
     - name: Create eShopOnWeb systemd service
       copy:
         dest: /etc/systemd/system/eshop-web.service
