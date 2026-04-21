@@ -2718,6 +2718,10 @@ main() {
             DEPLOY_WINDOWS_1TIER="true"
         fi
     fi
+    # Capture the user-selected modes BEFORE merging with previous tiers
+    # (Ansible should only run on the modes the user selected this time)
+    derive_modes_from_booleans
+    SELECTED_MODES=("${DEPLOY_MODES[@]}")
     # Merge with previously-enabled tiers (never destroy existing VMs)
     [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_LINUX_1TIER="true" || true
     [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_WINDOWS_1TIER="true" || true
@@ -2796,7 +2800,7 @@ main() {
 
     case "$choice" in
         1) run_terraform
-           for mode in "${DEPLOY_MODES[@]}"; do
+           for mode in "${SELECTED_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                run_ansible; run_verify
            done
@@ -2814,7 +2818,7 @@ main() {
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
            [[ "$ARCH_CHOICE" == "3tier" ]] && echo -e "    ${GR}(3-tier: use playbooks/3tier/site-3tier.yml or site-3tier-win.yml)${NC}" || true ;;
         3) run_terraform ;;
-        4) for mode in "${DEPLOY_MODES[@]}"; do
+        4) for mode in "${SELECTED_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                run_ansible; run_verify
            done
