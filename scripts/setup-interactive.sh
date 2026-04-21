@@ -2098,11 +2098,25 @@ APPLIANCE_IP=$app_ip
 EOF
 
     step "Creating Azure Migrate DB users — user=$az_user appliance=$app_ip"
+
+    # Build extra-vars for credentials
+    local extra_vars="-e az_migrate_user=$az_user -e az_migrate_password=$az_pass -e appliance_ip=$app_ip -e postgres_password=$pg_admin_pass -e mysql_root_password=$mysql_admin_pass"
+
+    # If inventory has Linux hosts with empty ansible_ssh_pass, prompt and override
+    if grep -q 'ansible_ssh_pass= ' inventory/hosts.ini 2>/dev/null || grep -q 'ansible_ssh_pass=$' inventory/hosts.ini 2>/dev/null; then
+        local ssh_user; ssh_user=$(grep -m1 'ansible_user=' inventory/hosts.ini | sed 's/.*ansible_user=\([^ ]*\).*/\1/')
+        ssh_user="${ssh_user:-ubuntu}"
+        echo ""
+        echo -e "  ${Y}Linux hosts detected in inventory with no saved SSH password.${NC}"
+        read -srp "  SSH password for $ssh_user: " linux_ssh_pass
+        echo ""
+        if [[ -n "$linux_ssh_pass" ]]; then
+            extra_vars="$extra_vars -e ansible_ssh_pass=$linux_ssh_pass -e ansible_become_pass=$linux_ssh_pass"
+        fi
+    fi
+
     ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-db-users.yml \
-        -e "az_migrate_user=$az_user" -e "az_migrate_password=$az_pass" \
-        -e "appliance_ip=$app_ip" \
-        -e "postgres_password=$pg_admin_pass" \
-        -e "mysql_root_password=$mysql_admin_pass" -v
+        $extra_vars -v
 
     local rc=$?
     if [[ $rc -eq 0 ]]; then
