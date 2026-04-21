@@ -2549,8 +2549,18 @@ main() {
         derive_modes_from_booleans
         DEPLOY_MODE="${DEPLOY_MODES[0]}"
 
+        # Derive SELECTED_MODES from user's saved OS/Arch selection
+        # (Ansible should only target the user's chosen tier, not all merged tiers)
+        SELECTED_MODES=()
+        if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
+            [[ "$ARCH_CHOICE" == "3tier" ]] && SELECTED_MODES+=("linux-3tier") || SELECTED_MODES+=("linux")
+        fi
+        if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
+            [[ "$ARCH_CHOICE" == "3tier" ]] && SELECTED_MODES+=("windows-3tier") || SELECTED_MODES+=("windows")
+        fi
+
         step "Loaded: App=${APP_SELECTION}  OS=${OS_CHOICE}  Arch=${ARCH_CHOICE}"
-        step "Modes: ${DEPLOY_MODES[*]}"
+        step "Modes: ${SELECTED_MODES[*]}"
         echo ""
 
         collect_vcenter
@@ -2588,7 +2598,7 @@ main() {
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
             run_terraform
-            for mode in "${DEPLOY_MODES[@]}"; do
+            for mode in "${SELECTED_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 run_ansible; run_verify
             done
@@ -2602,7 +2612,7 @@ main() {
             [[ "$post_choice" == "1" ]] && run_dns_register || true
             [[ "$post_choice" == "2" ]] && run_domain_join || true
         elif [[ "$qchoice" == "2" ]]; then
-            for mode in "${DEPLOY_MODES[@]}"; do
+            for mode in "${SELECTED_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 run_ansible; run_verify
             done
