@@ -2615,7 +2615,7 @@ main() {
         write_tfvars
         write_ansible_vars
         INVENTORY_INITIALIZED=""
-        for mode in "${DEPLOY_MODES[@]}"; do
+        for mode in "${SELECTED_MODES[@]}"; do
             DEPLOY_MODE="$mode"
             write_inventory
         done
@@ -2819,7 +2819,7 @@ main() {
     write_tfvars
     write_ansible_vars
     INVENTORY_INITIALIZED=""
-    for mode in "${DEPLOY_MODES[@]}"; do
+    for mode in "${SELECTED_MODES[@]}"; do
         DEPLOY_MODE="$mode"
         write_inventory
     done
