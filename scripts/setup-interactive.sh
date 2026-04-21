@@ -527,7 +527,7 @@ collect_vms() {
     PHP_DB_HOSTNAME="$(_lh "$PREV_PHP_DB_HOSTNAME")"; PHP_DB_HOSTNAME="${PHP_DB_HOSTNAME:-lin-php-db}"
 
     # Override with Windows 3-tier values when deploying Windows
-    if [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
+    if [[ "$OS_CHOICE" == "windows" && "$ARCH_CHOICE" == "3tier" ]]; then
         # IPs: cascade from saved win_ → saved linux_ → default
         JAVA_FE_IP="${PREV_WIN_JAVA_FE_IP:-${PREV_JAVA_FE_IP:-10.1.2.20}}"; JAVA_APP_IP="${PREV_WIN_JAVA_APP_IP:-${PREV_JAVA_APP_IP:-10.1.2.21}}"; JAVA_DB_IP="${PREV_WIN_JAVA_DB_IP:-${PREV_JAVA_DB_IP:-10.1.2.22}}"
         DOTNET_FE_IP="${PREV_WIN_DOTNET_FE_IP:-${PREV_DOTNET_FE_IP:-10.1.2.23}}"; DOTNET_APP_IP="${PREV_WIN_DOTNET_APP_IP:-${PREV_DOTNET_APP_IP:-10.1.2.24}}"; DOTNET_DB_IP="${PREV_WIN_DOTNET_DB_IP:-${PREV_DOTNET_DB_IP:-10.1.2.25}}"
@@ -548,7 +548,7 @@ collect_vms() {
     fi
 
     # Override with Windows single-VM values when deploying Windows
-    if [[ "$DEPLOY_MODE" == "windows" ]]; then
+    if [[ "$OS_CHOICE" == "windows" && "$ARCH_CHOICE" != "3tier" ]]; then
         JAVA_IP="${PREV_WIN_JAVA_IP:-${PREV_JAVA_IP:-10.1.2.7}}"
         DOTNET_IP="${PREV_WIN_DOTNET_IP:-${PREV_DOTNET_IP:-10.1.2.8}}"
         PHP_IP="${PREV_WIN_PHP_IP:-${PREV_PHP_IP:-10.1.2.9}}"
