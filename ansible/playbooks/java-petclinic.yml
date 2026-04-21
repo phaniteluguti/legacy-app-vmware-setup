@@ -199,11 +199,10 @@
         content: |
           #!/bin/sh
           export JAVA_HOME=/usr/lib/jvm/java-{{ java_version }}-openjdk-amd64
-          export CATALINA_OPTS="-Dspring.profiles.active=postgresql,spring-data-jpa -Dserver.servlet.context-path=/"
+          export CATALINA_OPTS="-Dspring.profiles.active=postgresql,spring-data-jpa"
         owner: "{{ tomcat_user }}"
         group: "{{ tomcat_user }}"
         mode: "0755"
-      notify: Restart Tomcat
 
     # ---------------------------------------------------------------
     # Clone & Configure PetClinic REST
@@ -252,9 +251,7 @@
       copy:
         dest: /opt/petclinic-rest/repo/src/main/resources/application-postgresql.properties
         content: |
-          database=postgres
           spring.sql.init.platform=postgres
-          spring.sql.init.mode=always
           spring.datasource.url=jdbc:postgresql://{{ db_host }}:5432/{{ postgres_db }}
           spring.datasource.username={{ postgres_user }}
           spring.datasource.password={{ postgres_password }}
@@ -280,7 +277,6 @@
         insertafter: '<artifactId>spring-petclinic-rest</artifactId>'
         line: '    <packaging>war</packaging>'
         regexp: '<packaging>'
-      register: pom_war_change
 
     - name: Add provided-scope Tomcat dependency
       blockinfile:
@@ -293,13 +289,6 @@
                   <artifactId>spring-boot-starter-tomcat</artifactId>
                   <scope>provided</scope>
               </dependency>
-      register: pom_tomcat_change
-
-    - name: Force rebuild when pom.xml changed
-      file:
-        path: /opt/petclinic-rest/repo/target
-        state: absent
-      when: pom_war_change is changed or pom_tomcat_change is changed
 
     # PetClinicApplication already extends SpringBootServletInitializer — no extra
     # ServletInitializer needed. Remove any stale one from prior runs.
@@ -389,13 +378,6 @@
         daemon_reload: true
         enabled: true
         state: started
-
-    - name: Make Tomcat logs readable for diagnostics
-      file:
-        path: "{{ tomcat_install_dir }}/logs"
-        state: directory
-        mode: '0755'
-        recurse: true
 
     # ---------------------------------------------------------------
     # Angular SPA Frontend (same as 3-tier java-frontend)
