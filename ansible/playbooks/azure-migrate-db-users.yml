@@ -30,7 +30,7 @@
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=... -e appliance_ip=..."
 
     - name: Create Azure Migrate PostgreSQL user with least privileges
-      #no_log: true   # Temporarily disabled for debugging — re-enable after fix
+      no_log: true
       shell: |
         sudo -u postgres psql -tc "SELECT 1 FROM pg_roles WHERE rolname='{{ az_migrate_user }}'" | grep -q 1 || \
         sudo -u postgres psql -c "CREATE USER {{ az_migrate_user }} WITH PASSWORD '{{ az_migrate_password }}' LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION;"
@@ -59,8 +59,9 @@
     - name: Allow Azure Migrate appliance in pg_hba.conf
       lineinfile:
         path: "/etc/postgresql/{{ postgres_version }}/main/pg_hba.conf"
+        regexp: "host\\s+all\\s+{{ az_migrate_user }}\\s+{{ appliance_ip }}"
         insertafter: '^# IPv4 local connections'
-        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   md5"
+        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   scram-sha-256"
       notify: Reload PostgreSQL
 
     # ── Validation: PostgreSQL (Linux) ──
@@ -206,7 +207,8 @@
     - name: Allow Azure Migrate appliance in pg_hba.conf (Windows)
       win_lineinfile:
         path: 'C:\Program Files\PostgreSQL\{{ postgres_version }}\data\pg_hba.conf'
-        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   md5"
+        regexp: "host\\s+all\\s+{{ az_migrate_user }}\\s+{{ appliance_ip }}"
+        line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   scram-sha-256"
         insertafter: "^# IPv4 local connections"
 
     - name: Reload PostgreSQL service (Windows)
@@ -426,14 +428,14 @@
           - az_migrate_password is defined and az_migrate_password | length > 0
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
 
-    - name: "Fix MySQL if previous run broke it and enable mysql_native_password (MySQL 8.4+)"
+    - name: "Enable mysql_native_password plugin in my.ini and restart MySQL (MySQL 8.4+)"
       win_shell: |
         $rootPwd = '{{ mysql_root_password }}'
         {% raw %}
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
 
-        # --- Step 1: Undo any previous bad my.ini edits that crashed MySQL ---
+        # --- Step 1: Locate my.ini ---
         $dataDir = ""
         $baseDir = ""
         $testConn = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT 1;" 2>&1
@@ -448,16 +450,7 @@
         $myIni = $null
         foreach ($p in $candidates) { if (Test-Path $p) { $myIni = $p; break } }
 
-        if ($myIni) {
-          $raw = Get-Content $myIni -Raw
-          if ($raw -match '(?m)^mysql_native_password\s*=\s*ON\s*\r?\n') {
-            $raw = $raw -replace '(?m)^mysql_native_password\s*=\s*ON\s*\r?\n', ''
-            [System.IO.File]::WriteAllText($myIni, $raw)
-            Write-Output "REMOVED bad mysql_native_password=ON from $myIni"
-          }
-        }
-
-        # --- Step 2: Ensure MySQL service is running ---
+        # --- Step 2: Check if mysql_native_password plugin is already active ---
         $svc = Get-Service -Name 'MySQL' -ErrorAction SilentlyContinue
         if (-not $svc) { $svc = Get-Service | Where-Object { $_.Name -like 'MySQL*' } | Select-Object -First 1 }
         if ($svc -and $svc.Status -ne 'Running') {
@@ -476,14 +469,13 @@
           }
         }
 
-        # --- Step 3: Check if mysql_native_password plugin is already active ---
         $check = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name='mysql_native_password' AND plugin_status='ACTIVE';" 2>&1
         if ("$check".Trim() -match '^1') {
           Write-Output "mysql_native_password plugin is already active"
           exit 0
         }
 
-        # --- Step 4: Try INSTALL PLUGIN at runtime (no restart needed) ---
+        # --- Step 3: Try INSTALL PLUGIN at runtime first (no restart needed) ---
         & $mysqlBin -u root -p"$rootPwd" -e "INSTALL PLUGIN mysql_native_password SONAME 'mysql_native_password.dll';" 2>&1
         $recheck = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name='mysql_native_password' AND plugin_status='ACTIVE';" 2>&1
         if ("$recheck".Trim() -match '^1') {
@@ -491,12 +483,47 @@
           exit 0
         }
 
-        # --- Step 5: Plugin DLL not available — will use caching_sha2_password fallback ---
-        Write-Output "WARN: mysql_native_password plugin unavailable, will use caching_sha2_password"
-        exit 0
+        # --- Step 4: Add mysql_native_password=ON to my.ini under [mysqld] and restart ---
+        if (-not $myIni) {
+          Write-Error "Cannot find my.ini to enable mysql_native_password"
+          exit 1
+        }
+
+        $raw = Get-Content $myIni -Raw
+        # Check if already present
+        if ($raw -match '(?m)^mysql_native_password\s*=\s*ON') {
+          Write-Output "mysql_native_password=ON already in $myIni, restarting MySQL"
+        } else {
+          # Add under [mysqld] section
+          if ($raw -match '(?m)^\[mysqld\]') {
+            $raw = $raw -replace '(?m)(^\[mysqld\]\s*\r?\n)', "`$1mysql_native_password=ON`r`n"
+            [System.IO.File]::WriteAllText($myIni, $raw)
+            Write-Output "ADDED mysql_native_password=ON to $myIni"
+          } else {
+            Write-Error "No [mysqld] section found in $myIni"
+            exit 1
+          }
+        }
+
+        # Restart MySQL to load the plugin
+        if ($svc) {
+          Restart-Service $svc.Name -Force
+          $svc.WaitForStatus('Running', [TimeSpan]::FromSeconds(30))
+          Write-Output "RESTARTED MySQL service"
+        }
+
+        # Verify plugin is now active
+        $finalCheck = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name='mysql_native_password' AND plugin_status='ACTIVE';" 2>&1
+        if ("$finalCheck".Trim() -match '^1') {
+          Write-Output "mysql_native_password plugin is now active after restart"
+          exit 0
+        }
+
+        Write-Error "FAILED: mysql_native_password plugin could not be enabled"
+        exit 1
         {% endraw %}
       register: win_mysql_plugin_result
-      changed_when: "'REMOVED' in win_mysql_plugin_result.stdout or 'INSTALLED' in win_mysql_plugin_result.stdout or 'STARTED' in win_mysql_plugin_result.stdout"
+      changed_when: "'ADDED' in win_mysql_plugin_result.stdout or 'INSTALLED' in win_mysql_plugin_result.stdout or 'RESTARTED' in win_mysql_plugin_result.stdout"
 
     - name: Create Azure Migrate MySQL user with discovery privileges (Windows)
       no_log: true
@@ -508,13 +535,8 @@
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
 
-        # Check which auth plugin to use
-        $hasNative = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name='mysql_native_password' AND plugin_status='ACTIVE';" 2>&1
-        if ("$hasNative".Trim() -match '^1') {
-          $authClause = "IDENTIFIED WITH mysql_native_password BY '$migratePwd'"
-        } else {
-          $authClause = "IDENTIFIED BY '$migratePwd'"
-        }
+        # Always use mysql_native_password — Azure Migrate requires it for plain TCP auth
+        $authClause = "IDENTIFIED WITH mysql_native_password BY '$migratePwd'"
 
         & $mysqlBin -u root -p"$rootPwd" -e "DROP USER IF EXISTS '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "CREATE USER '$migrateUser'@'%' $authClause;" 2>&1
@@ -523,13 +545,17 @@
         & $mysqlBin -u root -p"$rootPwd" -e "GRANT SELECT ON *.* TO '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "FLUSH PRIVILEGES;" 2>&1
 
-        # Verify user was created
+        # Verify user was created with mysql_native_password
         $plugin = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT plugin FROM mysql.user WHERE user='$migrateUser' AND host='%';" 2>&1
         $pluginVal = ($plugin | Where-Object { $_ -notmatch 'Warning' }).Trim()
         Write-Output "Auth plugin after setup: $pluginVal"
 
         if (-not $pluginVal -or $pluginVal -eq '') {
           Write-Error "FAILED: user was not created"
+          exit 1
+        }
+        if ($pluginVal -ne 'mysql_native_password') {
+          Write-Error "FAILED: user auth plugin is '$pluginVal' instead of 'mysql_native_password'. Azure Migrate requires mysql_native_password for plain TCP connections."
           exit 1
         }
         {% endraw %}
@@ -573,22 +599,11 @@
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
-        # caching_sha2_password over TCP requires RSA key exchange; test with named pipe instead
-        $result = & $mysqlBin -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" --pipe -e "SELECT 1;" 2>&1
+        # With mysql_native_password, plain TCP auth should work without SSL/RSA
+        $result = & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" -e "SELECT 1;" 2>&1
         if ($LASTEXITCODE -ne 0) {
-          # fallback: try TCP with --get-server-public-key
-          $result = & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" --get-server-public-key -e "SELECT 1;" 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            # final fallback: verify password hash matches via root
-            $hash = & $mysqlBin -u root -p"{{ mysql_root_password }}" -N -e "SELECT authentication_string FROM mysql.user WHERE user='{{ az_migrate_user }}' AND host='%';" 2>&1
-            $hashVal = ($hash | Where-Object { $_ -notmatch 'Warning' }).Trim()
-            if ($hashVal -and $hashVal.Length -gt 10) {
-              Write-Output "PASS (verified via password hash - caching_sha2_password user exists with valid credentials)"
-              exit 0
-            }
-            Write-Error "Auth test failed: $result"
-            exit 1
-          }
+          Write-Error "Auth test failed: $result"
+          exit 1
         }
         Write-Output $result
       register: win_mysql_auth_test
