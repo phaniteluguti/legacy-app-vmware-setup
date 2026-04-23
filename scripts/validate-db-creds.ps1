@@ -25,29 +25,20 @@ param(
 # ── Define your database hosts (from ansible/inventory/hosts.ini) ──
 $pgHosts = @(
     # PostgreSQL Linux 1-tier (java_servers)
-    @{ Name = "lin-java-1t-old";         IP = "10.1.2.7";  Port = 5432 }
-    @{ Name = "lin-java-1t-new";         IP = "10.1.3.32"; Port = 5432 }
-    # PostgreSQL Linux 3-tier (java_database)
-    @{ Name = "lin-java-db-3t";          IP = "10.1.3.22"; Port = 5432 }
+    @{ Name = "lin-java";                IP = "10.11.4.3";  Port = 5432 }
     # PostgreSQL Windows 1-tier (win_java_servers)
-    @{ Name = "win-java-1t-old";         IP = "10.1.2.11"; Port = 5432 }
-    @{ Name = "win-java-1t-new";         IP = "10.1.3.35"; Port = 5432 }
+    @{ Name = "win-java";                IP = "10.11.4.6";  Port = 5432 }
     # PostgreSQL Windows 3-tier (win_java_database)
-    @{ Name = "win-java-db-3t-old";      IP = "10.1.3.13"; Port = 5432 }
-    @{ Name = "win-java-db-3t-new";      IP = "10.1.3.25"; Port = 5432 }
+    @{ Name = "win-java-db-3t";          IP = "10.11.4.11"; Port = 5432 }
 )
 
 $mysqlHosts = @(
     # MySQL Linux 1-tier (php_servers)
-    @{ Name = "lin-php-1t-old";          IP = "10.1.2.9";  Port = 3306 }
-    @{ Name = "lin-php-1t-new";          IP = "10.1.3.34"; Port = 3306 }
-    # MySQL Linux 3-tier (php_database)
-    @{ Name = "lin-php-db-3t";           IP = "10.1.3.31"; Port = 3306 }
+    @{ Name = "lin-php";                 IP = "10.11.4.5";  Port = 3306 }
     # MySQL Windows 1-tier (win_php_servers)
-    @{ Name = "win-php-1t-old";          IP = "10.1.2.13"; Port = 3306 }
-    @{ Name = "win-php-1t-new";          IP = "10.1.3.37"; Port = 3306 }
+    @{ Name = "win-php";                 IP = "10.11.4.8";  Port = 3306 }
     # MySQL Windows 3-tier (win_php_database)
-    @{ Name = "win-php-db-3t";           IP = "10.1.3.19"; Port = 3306 }
+    @{ Name = "win-php-db-3t";           IP = "10.11.4.17"; Port = 3306 }
 )
 
 # ═══════════════════════════════════════════════════════════════════════════
