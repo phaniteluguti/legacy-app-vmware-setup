@@ -452,59 +452,124 @@
           - az_migrate_password is defined and az_migrate_password | length > 0
         fail_msg: "Required: -e az_migrate_user=... -e az_migrate_password=..."
 
-    - name: "Ensure MySQL is running and clean up bad my.ini entries"
+    - name: "Downgrade MySQL 9.x to 8.0 for Azure Migrate compatibility"
       win_shell: |
         $rootPwd = '{{ mysql_root_password }}'
         {% raw %}
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
 
-        # --- Step 1: Locate my.ini and remove any mysql_native_password=ON that crashes MySQL 8.4 ---
-        $candidates = @("C:\tools\mysql\current\my.ini", "C:\ProgramData\MySQL\MySQL Server 8.4\my.ini", "C:\ProgramData\MySQL\MySQL Server 8.0\my.ini")
-        $myIni = $null
-        foreach ($p in $candidates) { if (Test-Path $p) { $myIni = $p; break } }
+        # Check current MySQL version
+        $svc = Get-Service -Name 'MySQL' -ErrorAction SilentlyContinue
+        if (-not $svc) { $svc = Get-Service | Where-Object { $_.Name -like 'MySQL*' } | Select-Object -First 1 }
 
-        if ($myIni) {
-          $raw = Get-Content $myIni -Raw
-          if ($raw -match '(?m)^mysql_native_password\s*=\s*ON\s*\r?\n') {
-            $raw = $raw -replace '(?m)^mysql_native_password\s*=\s*ON\s*\r?\n', ''
-            [System.IO.File]::WriteAllText($myIni, $raw)
-            Write-Output "REMOVED bad mysql_native_password=ON from $myIni"
+        # Ensure MySQL is running to check version
+        if ($svc -and $svc.Status -ne 'Running') {
+          # Clean up bad my.ini entries first
+          $candidates = @("C:\tools\mysql\current\my.ini", "C:\ProgramData\MySQL\MySQL Server 8.4\my.ini")
+          foreach ($p in $candidates) {
+            if (Test-Path $p) {
+              $raw = Get-Content $p -Raw
+              if ($raw -match '(?m)^mysql_native_password\s*=\s*ON') {
+                $raw = $raw -replace '(?m)^mysql_native_password\s*=\s*ON\s*\r?\n', ''
+                [System.IO.File]::WriteAllText($p, $raw)
+              }
+            }
           }
+          Start-Service $svc.Name -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 5
         }
 
-        # --- Step 2: Ensure MySQL service is running ---
+        $ver = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT VERSION();" 2>&1 | Where-Object { $_ -notmatch 'Warning' }
+        $verStr = "$ver".Trim()
+
+        if ($verStr -match '^(9\.|8\.[1-9]|8\.4)') {
+          Write-Output "MySQL $verStr detected — downgrading to 8.0 for Azure Migrate compatibility"
+
+          # Export databases before downgrade
+          $dbDataDir = "C:\tools\mysql\current\data"
+          $backupDir = "C:\mysql_backup"
+          if (!(Test-Path $backupDir)) { New-Item -ItemType Directory -Path $backupDir -Force | Out-Null }
+          & $mysqlBin -u root -p"$rootPwd" -N -e "SHOW DATABASES;" 2>&1 | Where-Object { $_ -notmatch 'Warning|information_schema|performance_schema|mysql|sys' } | ForEach-Object {
+            $db = $_.Trim()
+            if ($db) {
+              $mysqldumpBin = $mysqlBin -replace 'mysql\.exe$', 'mysqldump.exe'
+              & $mysqldumpBin -u root -p"$rootPwd" --databases $db --result-file="$backupDir\$db.sql" 2>&1
+              Write-Output "Backed up database: $db"
+            }
+          }
+
+          # Stop MySQL and uninstall
+          Stop-Service $svc.Name -Force -ErrorAction SilentlyContinue
+          Start-Sleep -Seconds 3
+          & choco uninstall mysql -y --no-progress 2>&1 | Out-Null
+
+          # Clean up leftover data directory
+          if (Test-Path "C:\tools\mysql\current\data") {
+            Remove-Item "C:\tools\mysql\current\data" -Recurse -Force -ErrorAction SilentlyContinue
+          }
+
+          # Install MySQL 8.0
+          & choco install mysql --version=8.0.40 --pin -y --no-progress 2>&1 | Out-Null
+
+          # Wait for MySQL service
+          Start-Sleep -Seconds 5
+          $svc = Get-Service -Name 'MySQL' -ErrorAction SilentlyContinue
+          if (-not $svc) { $svc = Get-Service | Where-Object { $_.Name -like 'MySQL*' } | Select-Object -First 1 }
+          if ($svc -and $svc.Status -ne 'Running') {
+            Start-Service $svc.Name -ErrorAction SilentlyContinue
+            Start-Sleep -Seconds 10
+          }
+
+          # Re-locate mysql binary
+          $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+          if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+
+          # Set root password
+          & $mysqlBin -u root -e "ALTER USER 'root'@'localhost' IDENTIFIED BY '$rootPwd';" 2>$null
+
+          # Import backed up databases
+          Get-ChildItem "$backupDir\*.sql" -ErrorAction SilentlyContinue | ForEach-Object {
+            & $mysqlBin -u root -p"$rootPwd" -e "source $($_.FullName)" 2>&1
+            Write-Output "Restored database: $($_.BaseName)"
+          }
+
+          # Verify new version
+          $newVer = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT VERSION();" 2>&1 | Where-Object { $_ -notmatch 'Warning' }
+          Write-Output "DOWNGRADED to MySQL $("$newVer".Trim())"
+        } else {
+          Write-Output "MySQL $verStr — no downgrade needed"
+        }
+        {% endraw %}
+      register: win_mysql_downgrade_result
+      changed_when: "'DOWNGRADED' in win_mysql_downgrade_result.stdout"
+
+    - name: "Ensure MySQL is running"
+      win_shell: |
+        $rootPwd = '{{ mysql_root_password }}'
+        {% raw %}
+        $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
+        if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
+
+        # Ensure MySQL service is running
         $svc = Get-Service -Name 'MySQL' -ErrorAction SilentlyContinue
         if (-not $svc) { $svc = Get-Service | Where-Object { $_.Name -like 'MySQL*' } | Select-Object -First 1 }
         if ($svc -and $svc.Status -ne 'Running') {
           Start-Service $svc.Name -ErrorAction SilentlyContinue
           Start-Sleep -Seconds 5
           $svc.Refresh()
-          if ($svc.Status -ne 'Running') {
-            Write-Error "MySQL service failed to start"
-            exit 1
-          }
-          Write-Output "STARTED MySQL service: $($svc.Name)"
+          if ($svc.Status -ne 'Running') { Write-Error "MySQL service failed to start"; exit 1 }
         }
 
         # Verify connectivity
         $testConn = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT 1;" 2>&1
         if ($LASTEXITCODE -ne 0) {
-          # Try restart
-          if ($svc) {
-            Restart-Service $svc.Name -Force -ErrorAction SilentlyContinue
-            Start-Sleep -Seconds 10
-          }
-          $testConn2 = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT 1;" 2>&1
-          if ($LASTEXITCODE -ne 0) {
-            Write-Error "MySQL is not running and cannot be started"
-            exit 1
-          }
+          Write-Error "Cannot connect to MySQL"
+          exit 1
         }
 
-        # --- Step 3: Report MySQL version ---
         $ver = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT VERSION();" 2>&1 | Where-Object { $_ -notmatch 'Warning' }
-        Write-Output "MySQL version: $($ver.Trim())"
+        Write-Output "MySQL version: $("$ver".Trim())"
         {% endraw %}
       register: win_mysql_service_result
       changed_when: "'REMOVED' in win_mysql_service_result.stdout or 'STARTED' in win_mysql_service_result.stdout"
@@ -529,28 +594,16 @@
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
 
-        # Check if mysql_native_password plugin is available (removed in MySQL 8.4)
-        $hasNative = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT COUNT(*) FROM information_schema.plugins WHERE plugin_name='mysql_native_password' AND plugin_status='ACTIVE';" 2>&1
-        if ("$hasNative".Trim() -match '^1') {
-          $authClause = "IDENTIFIED WITH mysql_native_password BY '$migratePwd'"
-          Write-Output "Using mysql_native_password auth plugin"
-        } else {
-          # MySQL 8.4+ — mysql_native_password removed, use caching_sha2_password (default)
-          $authClause = "IDENTIFIED BY '$migratePwd'"
-          Write-Output "Using caching_sha2_password auth plugin (MySQL 8.4+)"
-        }
-
         & $mysqlBin -u root -p"$rootPwd" -e "DROP USER IF EXISTS '$migrateUser'@'%';" 2>&1
-        & $mysqlBin -u root -p"$rootPwd" -e "CREATE USER '$migrateUser'@'%' $authClause;" 2>&1
+        & $mysqlBin -u root -p"$rootPwd" -e "CREATE USER '$migrateUser'@'%' IDENTIFIED WITH mysql_native_password BY '$migratePwd';" 2>&1
         if ($LASTEXITCODE -ne 0) { Write-Error "CREATE USER failed"; exit 1 }
         & $mysqlBin -u root -p"$rootPwd" -e "GRANT USAGE, PROCESS, REPLICATION CLIENT ON *.* TO '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "GRANT SELECT ON *.* TO '$migrateUser'@'%';" 2>&1
         & $mysqlBin -u root -p"$rootPwd" -e "FLUSH PRIVILEGES;" 2>&1
 
-        # Verify user was created
         $plugin = & $mysqlBin -u root -p"$rootPwd" -N -e "SELECT plugin FROM mysql.user WHERE user='$migrateUser' AND host='%';" 2>&1
         $pluginVal = ($plugin | Where-Object { $_ -notmatch 'Warning' }).Trim()
-        Write-Output "Auth plugin after setup: $pluginVal"
+        Write-Output "Auth plugin: $pluginVal"
 
         if (-not $pluginVal -or $pluginVal -eq '') {
           Write-Error "FAILED: user was not created"
@@ -597,20 +650,12 @@
       win_shell: |
         $mysqlBin = (Get-Command mysql -ErrorAction SilentlyContinue).Source
         if (!$mysqlBin) { $mysqlBin = "C:\tools\mysql\current\bin\mysql.exe" }
-        # Try plain TCP first (works with mysql_native_password)
         $result = & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" -e "SELECT 1;" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-          Write-Output $result
-          exit 0
+        if ($LASTEXITCODE -ne 0) {
+          Write-Error "Auth test failed: $result"
+          exit 1
         }
-        # Fallback for caching_sha2_password (MySQL 8.4+) — needs RSA key exchange
-        $result2 = & $mysqlBin -h 127.0.0.1 -u "{{ az_migrate_user }}" -p"{{ az_migrate_password }}" --get-server-public-key -e "SELECT 1;" 2>&1
-        if ($LASTEXITCODE -eq 0) {
-          Write-Output $result2
-          exit 0
-        }
-        Write-Error "Auth test failed: $result2"
-        exit 1
+        Write-Output $result
       register: win_mysql_auth_test
       changed_when: false
       ignore_errors: true
