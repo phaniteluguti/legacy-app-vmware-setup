@@ -141,9 +141,7 @@
     - name: Install MySQL via Chocolatey
       win_chocolatey:
         name: mysql
-        version: '8.0.40'
         state: present
-        pinned: true
 
     - name: Ensure MySQL service is running
       win_service:
