@@ -64,6 +64,13 @@
         line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   scram-sha-256"
       notify: Reload PostgreSQL
 
+    - name: Allow PostgreSQL port 5432 through UFW
+      ufw:
+        rule: allow
+        port: "5432"
+        proto: tcp
+      ignore_errors: true
+
     # ── Validation: PostgreSQL (Linux) ──
     - name: Flush handlers before validation
       meta: flush_handlers
@@ -211,6 +218,16 @@
         line: "host    all   {{ az_migrate_user }}   {{ appliance_ip }}/32   scram-sha-256"
         insertafter: "^# IPv4 local connections"
 
+    - name: Ensure PostgreSQL port 5432 is open in Windows Firewall
+      win_firewall_rule:
+        name: "PostgreSQL Inbound (Azure Migrate)"
+        localport: 5432
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
     - name: Reload PostgreSQL service (Windows)
       no_log: true
       win_shell: |
@@ -341,6 +358,13 @@
       register: bind_result
       changed_when: "'CHANGED' in bind_result.stdout"
       notify: Restart MySQL
+
+    - name: Allow MySQL port 3306 through UFW
+      ufw:
+        rule: allow
+        port: "3306"
+        proto: tcp
+      ignore_errors: true
 
     # ── Validation: MySQL (Linux) ──
     - name: Flush handlers before validation
@@ -484,6 +508,16 @@
         {% endraw %}
       register: win_mysql_service_result
       changed_when: "'REMOVED' in win_mysql_service_result.stdout or 'STARTED' in win_mysql_service_result.stdout"
+
+    - name: Ensure MySQL port 3306 is open in Windows Firewall
+      win_firewall_rule:
+        name: "MySQL Inbound (Azure Migrate)"
+        localport: 3306
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
 
     - name: Create Azure Migrate MySQL user with discovery privileges (Windows)
       no_log: true
