@@ -92,9 +92,21 @@ variable "vsphere_folder" {
   default     = ""
 }
 
-variable "vm_template_name" {
-  description = "Name of the Ubuntu 22.04 VM template in vSphere"
+variable "content_library_name" {
+  description = "Name of the vSphere Content Library containing VM templates. Leave empty to use standard VM inventory templates."
   type        = string
+  default     = ""
+}
+
+variable "vm_template_name" {
+  description = "Name of the Ubuntu/Linux VM template (in content library or VM inventory)"
+  type        = string
+}
+
+variable "linux_guest_id" {
+  description = "Guest OS ID for Linux VMs (used when cloning from content library)"
+  type        = string
+  default     = "ubuntu64Guest"
 }
 
 # --- VM Networking ---
@@ -234,9 +246,15 @@ variable "php_vm_disk" {
 
 # --- Windows VM Settings ---
 variable "win_template_name" {
-  description = "Name of the Windows Server 2019 VM template in vSphere"
+  description = "Name of the Windows Server VM template (in content library or VM inventory)"
   type        = string
   default     = "windows-2019-template"
+}
+
+variable "windows_guest_id" {
+  description = "Guest OS ID for Windows VMs (used when cloning from content library)"
+  type        = string
+  default     = "windows2019srvNext_64Guest"
 }
 
 variable "win_admin_password" {

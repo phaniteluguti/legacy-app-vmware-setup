@@ -200,6 +200,7 @@ load_previous() {
     # Single-VM hostname defaults
     PREV_JAVA_HOSTNAME="lin-java"; PREV_DOTNET_HOSTNAME="lin-dotnet"; PREV_PHP_HOSTNAME="lin-php"
     PREV_WIN_TEMPLATE="windows-2019-template"
+    PREV_CONTENT_LIBRARY=""
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="21"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
@@ -296,6 +297,7 @@ load_previous() {
         PREV_PHP_MEM="$(tfval php_vm_memory "2048")"
         PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "lin-php")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
+        PREV_CONTENT_LIBRARY="$(tfval content_library_name "")"
         # Single-VM Windows overrides (for "both" mode)
         PREV_WIN_JAVA_IP="$(tfval win_java_vm_ip "")"
         PREV_WIN_JAVA_HOSTNAME="$(tfval win_java_vm_hostname "win-java")"
@@ -410,6 +412,7 @@ collect_infra() {
         VSPHERE_DS="$PREV_VSPHERE_DS"; VSPHERE_NET="$PREV_VSPHERE_NET"
         VSPHERE_FOLDER="$PREV_VSPHERE_FOLDER"
         VM_TEMPLATE="$PREV_VM_TEMPLATE"; WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
+        CONTENT_LIBRARY="$PREV_CONTENT_LIBRARY"
         step "Using saved: DC=$VSPHERE_DC  Cluster=$VSPHERE_CLUSTER  DS=$VSPHERE_DS"
         return
     fi
@@ -419,16 +422,17 @@ collect_infra() {
     prompt "Datastore name" "$PREV_VSPHERE_DS"; VSPHERE_DS="$REPLY"
     prompt "Network / Port Group" "$PREV_VSPHERE_NET"; VSPHERE_NET="$REPLY"
     prompt_optional "VM Folder (blank for root)" "$PREV_VSPHERE_FOLDER"; VSPHERE_FOLDER="$REPLY"
+    prompt_optional "Content Library name (blank if templates are regular VMs)" "$PREV_CONTENT_LIBRARY"; CONTENT_LIBRARY="$REPLY"
     if [[ "$OS_CHOICE" == "linux" ]]; then
-        prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
+        prompt "Linux Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
         WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
     elif [[ "$OS_CHOICE" == "windows" ]]; then
-        prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
+        prompt "Windows Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
         VM_TEMPLATE="$PREV_VM_TEMPLATE"
     else
         # Both
-        prompt "Ubuntu 22.04 Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
-        prompt "Windows Server 2019 Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
+        prompt "Linux Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
+        prompt "Windows Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
     fi
 }
 
@@ -903,6 +907,7 @@ show_summary() {
     else
         echo -e "  Templates:      $VM_TEMPLATE (Linux) / $WIN_TEMPLATE (Windows)"
     fi
+    [[ -n "$CONTENT_LIBRARY" ]] && echo -e "  Content Library: $CONTENT_LIBRARY" || true
     echo -e "  Network:        $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
 
     # Use SELECTED_MODES for display when available; fall back to DEPLOY_MODES
@@ -1027,6 +1032,7 @@ vsphere_cluster    = "$VSPHERE_CLUSTER"
 vsphere_datastore  = "$VSPHERE_DS"
 vsphere_network    = "$VSPHERE_NET"
 vsphere_folder     = "$VSPHERE_FOLDER"
+content_library_name = "$CONTENT_LIBRARY"
 vm_template_name   = "$VM_TEMPLATE"
 
 vm_domain              = "$VM_DOMAIN"
@@ -2450,6 +2456,7 @@ main() {
         VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
         VM_DNS="${PREV_VM_DNS:-8.8.8.8,8.8.4.4}"
         WIN_TEMPLATE="${PREV_WIN_TEMPLATE:-windows-2019-template}"
+        CONTENT_LIBRARY="${PREV_CONTENT_LIBRARY:-}"
         # Single-VM variables
         JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-lin-java}"
         JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"
@@ -2564,23 +2571,19 @@ main() {
             *)      DEPLOY_JAVA=true;  DEPLOY_DOTNET=true;  DEPLOY_PHP=true  ;;
         esac
 
-        # Derive deploy modes from saved tier booleans (additive)
-        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
-        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
-        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
-        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
-        derive_modes_from_booleans
-        DEPLOY_MODE="${DEPLOY_MODES[0]}"
-
-        # Derive SELECTED_MODES from user's saved OS/Arch selection
-        # (Ansible should only target the user's chosen tier, not all merged tiers)
-        SELECTED_MODES=()
+        # Derive deploy modes from user's saved OS/Arch selection
+        # (both Terraform and Ansible use only the user's chosen tier)
+        DEPLOY_LINUX_1TIER="false"; DEPLOY_WINDOWS_1TIER="false"
+        DEPLOY_LINUX_3TIER="false"; DEPLOY_WINDOWS_3TIER="false"
         if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
-            [[ "$ARCH_CHOICE" == "3tier" ]] && SELECTED_MODES+=("linux-3tier") || SELECTED_MODES+=("linux")
+            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_LINUX_3TIER="true" || DEPLOY_LINUX_1TIER="true"
         fi
         if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
-            [[ "$ARCH_CHOICE" == "3tier" ]] && SELECTED_MODES+=("windows-3tier") || SELECTED_MODES+=("windows")
+            [[ "$ARCH_CHOICE" == "3tier" ]] && DEPLOY_WINDOWS_3TIER="true" || DEPLOY_WINDOWS_1TIER="true"
         fi
+        derive_modes_from_booleans
+        DEPLOY_MODE="${DEPLOY_MODES[0]}"
+        SELECTED_MODES=("${DEPLOY_MODES[@]}")
 
         step "Loaded: App=${APP_SELECTION}  OS=${OS_CHOICE}  Arch=${ARCH_CHOICE}"
         step "Modes: ${SELECTED_MODES[*]}"
@@ -2735,8 +2738,12 @@ main() {
         *) ARCH_CHOICE="single"; step "Architecture: Single-VM (all-in-one)" ;;
     esac
 
-    # --- Derive deploy modes from selections (additive — merge with previous) ---
-    # Set booleans from current user selection
+    # --- Derive deploy modes from user's current selection ---
+    # Reset all tier booleans, then set from current selection only.
+    # The old additive merge caused Terraform to look up templates for
+    # previously-deployed tiers even when the user only wanted one OS.
+    DEPLOY_LINUX_1TIER="false"; DEPLOY_WINDOWS_1TIER="false"
+    DEPLOY_LINUX_3TIER="false"; DEPLOY_WINDOWS_3TIER="false"
     if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
         if [[ "$ARCH_CHOICE" == "3tier" ]]; then
             DEPLOY_LINUX_3TIER="true"
@@ -2751,16 +2758,8 @@ main() {
             DEPLOY_WINDOWS_1TIER="true"
         fi
     fi
-    # Capture the user-selected modes BEFORE merging with previous tiers
-    # (Ansible should only run on the modes the user selected this time)
     derive_modes_from_booleans
     SELECTED_MODES=("${DEPLOY_MODES[@]}")
-    # Merge with previously-enabled tiers (never destroy existing VMs)
-    [[ "$PREV_DEPLOY_LINUX_1TIER" == "true" ]]   && DEPLOY_LINUX_1TIER="true" || true
-    [[ "$PREV_DEPLOY_WINDOWS_1TIER" == "true" ]] && DEPLOY_WINDOWS_1TIER="true" || true
-    [[ "$PREV_DEPLOY_LINUX_3TIER" == "true" ]]   && DEPLOY_LINUX_3TIER="true" || true
-    [[ "$PREV_DEPLOY_WINDOWS_3TIER" == "true" ]] && DEPLOY_WINDOWS_3TIER="true" || true
-    derive_modes_from_booleans
     # Set DEPLOY_MODE to the first mode for collection functions
     DEPLOY_MODE="${DEPLOY_MODES[0]}"
 

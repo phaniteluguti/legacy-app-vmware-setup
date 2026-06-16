@@ -36,14 +36,41 @@ data "vsphere_network" "network" {
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
+# --- Content Library (when templates are in a content library) ---
+locals {
+  use_content_library = var.content_library_name != ""
+  deploy_linux        = var.deploy_linux_1tier || var.deploy_linux_3tier
+  deploy_windows      = var.deploy_windows_1tier || var.deploy_windows_3tier
+}
+
+data "vsphere_content_library" "library" {
+  count = local.use_content_library ? 1 : 0
+  name  = var.content_library_name
+}
+
+data "vsphere_content_library_item" "linux_template" {
+  count      = local.use_content_library && local.deploy_linux ? 1 : 0
+  name       = var.vm_template_name
+  library_id = data.vsphere_content_library.library[0].id
+  type       = "ovf"
+}
+
+data "vsphere_content_library_item" "windows_template" {
+  count      = local.use_content_library && local.deploy_windows ? 1 : 0
+  name       = var.win_template_name
+  library_id = data.vsphere_content_library.library[0].id
+  type       = "ovf"
+}
+
+# --- Standard VM templates (when NOT using content library) ---
 data "vsphere_virtual_machine" "template" {
-  count         = (var.deploy_linux_1tier || var.deploy_linux_3tier) ? 1 : 0
+  count         = !local.use_content_library && local.deploy_linux ? 1 : 0
   name          = var.vm_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
 
 data "vsphere_virtual_machine" "windows_template" {
-  count         = (var.deploy_windows_1tier || var.deploy_windows_3tier) ? 1 : 0
+  count         = !local.use_content_library && local.deploy_windows ? 1 : 0
   name          = var.win_template_name
   datacenter_id = data.vsphere_datacenter.dc.id
 }
@@ -281,21 +308,21 @@ resource "vsphere_virtual_machine" "vm" {
   num_cpus = each.value.cpus
   memory   = each.value.memory
 
-  guest_id = data.vsphere_virtual_machine.template[0].guest_id
+  guest_id = local.use_content_library ? var.linux_guest_id : data.vsphere_virtual_machine.template[0].guest_id
 
   network_interface {
     network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.template[0].network_interface_types[0]
+    adapter_type = local.use_content_library ? "vmxnet3" : data.vsphere_virtual_machine.template[0].network_interface_types[0]
   }
 
   disk {
     label            = "disk0"
-    size             = max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
+    size             = local.use_content_library ? each.value.disk : max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
     thin_provisioned = true
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.template[0].id
+    template_uuid = local.use_content_library ? data.vsphere_content_library_item.linux_template[0].id : data.vsphere_virtual_machine.template[0].id
 
     customize {
       linux_options {
@@ -332,24 +359,24 @@ resource "vsphere_virtual_machine" "win_vm" {
   num_cpus = each.value.cpus
   memory   = each.value.memory
 
-  guest_id = data.vsphere_virtual_machine.windows_template[0].guest_id
+  guest_id = local.use_content_library ? var.windows_guest_id : data.vsphere_virtual_machine.windows_template[0].guest_id
 
   wait_for_guest_net_timeout  = 15
   wait_for_guest_ip_timeout   = 15
 
   network_interface {
     network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
+    adapter_type = local.use_content_library ? "vmxnet3" : data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
   }
 
   disk {
     label            = "disk0"
-    size             = max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
+    size             = local.use_content_library ? each.value.disk : max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
     thin_provisioned = true
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.windows_template[0].id
+    template_uuid = local.use_content_library ? data.vsphere_content_library_item.windows_template[0].id : data.vsphere_virtual_machine.windows_template[0].id
 
     customize {
       windows_options {
@@ -398,21 +425,21 @@ resource "vsphere_virtual_machine" "vm_3tier" {
   num_cpus = each.value.cpus
   memory   = each.value.memory
 
-  guest_id = data.vsphere_virtual_machine.template[0].guest_id
+  guest_id = local.use_content_library ? var.linux_guest_id : data.vsphere_virtual_machine.template[0].guest_id
 
   network_interface {
     network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.template[0].network_interface_types[0]
+    adapter_type = local.use_content_library ? "vmxnet3" : data.vsphere_virtual_machine.template[0].network_interface_types[0]
   }
 
   disk {
     label            = "disk0"
-    size             = max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
+    size             = local.use_content_library ? each.value.disk : max(each.value.disk, data.vsphere_virtual_machine.template[0].disks[0].size)
     thin_provisioned = true
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.template[0].id
+    template_uuid = local.use_content_library ? data.vsphere_content_library_item.linux_template[0].id : data.vsphere_virtual_machine.template[0].id
 
     customize {
       linux_options {
@@ -447,24 +474,24 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
   num_cpus = each.value.cpus
   memory   = each.value.memory
 
-  guest_id = data.vsphere_virtual_machine.windows_template[0].guest_id
+  guest_id = local.use_content_library ? var.windows_guest_id : data.vsphere_virtual_machine.windows_template[0].guest_id
 
   wait_for_guest_net_timeout = 15
   wait_for_guest_ip_timeout  = 15
 
   network_interface {
     network_id   = data.vsphere_network.network.id
-    adapter_type = data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
+    adapter_type = local.use_content_library ? "vmxnet3" : data.vsphere_virtual_machine.windows_template[0].network_interface_types[0]
   }
 
   disk {
     label            = "disk0"
-    size             = max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
+    size             = local.use_content_library ? each.value.disk : max(each.value.disk, data.vsphere_virtual_machine.windows_template[0].disks[0].size)
     thin_provisioned = true
   }
 
   clone {
-    template_uuid = data.vsphere_virtual_machine.windows_template[0].id
+    template_uuid = local.use_content_library ? data.vsphere_content_library_item.windows_template[0].id : data.vsphere_virtual_machine.windows_template[0].id
 
     customize {
       windows_options {
