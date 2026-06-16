@@ -1406,9 +1406,40 @@ run_terraform() {
     step "terraform init ..."
     terraform init -input=false
 
-    # Merge deploy flags with existing state — never destroy apps from prior runs
-    local existing_resources
+    # --- State-aware merge: preserve existing VMs only on the SAME vCenter ---
+    local existing_resources=""
     existing_resources=$(terraform state list 2>/dev/null || echo "")
+    if [[ -n "$existing_resources" ]]; then
+        # Check if vCenter server changed — if so, state is stale
+        local state_server=""
+        state_server=$(terraform state show "data.vsphere_datacenter.dc" 2>/dev/null \
+                       | grep -i 'provider' | head -1 || true)
+        # Simpler check: see if a quick terraform refresh succeeds
+        local stale_state=false
+        if ! terraform refresh -input=false > /dev/null 2>&1; then
+            stale_state=true
+        fi
+
+        if $stale_state; then
+            warn "Terraform state contains resources from a previous vCenter/deployment."
+            warn "The state is stale and does not match the current vCenter."
+            echo ""
+            echo -e "  ${Y}How would you like to proceed?${NC}"
+            echo -e "    ${G}1)${NC} Clean state — remove stale state and deploy fresh (recommended)"
+            echo -e "    ${G}2)${NC} Keep state — attempt to merge with existing resources"
+            read -rp "  Choice [1/2] (default: 1): " state_choice
+            state_choice="${state_choice:-1}"
+            if [[ "$state_choice" == "1" ]]; then
+                step "Removing stale terraform state ..."
+                rm -f terraform.tfstate terraform.tfstate.backup
+                existing_resources=""
+                step "State cleaned. Will deploy fresh."
+            else
+                step "Keeping existing state. Merge may produce unexpected results."
+            fi
+        fi
+    fi
+
     if [[ -n "$existing_resources" ]]; then
         step "Existing VMs detected in state — merging deploy flags to preserve them"
 
