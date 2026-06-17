@@ -201,6 +201,8 @@ load_previous() {
     PREV_JAVA_HOSTNAME="lin-java"; PREV_DOTNET_HOSTNAME="lin-dotnet"; PREV_PHP_HOSTNAME="lin-php"
     PREV_WIN_TEMPLATE="windows-2019-template"
     PREV_CONTENT_LIBRARY=""
+    PREV_LINUX_TEMPLATE_DISK_GB=""
+    PREV_WINDOWS_TEMPLATE_DISK_GB=""
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="21"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
@@ -298,6 +300,8 @@ load_previous() {
         PREV_PHP_HOSTNAME="$(tfval php_vm_hostname "lin-php")"
         PREV_WIN_TEMPLATE="$(tfval win_template_name "windows-2019-template")"
         PREV_CONTENT_LIBRARY="$(tfval content_library_name "")"
+        PREV_LINUX_TEMPLATE_DISK_GB="$(tfval linux_template_min_disk "")"
+        PREV_WINDOWS_TEMPLATE_DISK_GB="$(tfval windows_template_min_disk "")"
         # Single-VM Windows overrides (for "both" mode)
         PREV_WIN_JAVA_IP="$(tfval win_java_vm_ip "")"
         PREV_WIN_JAVA_HOSTNAME="$(tfval win_java_vm_hostname "win-java")"
@@ -413,6 +417,8 @@ collect_infra() {
         VSPHERE_FOLDER="$PREV_VSPHERE_FOLDER"
         VM_TEMPLATE="$PREV_VM_TEMPLATE"; WIN_TEMPLATE="$PREV_WIN_TEMPLATE"
         CONTENT_LIBRARY="$PREV_CONTENT_LIBRARY"
+        LINUX_TEMPLATE_DISK_GB="${PREV_LINUX_TEMPLATE_DISK_GB:-20}"
+        WINDOWS_TEMPLATE_DISK_GB="${PREV_WINDOWS_TEMPLATE_DISK_GB:-20}"
         step "Using saved: DC=$VSPHERE_DC  Cluster=$VSPHERE_CLUSTER  DS=$VSPHERE_DS"
         return
     fi
@@ -433,6 +439,35 @@ collect_infra() {
         # Both
         prompt "Linux Template name" "$PREV_VM_TEMPLATE"; VM_TEMPLATE="$REPLY"
         prompt "Windows Template name" "$PREV_WIN_TEMPLATE"; WIN_TEMPLATE="$REPLY"
+    fi
+
+    # --- Template disk sizes (REQUIRED for Content Library — vSphere cannot shrink disks) ---
+    # Defaults to 20 GB when not using a Content Library (only used as a floor with max()).
+    LINUX_TEMPLATE_DISK_GB="${PREV_LINUX_TEMPLATE_DISK_GB:-20}"
+    WINDOWS_TEMPLATE_DISK_GB="${PREV_WINDOWS_TEMPLATE_DISK_GB:-20}"
+    if [[ -n "$CONTENT_LIBRARY" ]]; then
+        echo ""
+        echo -e "  ${Y}Content Library template disk sizes${NC}"
+        echo -e "  ${GR}Required: vSphere cannot shrink disks. Enter the EXACT disk size${NC}"
+        echo -e "  ${GR}of each template (in GB). Check in vCenter > Content Library > Item > Storage.${NC}"
+        if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
+            while true; do
+                prompt "Linux template disk size in GB" "${PREV_LINUX_TEMPLATE_DISK_GB:-20}"
+                if [[ "$REPLY" =~ ^[0-9]+$ ]] && (( REPLY >= 1 )); then
+                    LINUX_TEMPLATE_DISK_GB="$REPLY"; break
+                fi
+                warn "Enter a positive integer (GB)."
+            done
+        fi
+        if [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]]; then
+            while true; do
+                prompt "Windows template disk size in GB" "${PREV_WINDOWS_TEMPLATE_DISK_GB:-40}"
+                if [[ "$REPLY" =~ ^[0-9]+$ ]] && (( REPLY >= 1 )); then
+                    WINDOWS_TEMPLATE_DISK_GB="$REPLY"; break
+                fi
+                warn "Enter a positive integer (GB)."
+            done
+        fi
     fi
 }
 
@@ -907,7 +942,11 @@ show_summary() {
     else
         echo -e "  Templates:      $VM_TEMPLATE (Linux) / $WIN_TEMPLATE (Windows)"
     fi
-    [[ -n "$CONTENT_LIBRARY" ]] && echo -e "  Content Library: $CONTENT_LIBRARY" || true
+    if [[ -n "$CONTENT_LIBRARY" ]]; then
+        echo -e "  Content Library: $CONTENT_LIBRARY"
+        [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]] && echo -e "  Linux template disk: ${LINUX_TEMPLATE_DISK_GB} GB" || true
+        [[ "$OS_CHOICE" == "windows" || "$OS_CHOICE" == "both" ]] && echo -e "  Windows template disk: ${WINDOWS_TEMPLATE_DISK_GB} GB" || true
+    fi
     echo -e "  Network:        $VSPHERE_NET  Gateway: $VM_GW/$VM_MASK\n"
 
     # Use SELECTED_MODES for display when available; fall back to DEPLOY_MODES
@@ -1032,7 +1071,9 @@ vsphere_cluster    = "$VSPHERE_CLUSTER"
 vsphere_datastore  = "$VSPHERE_DS"
 vsphere_network    = "$VSPHERE_NET"
 vsphere_folder     = "$VSPHERE_FOLDER"
-content_library_name = "$CONTENT_LIBRARY"
+content_library_name      = "$CONTENT_LIBRARY"
+linux_template_min_disk   = ${LINUX_TEMPLATE_DISK_GB:-20}
+windows_template_min_disk = ${WINDOWS_TEMPLATE_DISK_GB:-20}
 vm_template_name   = "$VM_TEMPLATE"
 
 vm_domain              = "$VM_DOMAIN"
@@ -2488,6 +2529,8 @@ main() {
         VM_DNS="${PREV_VM_DNS:-8.8.8.8,8.8.4.4}"
         WIN_TEMPLATE="${PREV_WIN_TEMPLATE:-windows-2019-template}"
         CONTENT_LIBRARY="${PREV_CONTENT_LIBRARY:-}"
+        LINUX_TEMPLATE_DISK_GB="${PREV_LINUX_TEMPLATE_DISK_GB:-20}"
+        WINDOWS_TEMPLATE_DISK_GB="${PREV_WINDOWS_TEMPLATE_DISK_GB:-20}"
         # Single-VM variables
         JAVA_IP="${PREV_JAVA_IP:-}"; JAVA_HOSTNAME="${PREV_JAVA_HOSTNAME:-lin-java}"
         JAVA_CPU="${PREV_JAVA_CPU:-2}"; JAVA_MEM="${PREV_JAVA_MEM:-4096}"
