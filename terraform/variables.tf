@@ -257,6 +257,18 @@ variable "windows_guest_id" {
   default     = "windows2019srvNext_64Guest"
 }
 
+variable "linux_template_min_disk" {
+  description = "Minimum disk size (GB) for Linux VMs — must be >= template disk size"
+  type        = number
+  default     = 20
+}
+
+variable "windows_template_min_disk" {
+  description = "Minimum disk size (GB) for Windows VMs — must be >= template disk size"
+  type        = number
+  default     = 20
+}
+
 variable "win_admin_password" {
   description = "Windows local Administrator password"
   type        = string
