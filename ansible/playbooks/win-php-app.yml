@@ -134,6 +134,14 @@
         - openssl
         - pdo_mysql
         - mysqli
+        - zip
+        - gd
+
+    - name: Ensure extension_dir points to ext folder (Windows PHP default fallback is wrong path)
+      win_lineinfile:
+        path: '{{ php_path }}\php.ini'
+        regexp: '^;?\s*extension_dir\s*=\s*"ext"'
+        line: 'extension_dir = "ext"'
 
     # ---------------------------------------------------------------
     # MySQL
