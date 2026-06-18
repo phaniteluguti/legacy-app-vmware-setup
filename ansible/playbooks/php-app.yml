@@ -156,10 +156,19 @@
       args:
         creates: /var/www/laravel/composer.json
 
+    - name: Disable Composer advisory blocking (legacy showcase app keeps vulnerable deps on purpose)
+      shell: |
+        cd /var/www/laravel
+        composer config policy.advisories.block false
+      environment:
+        COMPOSER_ALLOW_SUPERUSER: "1"
+      args:
+        creates: /var/www/laravel/vendor
+
     - name: Install Composer dependencies
       shell: |
         cd /var/www/laravel
-        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
+        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev --no-audit
       environment:
         COMPOSER_ALLOW_SUPERUSER: "1"
       args:

@@ -97,11 +97,22 @@
       args:
         creates: '{{ laravel_app }}\repo\composer.json'
 
+    - name: Disable Composer advisory blocking (legacy showcase app keeps vulnerable deps on purpose)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ laravel_app }}/repo"
+        composer config policy.advisories.block false
+      args:
+        creates: '{{ laravel_app }}\repo\vendor\autoload.php'
+      environment:
+        COMPOSER_HOME: C:\ProgramData\ComposerData
+        COMPOSER_ALLOW_SUPERUSER: "1"
+
     - name: Install Composer dependencies
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         Set-Location "{{ laravel_app }}/repo"
-        composer install --no-interaction --no-dev --optimize-autoloader
+        composer install --no-interaction --no-dev --optimize-autoloader --no-audit
       args:
         creates: '{{ laravel_app }}\repo\vendor\autoload.php'
       environment:
