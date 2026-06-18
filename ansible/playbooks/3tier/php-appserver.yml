@@ -90,7 +90,7 @@
     - name: Install Composer dependencies
       shell: |
         cd /var/www/laravel
-        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev --no-audit
+        composer install --no-interaction --prefer-dist --optimize-autoloader --no-dev
       environment:
         COMPOSER_ALLOW_SUPERUSER: "1"
       args:

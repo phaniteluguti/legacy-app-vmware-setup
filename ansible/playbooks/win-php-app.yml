@@ -203,7 +203,7 @@
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         Set-Location "{{ laravel_app }}/repo"
-        composer install --no-interaction --no-dev --optimize-autoloader --no-audit
+        composer install --no-interaction --no-dev --optimize-autoloader
       args:
         creates: '{{ laravel_app }}\repo\vendor\autoload.php'
       environment:
