@@ -55,15 +55,27 @@
     # ---------------------------------------------------------------
     # PostgreSQL (local — same VM)
     # ---------------------------------------------------------------
-    - name: Add PostgreSQL APT key
-      ansible.builtin.apt_key:
-        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
-        state: present
+    # Note: ansible.builtin.apt_key is deprecated and breaks on Ubuntu 24.04
+    # (Python 3.12) with: "'CustomHTTPSConnection' object has no attribute
+    # 'cert_file'". Use the modern signed-by keyring pattern instead.
+    - name: Ensure /etc/apt/keyrings exists
+      ansible.builtin.file:
+        path: /etc/apt/keyrings
+        state: directory
+        mode: '0755'
 
-    - name: Add PostgreSQL APT repository
+    - name: Download PostgreSQL APT key into keyring directory
+      ansible.builtin.get_url:
+        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
+        dest: /etc/apt/keyrings/postgresql.asc
+        mode: '0644'
+        force: false
+
+    - name: Add PostgreSQL APT repository (signed-by keyring)
       ansible.builtin.apt_repository:
-        repo: "deb http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
+        repo: "deb [signed-by=/etc/apt/keyrings/postgresql.asc] http://apt.postgresql.org/pub/repos/apt {{ ansible_distribution_release }}-pgdg main"
         state: present
+        filename: pgdg
 
     - name: Install PostgreSQL {{ postgres_version }}
       apt:
