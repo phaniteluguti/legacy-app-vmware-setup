@@ -38,11 +38,20 @@
         mode: '0755'
 
     - name: Download PostgreSQL APT key into keyring directory
-      ansible.builtin.get_url:
-        url: https://www.postgresql.org/media/keys/ACCC4CF8.asc
-        dest: /etc/apt/keyrings/postgresql.asc
+      # NOTE: ansible.builtin.get_url uses ansible's urls.py which is broken on
+      # Python 3.12 ("'CustomHTTPSConnection' object has no attribute 'cert_file'").
+      # curl bypasses ansible's HTTPS code entirely, working on every Ubuntu
+      # version regardless of Python or ansible-core version.
+      ansible.builtin.command:
+        cmd: curl -fsSL https://www.postgresql.org/media/keys/ACCC4CF8.asc -o /etc/apt/keyrings/postgresql.asc
+        creates: /etc/apt/keyrings/postgresql.asc
+
+    - name: Set permissions on PostgreSQL key
+      ansible.builtin.file:
+        path: /etc/apt/keyrings/postgresql.asc
         mode: '0644'
-        force: false
+        owner: root
+        group: root
 
     - name: Add PostgreSQL APT repository (signed-by keyring)
       ansible.builtin.apt_repository:

@@ -42,6 +42,7 @@
           - iotop
           - net-tools
           - lsof
+          - curl
         state: present
         update_cache: true
 
@@ -105,10 +106,16 @@
     # Optional: Azure Migrate Dependency Agent
     # ---------------------------------------------------------------
     - name: Download Azure Migrate Dependency Agent
-      get_url:
-        url: https://aka.ms/dependencyagentlinux
-        dest: /tmp/InstallDependencyAgent-Linux64.bin
-        mode: "0755"
+      # Use curl instead of get_url to avoid ansible HTTPS bug on Python 3.12.
+      ansible.builtin.command:
+        cmd: curl -fsSL https://aka.ms/dependencyagentlinux -o /tmp/InstallDependencyAgent-Linux64.bin
+        creates: /tmp/InstallDependencyAgent-Linux64.bin
+      when: install_azure_migrate_agent | default(false)
+
+    - name: Make Azure Migrate Dependency Agent installer executable
+      ansible.builtin.file:
+        path: /tmp/InstallDependencyAgent-Linux64.bin
+        mode: '0755'
       when: install_azure_migrate_agent | default(false)
 
     - name: Install Azure Migrate Dependency Agent

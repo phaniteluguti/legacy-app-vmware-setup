@@ -55,9 +55,10 @@
         update_cache: true
 
     - name: Download Composer installer
-      get_url:
-        url: https://getcomposer.org/installer
-        dest: /tmp/composer-setup.php
+      # Use curl instead of get_url to avoid ansible HTTPS bug on Python 3.12.
+      ansible.builtin.command:
+        cmd: curl -fsSL https://getcomposer.org/installer -o /tmp/composer-setup.php
+        creates: /tmp/composer-setup.php
 
     - name: Install Composer globally
       shell: |
