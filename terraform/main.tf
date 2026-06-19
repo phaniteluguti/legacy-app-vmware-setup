@@ -309,6 +309,7 @@ resource "vsphere_virtual_machine" "vm" {
   memory   = each.value.memory
 
   guest_id = local.use_content_library ? var.linux_guest_id : data.vsphere_virtual_machine.template[0].guest_id
+  firmware = local.use_content_library ? var.linux_firmware : data.vsphere_virtual_machine.template[0].firmware
 
   network_interface {
     network_id   = data.vsphere_network.network.id
@@ -360,6 +361,7 @@ resource "vsphere_virtual_machine" "win_vm" {
   memory   = each.value.memory
 
   guest_id = local.use_content_library ? var.windows_guest_id : data.vsphere_virtual_machine.windows_template[0].guest_id
+  firmware = local.use_content_library ? var.windows_firmware : data.vsphere_virtual_machine.windows_template[0].firmware
 
   wait_for_guest_net_timeout  = 15
   wait_for_guest_ip_timeout   = 15
@@ -426,6 +428,7 @@ resource "vsphere_virtual_machine" "vm_3tier" {
   memory   = each.value.memory
 
   guest_id = local.use_content_library ? var.linux_guest_id : data.vsphere_virtual_machine.template[0].guest_id
+  firmware = local.use_content_library ? var.linux_firmware : data.vsphere_virtual_machine.template[0].firmware
 
   network_interface {
     network_id   = data.vsphere_network.network.id
@@ -475,6 +478,7 @@ resource "vsphere_virtual_machine" "win_vm_3tier" {
   memory   = each.value.memory
 
   guest_id = local.use_content_library ? var.windows_guest_id : data.vsphere_virtual_machine.windows_template[0].guest_id
+  firmware = local.use_content_library ? var.windows_firmware : data.vsphere_virtual_machine.windows_template[0].firmware
 
   wait_for_guest_net_timeout = 15
   wait_for_guest_ip_timeout  = 15

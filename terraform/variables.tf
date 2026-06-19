@@ -269,6 +269,26 @@ variable "windows_template_min_disk" {
   default     = 20
 }
 
+variable "linux_firmware" {
+  description = "Firmware mode for Linux VMs — must match the template's firmware (efi or bios). Modern Ubuntu 22.04 OVAs are typically efi."
+  type        = string
+  default     = "efi"
+  validation {
+    condition     = contains(["bios", "efi"], var.linux_firmware)
+    error_message = "linux_firmware must be 'bios' or 'efi'."
+  }
+}
+
+variable "windows_firmware" {
+  description = "Firmware mode for Windows VMs — must match the template's firmware (efi or bios). Modern Windows Server 2022 templates are typically efi."
+  type        = string
+  default     = "efi"
+  validation {
+    condition     = contains(["bios", "efi"], var.windows_firmware)
+    error_message = "windows_firmware must be 'bios' or 'efi'."
+  }
+}
+
 variable "win_admin_password" {
   description = "Windows local Administrator password"
   type        = string
