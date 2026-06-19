@@ -2253,6 +2253,41 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Post-deploy prompt: DNS Registration / Domain Join.
+# Single source of truth — used after every deploy path. Accepts "1", "2",
+# explicit "3" (Both), "4"/"" (Skip), and free-form combos like "1,2" / "1 2".
+prompt_post_deploy() {
+    echo ""
+    echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
+    echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
+    echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
+    echo -e "    ${G}3)${NC} Both (DNS Registration first, then Domain Join)"
+    echo -e "    ${G}4)${NC} Skip"
+    echo -e "    ${C}Tip: you can also type '1,2' to run both.${NC}"
+    local post_choice
+    read -rp "  Choice [4]: " post_choice
+    post_choice="${post_choice:-4}"
+
+    # Normalise: collapse commas / plus / whitespace into space-separated tokens.
+    local tokens
+    tokens="$(echo "$post_choice" | tr ',+' '  ' | tr -s ' ')"
+    local want_dns=0 want_join=0
+    local t
+    for t in $tokens; do
+        case "$t" in
+            1) want_dns=1 ;;
+            2) want_join=1 ;;
+            3) want_dns=1; want_join=1 ;;
+            4|skip|Skip|SKIP|"") : ;;
+            *) warn "Ignoring unknown post-deploy choice: '$t'" ;;
+        esac
+    done
+
+    [[ $want_dns  -eq 1 ]] && run_dns_register || true
+    [[ $want_join -eq 1 ]] && run_domain_join  || true
+}
+
+# ---------------------------------------------------------------------------
 run_azmigrate_db() {
     header "Azure Migrate — Create DB Discovery Users"
     echo -e "  ${C}Creates least-privilege users on PostgreSQL and MySQL${NC}"
@@ -2826,29 +2861,13 @@ main() {
                 DEPLOY_MODE="$mode"
                 run_ansible; run_verify
             done
-            echo ""
-            echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
-            echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
-            echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
-            echo -e "    ${G}3)${NC} Skip"
-            read -rp "  Choice [3]: " post_choice
-            post_choice="${post_choice:-3}"
-            [[ "$post_choice" == "1" ]] && run_dns_register || true
-            [[ "$post_choice" == "2" ]] && run_domain_join || true
+            prompt_post_deploy
         elif [[ "$qchoice" == "2" ]]; then
             for mode in "${SELECTED_MODES[@]}"; do
                 DEPLOY_MODE="$mode"
                 run_ansible; run_verify
             done
-            echo ""
-            echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
-            echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
-            echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
-            echo -e "    ${G}3)${NC} Skip"
-            read -rp "  Choice [3]: " post_choice
-            post_choice="${post_choice:-3}"
-            [[ "$post_choice" == "1" ]] && run_dns_register || true
-            [[ "$post_choice" == "2" ]] && run_domain_join || true
+            prompt_post_deploy
         elif [[ "$qchoice" == "4" ]]; then
             run_dns_register
         elif [[ "$qchoice" == "5" ]]; then
@@ -3034,15 +3053,7 @@ main() {
                DEPLOY_MODE="$mode"
                run_ansible; run_verify
            done
-           echo ""
-           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
-           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
-           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
-           echo -e "    ${G}3)${NC} Skip"
-           read -rp "  Choice [3]: " post_choice
-           post_choice="${post_choice:-3}"
-           [[ "$post_choice" == "1" ]] && run_dns_register || true
-           [[ "$post_choice" == "2" ]] && run_domain_join || true ;;
+           prompt_post_deploy ;;
         2) step "Config files saved. Run manually when ready:"
            echo -e "    ${GR}cd terraform && terraform init && terraform apply${NC}"
            echo -e "    ${GR}cd ansible && ansible-playbook -i inventory/hosts.ini site.yml${NC}"
@@ -3052,15 +3063,7 @@ main() {
                DEPLOY_MODE="$mode"
                run_ansible; run_verify
            done
-           echo ""
-           echo -e "  ${Y}Post-deploy: DNS / Domain Join${NC}"
-           echo -e "    ${G}1)${NC} DNS Registration only (A records — no domain join)"
-           echo -e "    ${G}2)${NC} Domain Join (join AD domain — DNS registration is automatic)"
-           echo -e "    ${G}3)${NC} Skip"
-           read -rp "  Choice [3]: " post_choice
-           post_choice="${post_choice:-3}"
-           [[ "$post_choice" == "1" ]] && run_dns_register || true
-           [[ "$post_choice" == "2" ]] && run_domain_join || true ;;
+           prompt_post_deploy ;;
         5) for mode in "${DEPLOY_MODES[@]}"; do
                DEPLOY_MODE="$mode"
                run_ansible_resume; run_verify
