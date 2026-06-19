@@ -286,6 +286,9 @@ load_previous() {
         PREV_SSH_USER="$(tfval vm_ssh_user "ubuntu")"
         PREV_SSH_AUTH_METHOD="$(tfval vm_ssh_auth_method "password")"
         PREV_SSH_KEY="$(tfval vm_ssh_private_key_path "\$HOME/.ssh/id_rsa")"
+        # Reuse the SSH password we previously wrote so re-runs do not re-prompt.
+        # tfvars is plaintext on disk anyway; reading it back adds no exposure.
+        PREV_SSH_PASSWORD="$(tfval vm_ssh_password "")"
         PREV_JAVA_IP="$(tfval java_vm_ip "192.168.1.101")"
         PREV_JAVA_CPU="$(tfval java_vm_cpus "2")"
         PREV_JAVA_MEM="$(tfval java_vm_memory "4096")"
@@ -482,6 +485,10 @@ collect_network() {
         if [[ "$OS_CHOICE" == "linux" || "$OS_CHOICE" == "both" ]]; then
             if [[ "$SSH_AUTH_METHOD" == "key" ]]; then
                 SSH_PASSWORD=""
+            elif [[ -n "${PREV_SSH_PASSWORD:-}" ]]; then
+                # Quick mode: reuse the saved password silently.
+                SSH_PASSWORD="$PREV_SSH_PASSWORD"
+                step "Reusing saved SSH password for user '$SSH_USER'"
             else
                 prompt_secret "SSH password for user '$SSH_USER'"; SSH_PASSWORD="$REPLY"
             fi
@@ -1576,10 +1583,15 @@ run_terraform() {
 
         # SAFETY: Same check for Linux SSH password authentication.
         if $merged_linux_tier && [[ "$SSH_AUTH_METHOD" == "password" && -z "$SSH_PASSWORD" ]]; then
-            echo ""
-            warn "State-merge re-enabled a Linux tier, but no SSH password is set."
-            prompt_secret "SSH password for user '$SSH_USER'"
-            SSH_PASSWORD="$REPLY"
+            if [[ -n "${PREV_SSH_PASSWORD:-}" ]]; then
+                SSH_PASSWORD="$PREV_SSH_PASSWORD"
+                step "  Reusing saved SSH password from terraform.tfvars (existing Linux VMs)"
+            else
+                echo ""
+                warn "State-merge re-enabled a Linux tier, but no SSH password is set."
+                prompt_secret "SSH password for user '$SSH_USER'"
+                SSH_PASSWORD="$REPLY"
+            fi
         fi
         # Rebuild DEPLOY_MODES after merge
         derive_modes_from_booleans
