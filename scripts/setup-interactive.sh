@@ -1444,6 +1444,11 @@ run_terraform() {
     header "Phase 1 — Provisioning VMs on vSphere (Terraform)"
     pushd "$TF_DIR" > /dev/null
 
+    # SAFETY: Never reuse a saved tfplan from a previous run. A stale plan can
+    # destroy resources that were removed from state via `terraform state rm`
+    # since the plan was saved. Always start fresh.
+    rm -f tfplan
+
     step "terraform init ..."
     terraform init -input=false
 
@@ -1484,12 +1489,20 @@ run_terraform() {
     if [[ -n "$existing_resources" ]]; then
         step "Existing VMs detected in state — merging deploy flags to preserve them"
 
+        # Track whether state-merge re-enabled a tier the user didn't pick.
+        # If so, we must re-prompt for the credentials that tier needs, otherwise
+        # terraform apply will fail with empty password / vSphere customization
+        # errors (or worse — destroy VMs in a follow-up).
+        local merged_windows_tier=false
+        local merged_linux_tier=false
+
         # Merge tier booleans: if state has resources for a tier, keep it enabled
         if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.vm\['; then
             if [[ "$DEPLOY_LINUX_1TIER" != "true" ]]; then
                 DEPLOY_LINUX_1TIER="true"
                 sed -i "s/^deploy_linux_1tier .*/deploy_linux_1tier   = true/" terraform.tfvars
                 step "  Preserved tier: deploy_linux_1tier=true (existing VMs in state)"
+                merged_linux_tier=true
             fi
         fi
         if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.win_vm\['; then
@@ -1497,6 +1510,7 @@ run_terraform() {
                 DEPLOY_WINDOWS_1TIER="true"
                 sed -i "s/^deploy_windows_1tier .*/deploy_windows_1tier = true/" terraform.tfvars
                 step "  Preserved tier: deploy_windows_1tier=true (existing VMs in state)"
+                merged_windows_tier=true
             fi
         fi
         if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.vm_3tier\['; then
@@ -1504,6 +1518,7 @@ run_terraform() {
                 DEPLOY_LINUX_3TIER="true"
                 sed -i "s/^deploy_linux_3tier .*/deploy_linux_3tier   = true/" terraform.tfvars
                 step "  Preserved tier: deploy_linux_3tier=true (existing VMs in state)"
+                merged_linux_tier=true
             fi
         fi
         if echo "$existing_resources" | grep -q 'vsphere_virtual_machine\.win_vm_3tier\['; then
@@ -1511,7 +1526,56 @@ run_terraform() {
                 DEPLOY_WINDOWS_3TIER="true"
                 sed -i "s/^deploy_windows_3tier .*/deploy_windows_3tier = true/" terraform.tfvars
                 step "  Preserved tier: deploy_windows_3tier=true (existing VMs in state)"
+                merged_windows_tier=true
             fi
+        fi
+
+        # SAFETY: If state-merge re-enabled a Windows tier but the user didn't
+        # pick Windows this run, win_admin_password is empty in tfvars. Prompt
+        # for it now so terraform apply doesn't fail with
+        # "spec.identity.password.value not correct".
+        if $merged_windows_tier; then
+            local current_pass
+            current_pass=$(grep -m1 '^win_admin_password' terraform.tfvars 2>/dev/null \
+                          | sed 's/.*= *"\([^"]*\)"/\1/' || true)
+            if [[ -z "$current_pass" || "$current_pass" == '""' ]]; then
+                echo ""
+                warn "State-merge re-enabled a Windows tier, but no Windows password is set."
+                warn "Without it, the next 'terraform apply' will FAIL on customization."
+                echo ""
+                echo -e "  ${Y}You have two choices:${NC}"
+                echo -e "    ${G}1)${NC} Provide the Windows password to keep those VMs"
+                echo -e "    ${G}2)${NC} Destroy those Windows VMs from state (they'll be recreated"
+                echo -e "         only if you re-enable Windows in a later run)"
+                read -rp "  Choice [1/2] (default: 1): " win_choice
+                win_choice="${win_choice:-1}"
+                if [[ "$win_choice" == "1" ]]; then
+                    prompt_secret "Windows Administrator password"
+                    WIN_ADMIN_PASS="$REPLY"
+                    sed -i "s|^win_admin_password = .*|win_admin_password = \"$WIN_ADMIN_PASS\"|" terraform.tfvars
+                    step "  Windows password updated in terraform.tfvars"
+                else
+                    step "Removing Windows VMs from state ..."
+                    terraform state list 2>/dev/null \
+                        | grep -E '^vsphere_virtual_machine\.(win_vm|win_vm_3tier)\[' \
+                        | while IFS= read -r addr; do
+                            terraform state rm "$addr" || true
+                          done
+                    DEPLOY_WINDOWS_1TIER="false"; DEPLOY_WINDOWS_3TIER="false"
+                    sed -i "s/^deploy_windows_1tier .*/deploy_windows_1tier = false/" terraform.tfvars
+                    sed -i "s/^deploy_windows_3tier .*/deploy_windows_3tier = false/" terraform.tfvars
+                    step "  Windows tiers disabled. VMs in vCenter are NOT deleted automatically."
+                    step "  Manually remove them from vCenter if no longer needed."
+                fi
+            fi
+        fi
+
+        # SAFETY: Same check for Linux SSH password authentication.
+        if $merged_linux_tier && [[ "$SSH_AUTH_METHOD" == "password" && -z "$SSH_PASSWORD" ]]; then
+            echo ""
+            warn "State-merge re-enabled a Linux tier, but no SSH password is set."
+            prompt_secret "SSH password for user '$SSH_USER'"
+            SSH_PASSWORD="$REPLY"
         fi
         # Rebuild DEPLOY_MODES after merge
         derive_modes_from_booleans
@@ -1611,10 +1675,66 @@ run_terraform() {
     fi
 
     step "terraform plan ..."
-    terraform plan -out=tfplan
+    if ! terraform plan -out=tfplan; then
+        err "terraform plan failed."
+        rm -f tfplan
+        popd > /dev/null
+        return 1
+    fi
+
+    # SAFETY: Detect destroys in the plan and require explicit confirmation.
+    # Without this, a stale state combined with a flag flip can silently destroy
+    # VMs the user spent significant time deploying (Composer fixes, Ansible
+    # configuration, etc.).
+    local plan_summary destroy_count
+    plan_summary="$(terraform show -no-color tfplan 2>/dev/null | grep -E '^Plan:' | head -1 || true)"
+    destroy_count="$(echo "$plan_summary" | grep -oE '[0-9]+ to destroy' | grep -oE '^[0-9]+' || true)"
+    destroy_count="${destroy_count:-0}"
+
+    if [[ "$destroy_count" -gt 0 ]]; then
+        echo ""
+        echo -e "  ${R}============================================================${NC}"
+        echo -e "  ${R}  TERRAFORM PLAN INCLUDES ${destroy_count} RESOURCE DESTRUCTION(S)${NC}"
+        echo -e "  ${R}============================================================${NC}"
+        echo ""
+        echo -e "  ${Y}Plan summary:${NC} $plan_summary"
+        echo ""
+        echo -e "  ${Y}Resources that WILL BE DESTROYED:${NC}"
+        terraform show -no-color tfplan 2>/dev/null \
+            | grep -E '^\s*# .* will be destroyed' \
+            | sed 's/^/    /' || true
+        echo ""
+        echo -e "  ${Y}Common reasons for unexpected destroys:${NC}"
+        echo -e "    - You disabled a deploy_*_tier flag that previously had VMs in state"
+        echo -e "    - State was manually modified (terraform state rm) but the actual"
+        echo -e "      VMs in vCenter are still tracked elsewhere"
+        echo -e "    - vCenter was changed and old state is being cleaned up"
+        echo ""
+        echo -e "  ${R}If you DID NOT intend to destroy these VMs, type 'cancel' to abort.${NC}"
+        echo -e "  ${Y}If destruction is intentional, type 'yes' to proceed.${NC}"
+        local confirm=""
+        read -rp "  Confirm [yes/cancel]: " confirm
+        if [[ "$confirm" != "yes" ]]; then
+            warn "Aborted by user. No changes applied. Saved plan deleted."
+            rm -f tfplan
+            popd > /dev/null
+            return 1
+        fi
+    fi
 
     step "terraform apply ..."
-    terraform apply -auto-approve tfplan
+    local apply_rc=0
+    terraform apply -auto-approve tfplan || apply_rc=$?
+
+    # SAFETY: Always delete tfplan after apply (success or failure) so it can
+    # never be replayed manually after subsequent state changes.
+    rm -f tfplan
+
+    if [[ $apply_rc -ne 0 ]]; then
+        err "terraform apply failed (exit $apply_rc)."
+        popd > /dev/null
+        return 1
+    fi
 
     step "VMs created. Waiting 60s for SSH readiness..."
     sleep 60
