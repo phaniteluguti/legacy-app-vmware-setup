@@ -2131,10 +2131,67 @@ EOF
 }
 
 # ---------------------------------------------------------------------------
+# Detect which inventory roll-up groups actually contain at least one host.
+# Sets DJ_HAS_LINUX_1TIER / DJ_HAS_LINUX_3TIER / DJ_HAS_WIN_1TIER / DJ_HAS_WIN_3TIER
+# globals to "true" or "false" by parsing ansible/inventory/hosts.ini.
+#
+# Why this exists: state-merge can re-enable tiers across runs, so an inventory
+# may carry stale 1-tier hosts even when the user is only working with 3-tier
+# this session. We use these flags to (a) prompt the user to pick a subset and
+# (b) build an ansible-playbook --limit that excludes empty / stale tiers.
+detect_inventory_tiers() {
+    DJ_HAS_LINUX_1TIER=false
+    DJ_HAS_LINUX_3TIER=false
+    DJ_HAS_WIN_1TIER=false
+    DJ_HAS_WIN_3TIER=false
+    local inv_file="$ANSIBLE_DIR/inventory/hosts.ini"
+    [[ -f "$inv_file" ]] || return 0
+    local current="" line host
+    while IFS= read -r line; do
+        [[ "$line" =~ ^[[:space:]]*# ]] && continue || true
+        [[ -z "${line// /}" ]] && continue || true
+        if [[ "$line" =~ ^\[(.+)\]$ ]]; then
+            current="${BASH_REMATCH[1]}"
+            continue
+        fi
+        [[ "$current" == *:children* || "$current" == *:vars* ]] && continue || true
+        host="${line%% *}"
+        [[ -z "$host" ]] && continue || true
+        case "$current" in
+            java_servers|dotnet_servers|php_servers)               DJ_HAS_LINUX_1TIER=true ;;
+            java_frontend|java_appserver|java_database|\
+            dotnet_frontend|dotnet_appserver|dotnet_database|\
+            php_frontend|php_appserver|php_database)               DJ_HAS_LINUX_3TIER=true ;;
+            win_java_servers|win_dotnet_servers|win_php_servers)   DJ_HAS_WIN_1TIER=true ;;
+            win_java_frontend|win_java_appserver|win_java_database|\
+            win_dotnet_frontend|win_dotnet_appserver|win_dotnet_database|\
+            win_php_frontend|win_php_appserver|win_php_database)   DJ_HAS_WIN_3TIER=true ;;
+        esac
+    done < "$inv_file"
+}
+
+# Build an ansible --limit pattern that scopes to a specific OS + tier subset.
+# Args: $1 = os (linux|windows), $2 = tier_choice (1=all, 2=1tier, 3=3tier)
+# Echoes the limit pattern (e.g. "legacy_apps" or "legacy_apps_3tier" or
+# "legacy_apps:legacy_apps_3tier"). Empty string means "no limit".
+build_domain_join_limit() {
+    local os="$1" tier="$2"
+    case "$os:$tier" in
+        linux:1)   echo "legacy_apps:legacy_apps_3tier" ;;
+        linux:2)   echo "legacy_apps" ;;
+        linux:3)   echo "legacy_apps_3tier" ;;
+        windows:1) echo "win_servers:win_servers_3tier" ;;
+        windows:2) echo "win_servers" ;;
+        windows:3) echo "win_servers_3tier" ;;
+        *)         echo "" ;;
+    esac
+}
+
 run_domain_join() {
     header "Domain Join — Join VMs to Active Directory"
     echo -e "  ${C}This will join VMs to an AD domain.${NC}"
     echo -e "  ${C}DNS registration happens automatically with domain join.${NC}"
+    echo -e "  ${C}Hosts already joined to the target domain are skipped automatically.${NC}"
     echo ""
     pushd "$ANSIBLE_DIR" > /dev/null
 
@@ -2207,12 +2264,66 @@ run_domain_join() {
         dj_choice="${dj_choice:-$def_scope}"
     fi
 
-    local playbook=""
+    local playbook="" lin_tier_choice="1" win_tier_choice="1"
+    detect_inventory_tiers
+
+    # If both Linux 1-tier and 3-tier coexist in the inventory, ask which to
+    # target. Same for Windows. Default is "all" — but the user can scope down
+    # to just the tier they deployed this session, which avoids hitting stale
+    # hosts from a prior deploy.
+    prompt_tier_subset() {
+        local os_label="$1" has_1t="$2" has_3t="$3" prev_pick="$4"
+        local pick="1"
+        if [[ "$has_1t" == "true" && "$has_3t" == "true" ]]; then
+            echo ""
+            echo -e "  ${Y}Inventory has BOTH 1-tier and 3-tier ${os_label} hosts.${NC}"
+            echo -e "  ${Y}Target which tier(s)?${NC}"
+            echo -e "    ${G}1)${NC} All deployed $os_label hosts (1-tier + 3-tier)"
+            echo -e "    ${G}2)${NC} 1-tier only"
+            echo -e "    ${G}3)${NC} 3-tier only"
+            read -rp "  Choice [${prev_pick:-1}]: " pick
+            pick="${pick:-${prev_pick:-1}}"
+        elif [[ "$has_1t" == "true" ]]; then
+            pick="2"
+        elif [[ "$has_3t" == "true" ]]; then
+            pick="3"
+        fi
+        echo "$pick"
+    }
+
     case "$dj_choice" in
-        1) playbook="playbooks/domain-join-linux.yml" ;;
-        2) playbook="playbooks/domain-join-windows.yml" ;;
-        3) playbook="playbooks/domain-join-all.yml" ;;
+        1)
+            playbook="playbooks/domain-join-linux.yml"
+            lin_tier_choice="$(prompt_tier_subset "Linux" "$DJ_HAS_LINUX_1TIER" "$DJ_HAS_LINUX_3TIER" "")"
+            ;;
+        2)
+            playbook="playbooks/domain-join-windows.yml"
+            win_tier_choice="$(prompt_tier_subset "Windows" "$DJ_HAS_WIN_1TIER" "$DJ_HAS_WIN_3TIER" "")"
+            ;;
+        3)
+            playbook="playbooks/domain-join-all.yml"
+            lin_tier_choice="$(prompt_tier_subset "Linux" "$DJ_HAS_LINUX_1TIER" "$DJ_HAS_LINUX_3TIER" "")"
+            win_tier_choice="$(prompt_tier_subset "Windows" "$DJ_HAS_WIN_1TIER" "$DJ_HAS_WIN_3TIER" "")"
+            ;;
         *) err "Invalid choice"; popd > /dev/null; return 1 ;;
+    esac
+
+    # Build the --limit pattern based on tier choice. For "Both" the limit
+    # combines Linux + Windows scopes with ":".
+    local dj_limit=""
+    case "$dj_choice" in
+        1) dj_limit="$(build_domain_join_limit linux "$lin_tier_choice")" ;;
+        2) dj_limit="$(build_domain_join_limit windows "$win_tier_choice")" ;;
+        3)
+            local l_lim w_lim
+            l_lim="$(build_domain_join_limit linux "$lin_tier_choice")"
+            w_lim="$(build_domain_join_limit windows "$win_tier_choice")"
+            if [[ -n "$l_lim" && -n "$w_lim" ]]; then
+                dj_limit="$l_lim:$w_lim"
+            else
+                dj_limit="${l_lim}${w_lim}"
+            fi
+            ;;
     esac
 
     # Save domain join settings for next run (passwords are NEVER saved)
@@ -2228,9 +2339,18 @@ EOF
     # Derive retry file path from playbook name
     local retry_file="${ANSIBLE_DIR}/${playbook%.yml}.retry"
 
+    # Build --limit arg only when we actually have one (empty means "no limit"
+    # and would otherwise produce an invalid `--limit ""` argument).
+    local limit_args=()
+    if [[ -n "$dj_limit" ]]; then
+        limit_args=(--limit "$dj_limit")
+        step "Scoping to inventory groups: $dj_limit"
+    fi
+
     step "Joining VMs to domain=$ad_domain DC=$dc_ip user=$ad_user"
     local rc=0
     ansible-playbook -i inventory/hosts.ini "$playbook" \
+        "${limit_args[@]}" \
         -e "ad_domain=$ad_domain" -e "dns_server=$dc_ip" \
         -e "ad_admin_user=$ad_user" -e "ad_admin_password=$ad_pass" -v || rc=$?
 

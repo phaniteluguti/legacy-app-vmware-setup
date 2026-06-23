@@ -17,6 +17,9 @@
   gather_facts: true
   become: false
   serial: 3
+  # Stale/destroyed hosts in the inventory should not fail the whole play.
+  # Reachable hosts still get the already_joined idempotency check below.
+  ignore_unreachable: true
 
   tasks:
     - name: Validate required variables
