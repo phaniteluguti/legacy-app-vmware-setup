@@ -241,6 +241,19 @@
       changed_when: dotnet_build.rc == 0
       notify: Restart eShop
 
+    # Make sure SQL Server is actually listening on 1433 before we start the
+    # ASP.NET service. systemd's After= only orders unit *start*, not service
+    # readiness — and on SQL Server 2025 first-boot, the TCP listener can
+    # come up several seconds after the unit reports active. Without this
+    # wait, eshop-web races SQL, EF migrations fail, and Restart=on-failure
+    # eventually parks the unit in 'failed'.
+    - name: Wait for local SQL Server to accept TCP on 1433
+      wait_for:
+        host: 127.0.0.1
+        port: 1433
+        timeout: 120
+        state: started
+
     # ---------------------------------------------------------------
     # systemd service
     # ---------------------------------------------------------------
@@ -250,8 +263,10 @@
         content: |
           [Unit]
           Description=eShopOnWeb ASP.NET Core Application
-          After=network.target mssql-server.service
-          Requires=mssql-server.service
+          # Wants= instead of Requires= so a brief mssql-server hiccup
+          # (e.g. CU patch on next reboot) does not cascade-fail eshop-web.
+          After=network-online.target mssql-server.service
+          Wants=network-online.target mssql-server.service
 
           [Service]
           Type=simple
@@ -275,6 +290,11 @@
         daemon_reload: true
         enabled: true
         state: started
+
+    # Force any pending handler-driven restart to run now so the health check
+    # below sees the freshly-deployed binary, not the previous one.
+    - name: Flush handlers (apply any pending eshop-web restart)
+      meta: flush_handlers
 
     # ---------------------------------------------------------------
     # Nginx reverse proxy
@@ -335,6 +355,70 @@
         port: "1433"
         proto: tcp
       ignore_errors: true
+
+    # ---------------------------------------------------------------
+    # Post-deploy health check — fail loudly with a useful diagnostic
+    # instead of silently reporting success when eshop-web has crash-looped.
+    # ---------------------------------------------------------------
+    - name: Flush handlers before final health check
+      meta: flush_handlers
+
+    - name: Wait for eshop-web to listen on {{ dotnet_app_port }}
+      wait_for:
+        host: 127.0.0.1
+        port: "{{ dotnet_app_port }}"
+        timeout: 90
+        state: started
+      register: eshop_listen
+      failed_when: false
+
+    - name: Probe eShop via Nginx on port 80
+      ansible.builtin.uri:
+        url: "http://127.0.0.1/"
+        method: GET
+        return_content: false
+        status_code: [200, 301, 302]
+        timeout: 30
+      register: eshop_http
+      retries: 6
+      delay: 10
+      until: eshop_http.status is defined and eshop_http.status in [200, 301, 302]
+      failed_when: false
+
+    - name: Capture eshop-web status (only when health check failed)
+      shell: |
+        echo "--- systemctl status eshop-web ---"
+        systemctl status eshop-web --no-pager -l || true
+        echo "--- journalctl -u eshop-web (last 80 lines) ---"
+        journalctl -u eshop-web -n 80 --no-pager || true
+        echo "--- systemctl status mssql-server ---"
+        systemctl status mssql-server --no-pager -l || true
+      args:
+        executable: /bin/bash
+      register: eshop_diag
+      when: >
+        eshop_listen.state is not defined
+        or eshop_listen.state != 'started'
+        or eshop_http.status is not defined
+        or eshop_http.status not in [200, 301, 302]
+      changed_when: false
+
+    - name: Show eshop-web diagnostics when unhealthy
+      debug:
+        msg: "{{ eshop_diag.stdout_lines | default([]) }}"
+      when: eshop_diag is defined and eshop_diag.stdout is defined
+
+    - name: Fail the play if eshop-web is not serving
+      ansible.builtin.fail:
+        msg: >-
+          eshop-web is not serving on http://{{ ansible_host | default(inventory_hostname) }}/.
+          See diagnostics above (systemctl status / journalctl). Common causes:
+          (1) mssql-server crashed or has not finished first-boot init,
+          (2) SA password mismatch between group_vars/all.yml and the live
+              mssql-server config, (3) EF migrations could not connect.
+      when: >
+        eshop_http.status is not defined
+        or eshop_http.status not in [200, 301, 302]
 
   handlers:
     - name: Restart eShop
