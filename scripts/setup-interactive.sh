@@ -2514,6 +2514,77 @@ EOF
     popd > /dev/null
 }
 
+run_azmigrate_dependency() {
+    header "Azure Migrate — Dependency Traffic Generator"
+    echo -e "  ${C}Schedules a job (every 15 min) on every 1-tier and 3-tier VM that${NC}"
+    echo -e "  ${C}opens the real inter-tier connections (frontend -> app -> database)${NC}"
+    echo -e "  ${C}and HOLDS them open so the Azure Migrate appliance's periodic poll${NC}"
+    echo -e "  ${C}observes them and can build the dependency map automatically.${NC}"
+    echo ""
+    pushd "$ANSIBLE_DIR" > /dev/null
+
+    chmod 755 "$ANSIBLE_DIR" 2>/dev/null || true
+    export ANSIBLE_CONFIG="$ANSIBLE_DIR/ansible.cfg"
+
+    # Load previous settings if available
+    local dep_conf="$ANSIBLE_DIR/.azmigrate-dep.conf"
+    local prev_file_ip="" prev_dns_ip="" prev_hold=""
+    if [[ -f "$dep_conf" ]]; then
+        step "Found previous dependency-generator config — loading as defaults"
+        prev_file_ip=$(grep '^DEP_FILE_SERVER=' "$dep_conf" 2>/dev/null | cut -d= -f2-)
+        prev_dns_ip=$(grep '^DEP_DNS_SERVER=' "$dep_conf" 2>/dev/null | cut -d= -f2-)
+        prev_hold=$(grep '^DEP_HOLD=' "$dep_conf" 2>/dev/null | cut -d= -f2-)
+    fi
+
+    # Optional common file server (SMB 445 / NFS 2049)
+    local def_file="${prev_file_ip:-}"
+    read -rp "  Common file server IP (SMB/NFS) [${def_file:-none}]: " dep_file_ip
+    dep_file_ip="${dep_file_ip:-$def_file}"
+
+    # Optional common DNS server (port 53)
+    local def_dns="${prev_dns_ip:-}"
+    read -rp "  Common DNS server IP [${def_dns:-none}]: " dep_dns_ip
+    dep_dns_ip="${dep_dns_ip:-$def_dns}"
+
+    # Hold duration — must exceed the appliance poll interval (~5 min)
+    local def_hold="${prev_hold:-330}"
+    read -rp "  Hold each connection open (seconds) [$def_hold]: " dep_hold
+    dep_hold="${dep_hold:-$def_hold}"
+
+    # Save settings for next run
+    cat > "$dep_conf" <<EOF
+# Azure Migrate dependency-generator settings — auto-saved by setup-interactive.sh
+DEP_FILE_SERVER=$dep_file_ip
+DEP_DNS_SERVER=$dep_dns_ip
+DEP_HOLD=$dep_hold
+EOF
+
+    step "Deploying dependency traffic generator — hold=${dep_hold}s file=${dep_file_ip:-none} dns=${dep_dns_ip:-none}"
+
+    local -a extra_args=(
+        -e "dep_hold_seconds=$dep_hold"
+        -e "dep_file_server_ip=$dep_file_ip"
+        -e "dep_dns_server_ip=$dep_dns_ip"
+    )
+
+    ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-dependency-traffic.yml \
+        "${extra_args[@]}" -v
+
+    local rc=$?
+    if [[ $rc -eq 0 ]]; then
+        echo ""
+        echo -e "  ${G}Dependency traffic generator deployed.${NC}"
+        echo -e "  ${C}A job now runs every 15 min on each VM, holding inter-tier${NC}"
+        echo -e "  ${C}connections open for ${dep_hold}s so the appliance can capture them.${NC}"
+        echo -e "  ${Y}Allow ~30-60 min, then check the dependency map in Azure Migrate.${NC}"
+        echo -e "  ${GR}Tear down later with:${NC} ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-dependency-traffic.yml -e dep_state=absent"
+    else
+        echo -e "  ${R}Some tasks failed. Check the output above.${NC}"
+    fi
+
+    popd > /dev/null
+}
+
 # ---------------------------------------------------------------------------
 main() {
     # Handle --destroy flag for quick cleanup
@@ -2702,6 +2773,65 @@ main() {
         step "Inventory rebuilt from Terraform state"
 
         run_azmigrate_db
+        exit 0
+    fi
+
+    # Handle --depgen flag for deploying the dependency traffic generator
+    if [[ "${1:-}" == "--depgen" || "${1:-}" == "depgen" ]]; then
+        echo ""
+        echo -e "  ${C}================================================================${NC}"
+        echo -e "  ${C}     Azure Migrate — Dependency Traffic Generator${NC}"
+        echo -e "  ${C}================================================================${NC}"
+        echo ""
+        check_prerequisites
+        load_previous
+        VM_DOMAIN="${PREV_VM_DOMAIN:-lab.local}"
+        VM_DNS="${PREV_VM_DNS:-8.8.8.8}"
+
+        DEPLOY_JAVA="${PREV_DEPLOY_JAVA:-true}"
+        DEPLOY_DOTNET="${PREV_DEPLOY_DOTNET:-true}"
+        DEPLOY_PHP="${PREV_DEPLOY_PHP:-true}"
+        DEPLOY_LINUX_1TIER="$PREV_DEPLOY_LINUX_1TIER"
+        DEPLOY_WINDOWS_1TIER="$PREV_DEPLOY_WINDOWS_1TIER"
+        DEPLOY_LINUX_3TIER="$PREV_DEPLOY_LINUX_3TIER"
+        DEPLOY_WINDOWS_3TIER="$PREV_DEPLOY_WINDOWS_3TIER"
+        SSH_USER="${PREV_SSH_USER:-ubuntu}"
+        SSH_AUTH_METHOD="${PREV_SSH_AUTH_METHOD:-password}"
+        SSH_KEY="${PREV_SSH_KEY:-}"
+
+        derive_modes_from_booleans
+        if [[ ${#DEPLOY_MODES[@]} -eq 0 ]]; then
+            err "No tiers enabled in terraform.tfvars. Deploy VMs first."
+            exit 1
+        fi
+        step "Active tiers: ${DEPLOY_MODES[*]}"
+
+        local need_linux=false need_windows=false
+        for m in "${DEPLOY_MODES[@]}"; do
+            [[ "$m" == linux* ]] && need_linux=true || true
+            [[ "$m" == windows* ]] && need_windows=true || true
+        done
+        if $need_linux && [[ "$SSH_AUTH_METHOD" == "password" ]]; then
+            prompt_secret "SSH password for $SSH_USER"; SSH_PASSWORD="$REPLY"
+        fi
+        if $need_windows; then
+            prompt_secret "Windows Administrator password"; WIN_ADMIN_PASS="$REPLY"
+        fi
+
+        # Always rebuild inventory with proper credentials per mode
+        pushd "$TF_DIR" > /dev/null
+        terraform init -input=false > /dev/null 2>&1
+        INVENTORY_INITIALIZED=""
+        for mode in "${DEPLOY_MODES[@]}"; do
+            DEPLOY_MODE="$mode"
+            step "Reading Terraform IPs for mode: $DEPLOY_MODE"
+            _read_mode_ips_from_terraform "$DEPLOY_MODE"
+            write_inventory
+        done
+        popd > /dev/null
+        step "Inventory rebuilt from Terraform state"
+
+        run_azmigrate_dependency
         exit 0
     fi
 
@@ -2985,6 +3115,7 @@ main() {
         echo -e "    ${G}4)${NC} DNS Registration only (create A records — no domain join)"
         echo -e "    ${G}5)${NC} Domain Join (join AD domain — DNS registration is automatic)"
         echo -e "    ${G}6)${NC} Azure Migrate DB Users (create discovery accounts on PostgreSQL/MySQL)"
+        echo -e "    ${G}7)${NC} Azure Migrate Dependency Traffic (15-min job so the appliance maps tier dependencies)"
         read -rp "  Choice [3]: " qchoice
         qchoice="${qchoice:-3}"
         if [[ "$qchoice" == "1" ]]; then
@@ -3006,6 +3137,8 @@ main() {
             run_domain_join
         elif [[ "$qchoice" == "6" ]]; then
             run_azmigrate_db
+        elif [[ "$qchoice" == "7" ]]; then
+            run_azmigrate_dependency
         else
             step "Config saved. Run manually when ready."
         fi
@@ -3176,6 +3309,7 @@ main() {
     echo -e "    ${G}7)${NC} DNS Registration only (create A records — no domain join)"
     echo -e "    ${G}8)${NC} Domain Join (join AD domain — DNS registration is automatic)"
     echo -e "    ${G}9)${NC} Azure Migrate DB Users (create discovery accounts on PostgreSQL/MySQL)"
+    echo -e "    ${G}10)${NC} Azure Migrate Dependency Traffic (15-min job so the appliance maps tier dependencies)"
     read -rp "  Choice [2]: " choice
     choice="${choice:-2}"
 
@@ -3204,6 +3338,7 @@ main() {
         7) run_dns_register ;;
         8) run_domain_join ;;
         9) run_azmigrate_db ;;
+        10) run_azmigrate_dependency ;;
         *) err "Invalid choice"; exit 1 ;;
     esac
 }
