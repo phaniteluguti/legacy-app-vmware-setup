@@ -36,13 +36,13 @@
   gather_facts: false
   become: true
   vars:
-    dep_state: "{{ dep_state | default('present') }}"
-    dep_hold_seconds: "{{ dep_hold_seconds | default(330) }}"
-    dep_file_server_ip: "{{ dep_file_server_ip | default('') }}"
-    dep_dns_server_ip: "{{ dep_dns_server_ip | default('') }}"
-    dep_smb_port: "{{ dep_smb_port | default(445) }}"
-    dep_nfs_port: "{{ dep_nfs_port | default(2049) }}"
-    dep_dns_port: "{{ dep_dns_port | default(53) }}"
+    dg_state: "{{ dep_state | default('present') }}"
+    dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_file_ip: "{{ dep_file_server_ip | default('') }}"
+    dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
+    dg_smb_port: "{{ dep_smb_port | default(445) }}"
+    dg_nfs_port: "{{ dep_nfs_port | default(2049) }}"
+    dg_dns_port: "{{ dep_dns_port | default(53) }}"
     # Per-stack realistic flow: each source tier probes the next tier in its
     # own stack, on that tier's actual listening port.
     dep_flow_map:
@@ -59,7 +59,7 @@
       ansible.builtin.cron:
         name: azmigrate-dep-probe
         state: absent
-      when: dep_state == 'absent'
+      when: dg_state == 'absent'
 
     - name: Remove probe files (teardown)
       ansible.builtin.file:
@@ -68,7 +68,7 @@
       loop:
         - /opt/azmigrate/dep-probe.sh
         - /opt/azmigrate/endpoints.conf
-      when: dep_state == 'absent'
+      when: dg_state == 'absent'
 
     # ---- Install path -----------------------------------------------------
     - name: Create probe directory
@@ -76,7 +76,7 @@
         path: /opt/azmigrate
         state: directory
         mode: '0755'
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Generate per-host endpoint list
       ansible.builtin.copy:
@@ -90,14 +90,14 @@
           {{ groups[flow.target_group][0] }}|{{ flow.port }}|tcp|{{ src_grp }}_to_{{ flow.target_group }}
           {% endif %}
           {% endfor %}
-          {% if dep_file_server_ip | length > 0 %}
-          {{ dep_file_server_ip }}|{{ dep_smb_port }}|tcp|smb_fileserver
-          {{ dep_file_server_ip }}|{{ dep_nfs_port }}|tcp|nfs_fileserver
+          {% if dg_file_ip | length > 0 %}
+          {{ dg_file_ip }}|{{ dg_smb_port }}|tcp|smb_fileserver
+          {{ dg_file_ip }}|{{ dg_nfs_port }}|tcp|nfs_fileserver
           {% endif %}
-          {% if dep_dns_server_ip | length > 0 %}
-          {{ dep_dns_server_ip }}|{{ dep_dns_port }}|dns|dns_server
+          {% if dg_dns_ip | length > 0 %}
+          {{ dg_dns_ip }}|{{ dg_dns_port }}|dns|dns_server
           {% endif %}
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Deploy probe script
       ansible.builtin.copy:
@@ -112,7 +112,7 @@
           set -u
           CONF="/opt/azmigrate/endpoints.conf"
           LOG="/var/log/azmigrate-depprobe.log"
-          HOLD={{ dep_hold_seconds }}
+          HOLD={{ dg_hold }}
           [ -f "$CONF" ] || exit 0
           ts() { date '+%F %T'; }
 
@@ -158,7 +158,7 @@
             tail -n 5000 "$LOG" > "$LOG.tmp" 2>/dev/null && mv "$LOG.tmp" "$LOG"
           fi
           exit 0
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Schedule probe every 15 minutes (cron)
       ansible.builtin.cron:
@@ -166,25 +166,25 @@
         minute: "*/15"
         job: "/opt/azmigrate/dep-probe.sh >/dev/null 2>&1"
         state: present
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Seed traffic immediately (fire-and-forget)
       ansible.builtin.command: /opt/azmigrate/dep-probe.sh
-      async: "{{ (dep_hold_seconds | int) + 60 }}"
+      async: "{{ (dg_hold | int) + 60 }}"
       poll: 0
       changed_when: false
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Report Linux endpoint plan
       ansible.builtin.command: cat /opt/azmigrate/endpoints.conf
       register: dep_conf_out
       changed_when: false
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Show what this host will probe
       ansible.builtin.debug:
         msg: "{{ dep_conf_out.stdout_lines | reject('match', '^\\s*#') | reject('equalto', '') | list }}"
-      when: dep_state != 'absent' and dep_conf_out is defined
+      when: dg_state != 'absent' and dep_conf_out is defined
 
 # --- Play 2: Windows VMs (1-tier win_servers + 3-tier win_servers_3tier) -----
 - name: Deploy dependency traffic generator (Windows)
@@ -192,13 +192,13 @@
   gather_facts: false
   become: false
   vars:
-    dep_state: "{{ dep_state | default('present') }}"
-    dep_hold_seconds: "{{ dep_hold_seconds | default(330) }}"
-    dep_file_server_ip: "{{ dep_file_server_ip | default('') }}"
-    dep_dns_server_ip: "{{ dep_dns_server_ip | default('') }}"
-    dep_smb_port: "{{ dep_smb_port | default(445) }}"
-    dep_nfs_port: "{{ dep_nfs_port | default(2049) }}"
-    dep_dns_port: "{{ dep_dns_port | default(53) }}"
+    dg_state: "{{ dep_state | default('present') }}"
+    dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_file_ip: "{{ dep_file_server_ip | default('') }}"
+    dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
+    dg_smb_port: "{{ dep_smb_port | default(445) }}"
+    dg_nfs_port: "{{ dep_nfs_port | default(2049) }}"
+    dg_dns_port: "{{ dep_dns_port | default(53) }}"
     dep_flow_map:
       win_java_frontend:    { target_group: win_java_appserver,   port: 9966 }
       win_java_appserver:   { target_group: win_java_database,    port: 5432 }
@@ -213,20 +213,20 @@
       ansible.windows.win_shell: schtasks /Delete /TN "AzureMigrateDepProbe" /F
       failed_when: false
       changed_when: false
-      when: dep_state == 'absent'
+      when: dg_state == 'absent'
 
     - name: Remove probe directory (teardown)
       ansible.windows.win_file:
         path: C:\azmigrate
         state: absent
-      when: dep_state == 'absent'
+      when: dg_state == 'absent'
 
     # ---- Install path -----------------------------------------------------
     - name: Create probe directory
       ansible.windows.win_file:
         path: C:\azmigrate
         state: directory
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Generate per-host endpoint list
       ansible.windows.win_copy:
@@ -239,14 +239,14 @@
           {{ groups[flow.target_group][0] }}|{{ flow.port }}|tcp|{{ src_grp }}_to_{{ flow.target_group }}
           {% endif %}
           {% endfor %}
-          {% if dep_file_server_ip | length > 0 %}
-          {{ dep_file_server_ip }}|{{ dep_smb_port }}|tcp|smb_fileserver
-          {{ dep_file_server_ip }}|{{ dep_nfs_port }}|tcp|nfs_fileserver
+          {% if dg_file_ip | length > 0 %}
+          {{ dg_file_ip }}|{{ dg_smb_port }}|tcp|smb_fileserver
+          {{ dg_file_ip }}|{{ dg_nfs_port }}|tcp|nfs_fileserver
           {% endif %}
-          {% if dep_dns_server_ip | length > 0 %}
-          {{ dep_dns_server_ip }}|{{ dep_dns_port }}|dns|dns_server
+          {% if dg_dns_ip | length > 0 %}
+          {{ dg_dns_ip }}|{{ dg_dns_port }}|dns|dns_server
           {% endif %}
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Deploy probe script
       ansible.windows.win_copy:
@@ -259,7 +259,7 @@
           $ErrorActionPreference = 'SilentlyContinue'
           $conf = 'C:\azmigrate\endpoints.conf'
           $log  = 'C:\azmigrate\dep-probe.log'
-          $hold = {{ dep_hold_seconds }}
+          $hold = {{ dg_hold }}
           if (-not (Test-Path $conf)) { exit 0 }
 
           $jobs = @()
@@ -302,7 +302,7 @@
               if ($lines -and $lines.Count -gt 5000) { $lines[-5000..-1] | Set-Content $log }
           } catch {}
           exit 0
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Schedule probe every 15 minutes (Scheduled Task as SYSTEM)
       ansible.windows.win_shell: >
@@ -310,20 +310,20 @@
         /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\azmigrate\dep-probe.ps1"
         /SC MINUTE /MO 15 /RU SYSTEM /RL HIGHEST /F
       changed_when: true
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Seed traffic immediately (runs in background)
       ansible.windows.win_shell: schtasks /Run /TN "AzureMigrateDepProbe"
       changed_when: false
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Report Windows endpoint plan
       ansible.windows.win_shell: Get-Content C:\azmigrate\endpoints.conf
       register: dep_conf_win
       changed_when: false
-      when: dep_state != 'absent'
+      when: dg_state != 'absent'
 
     - name: Show what this host will probe
       ansible.builtin.debug:
         msg: "{{ dep_conf_win.stdout_lines | reject('match', '^\\s*#') | reject('equalto', '') | list }}"
-      when: dep_state != 'absent' and dep_conf_win is defined
+      when: dg_state != 'absent' and dep_conf_win is defined
