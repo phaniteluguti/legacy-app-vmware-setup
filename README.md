@@ -24,6 +24,7 @@ Choose which **apps** to deploy (Java, .NET, PHP, or all), which **OS** (Linux, 
    - [DNS Registration (Standalone)](#dns-registration-standalone)
    - [Domain Join (Active Directory)](#domain-join-active-directory)
    - [Azure Migrate Database Discovery Users](#azure-migrate-database-discovery-users)
+   - [Azure Migrate Dependency Traffic Generator](#azure-migrate-dependency-traffic-generator)
 6. [Manual Setup (Alternative to Wizard)](#manual-setup-alternative-to-wizard)
 7. [What Gets Deployed](#what-gets-deployed)
 8. [Directory Structure](#directory-structure)
@@ -687,6 +688,60 @@ The wizard prompts for:
 
 ---
 
+### Azure Migrate Dependency Traffic Generator
+
+Azure Migrate's **agentless dependency analysis** only maps a dependency when the appliance *observes an established TCP connection between two VMs at poll time* (it reads `netstat` on a periodic ~5-minute cycle). An idle 3-tier app therefore shows **no dependencies** on the map, and there's no way to manually simulate the inter-tier traffic at the exact moment the appliance polls.
+
+This step deploys a small **probe** to every 1-tier and 3-tier VM (Linux and Windows) that periodically opens the **real** inter-tier connections (frontend → app server → database, per stack) and **holds each connection open** long enough (default 330s) to overlap at least one appliance poll. A scheduled job re-runs it **every 15 minutes**, so the dependency map populates automatically.
+
+**Via CLI flag:**
+```bash
+bash scripts/setup-interactive.sh --depgen
+```
+
+**Via wizard menu:**
+- Quick menu: **Option 7** — Azure Migrate Dependency Traffic
+- Main menu: **Option 10** — Azure Migrate Dependency Traffic
+
+The wizard prompts for:
+
+| Prompt | Description | Example |
+|--------|-------------|---------|
+| Common file server IP | *(Optional)* A shared file server probed by all VMs on SMB (445) and NFS (2049) | `10.20.1.10` |
+| Common DNS server IP | *(Optional)* A shared DNS server probed by all VMs on port 53 | `10.20.1.4` |
+| Hold seconds | How long each connection is held open — must exceed the appliance poll interval (~5 min) | `330` |
+
+**What it probes (realistic per-stack flows only):**
+
+| Source tier | Target tier | Port |
+|-------------|-------------|------|
+| Java frontend | Java app server | 9966 |
+| Java app server | Java database (PostgreSQL) | 5432 |
+| .NET frontend | .NET app server | 5000 |
+| .NET app server | .NET database (SQL Server) | 1433 |
+| PHP frontend | PHP app server | 8000 |
+| PHP app server | PHP database (MySQL) | 3306 |
+| All VMs *(if set)* | Common file server | SMB 445, NFS 2049 |
+| All VMs *(if set)* | Common DNS server | 53 |
+
+**How the probe works:**
+
+| OS | Connection technique | Scheduler |
+|----|----------------------|-----------|
+| Linux | `bash /dev/tcp` held open via `sleep`; `nslookup`/`dig` loop for DNS | `cron */15` |
+| Windows | `System.Net.Sockets.TcpClient` held open in parallel jobs; `Resolve-DnsName` loop for DNS | Scheduled Task as SYSTEM, every 15 min |
+
+**Target VMs:** Linux groups `legacy_apps` + `legacy_apps_3tier`; Windows groups `win_servers` + `win_servers_3tier`.
+
+**Playbook:** `ansible/playbooks/azure-migrate-dependency-traffic.yml`
+
+> **Note:** DNS (port 53) uses UDP, which can't be "held open," so DNS targets are *queried in a loop* for the hold duration — the closest equivalent the appliance can observe. Allow ~30–60 min after deploying, then check the dependency map in Azure Migrate. Verify on a VM with `cat /opt/azmigrate/endpoints.conf`, `crontab -l`, and `tail /var/log/azmigrate-depprobe.log` (look for `HELD` lines). Settings are saved to `.azmigrate-dep.conf`. Tear down with:
+> ```bash
+> ansible-playbook -i inventory/hosts.ini playbooks/azure-migrate-dependency-traffic.yml -e dep_state=absent
+> ```
+
+---
+
 ## Manual Setup (Alternative to Wizard)
 
 If you prefer to configure files manually instead of using the wizard:
@@ -810,6 +865,7 @@ legacy-app-vmware-setup/
 │       ├── domain-join-windows.yml    # AD: join Windows VMs via Add-Computer
 │       ├── domain-join-all.yml        # AD: join all VMs (wrapper)
 │       ├── azure-migrate-db-users.yml # Azure Migrate: create DB discovery users
+│       ├── azure-migrate-dependency-traffic.yml # Azure Migrate: 15-min inter-tier traffic generator for dependency mapping
 │       └── 3tier/                     # 3-Tier architecture playbooks
 │           ├── site-3tier.yml         # Master playbook — Linux 3-tier
 │           ├── site-3tier-win.yml     # Master playbook — Windows 3-tier
@@ -944,6 +1000,8 @@ Azure Portal → Azure Migrate → Create project
 | lin-php-fe (Nginx :80) | → | lin-php-app (:8000) | → | lin-php-db (MySQL :3306) |
 
 Azure Migrate will discover these cross-VM network connections and map them as **application dependencies** — critical for planning which VMs must migrate together.
+
+> **Important:** Agentless dependency analysis only captures a connection it observes *during a poll* (~every 5 min). Idle apps generate no traffic, so the dependency map stays empty. Run the [Azure Migrate Dependency Traffic Generator](#azure-migrate-dependency-traffic-generator) (`--depgen`) to schedule a 15-min job that opens and holds the inter-tier connections open so the appliance reliably captures them.
 
 ### 3-Tier Application Details
 
@@ -1140,6 +1198,7 @@ realm: Couldn't join realm: Failed to enroll machine in realm
 | `--dns` | Register all deployed VMs in DNS (standalone, no domain join) |
 | `--domainjoin` | Join all deployed VMs to an Active Directory domain (includes DNS) |
 | `--azmigrate-db` | Create least-privilege database users for Azure Migrate discovery |
+| `--depgen` | Deploy the 15-min dependency-traffic generator so the appliance can map inter-tier dependencies |
 | `--reinventory` | Re-scan Terraform state and regenerate Ansible inventory |
 | `--destroy` | Destroy all deployed VMs |
 
