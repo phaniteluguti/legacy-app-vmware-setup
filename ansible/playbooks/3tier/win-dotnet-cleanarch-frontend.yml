@@ -55,12 +55,27 @@
         - urlrewrite
         - iis-arr
 
-    # nswag's generate-api prebuild step runs under the .NET runtime, so the SDK
+    # nswag's generate-api prebuild step runs under the .NET 10 runtime, so the SDK
     # must be present on the frontend VM even though no app is hosted here.
-    - name: Install .NET 10 SDK (required by nswag generate-api)
-      win_chocolatey:
-        name: dotnet-10.0-sdk
-        state: present
+    - name: Install .NET 10 SDK (official dotnet-install script)
+      win_shell: |
+        $ErrorActionPreference = "Stop"
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        $installDir = "C:\Program Files\dotnet"
+        $have10 = Get-ChildItem -Path "$installDir\sdk" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '10.*' }
+        if (-not $have10) {
+          $script = Join-Path $env:TEMP 'dotnet-install.ps1'
+          Invoke-WebRequest -Uri https://dot.net/v1/dotnet-install.ps1 -OutFile $script -UseBasicParsing
+          & $script -Channel 10.0 -InstallDir $installDir
+          Write-Output "INSTALLED_10"
+        }
+        $machinePath = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+        if ($machinePath -notlike "*$installDir*") {
+          [System.Environment]::SetEnvironmentVariable("Path", ($machinePath.TrimEnd(';') + ";" + $installDir), "Machine")
+        }
+        & "$installDir\dotnet.exe" --list-sdks
+      register: dotnet10_install
+      changed_when: "'INSTALLED_10' in (dotnet10_install.stdout | default(''))"
 
     - name: Enable ARR proxy globally
       win_shell: >
