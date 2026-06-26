@@ -159,7 +159,7 @@
           {
             "UseInMemoryDatabase": false,
             "ConnectionStrings": {
-              "DefaultConnection": "{{ ca_conn }}"
+              "CleanArchitectureDb": "{{ ca_conn }}"
             },
             "Logging": {
               "LogLevel": {
