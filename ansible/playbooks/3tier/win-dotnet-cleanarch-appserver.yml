@@ -202,10 +202,30 @@
         $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
         $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
         Set-Location "{{ ca_repo }}"
-        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}" -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+        # UseArtifactsOutput=false forces the classic per-project output layout so that the
+        # -o flag is honoured (the template enables .NET artifacts output, which otherwise
+        # redirects publish to repo\artifacts\publish\... and ignores -o).
+        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}" -p:UseArtifactsOutput=false -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
         exit $LASTEXITCODE
       register: build_result
       timeout: 1200
+
+    - name: Show publish output (diagnostic)
+      debug:
+        msg: "{{ (build_result.stdout | default('')) | regex_replace('(?i)password=[^;\"]*', 'Password=***') }}"
+
+    - name: List candidate publish outputs (diagnostic)
+      win_shell: |
+        "=== contents of {{ ca_published }} ==="
+        Get-ChildItem -Path "{{ ca_published }}" -ErrorAction SilentlyContinue | Select-Object -ExpandProperty Name
+        "=== every runtimeconfig.json under the repo ==="
+        Get-ChildItem -Path "{{ ca_repo }}" -Recurse -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -ExpandProperty FullName
+      register: pub_diag
+      changed_when: false
+
+    - name: Show candidate publish outputs (diagnostic)
+      debug:
+        var: pub_diag.stdout_lines
 
     - name: Find published entry DLL (stage from artifacts publish dir if needed)
       win_shell: |
