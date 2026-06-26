@@ -139,6 +139,20 @@
         executable: /bin/bash
       changed_when: false
 
+    # nswag's generate-api reads the OpenAPI spec from src/Web/wwwroot/openapi/v1.json,
+    # which is emitted by building the .NET Web project (Microsoft.Extensions.ApiDescription.Server,
+    # OpenApiDocumentsDirectory=./wwwroot/openapi, --file-name v1). A plain `dotnet build`
+    # generates it without triggering the SPA webpack target (that runs only on publish).
+    - name: Generate OpenAPI spec for nswag (build Web project)
+      shell: |
+        cd {{ ca_repo }}
+        sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp PATH="/usr/local/bin:$PATH" \
+          /usr/local/bin/dotnet build src/Web/Web.csproj -c Release \
+          -p:NuGetAudit=false -p:TreatWarningsAsErrors=false
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Build Angular SPA (production)
       shell: |
         cd {{ ca_repo }}/src/Web/ClientApp
