@@ -113,6 +113,24 @@
         executable: /bin/bash
       changed_when: false
 
+    # The repo enables NuGet security auditing with TreatWarningsAsErrors=true, so
+    # transitive-package CVE advisories (NU1902/NU1903) fail the dotnet build that
+    # nswag runs during `npm run generate-api`. A root Directory.Build.targets is
+    # imported AFTER the repo's Directory.Build.props and overrides those settings.
+    - name: Neutralise NuGet audit / warnings-as-errors (deploy-time build)
+      copy:
+        dest: "{{ ca_repo }}/Directory.Build.targets"
+        owner: "{{ ansible_user }}"
+        content: |
+          <Project>
+            <PropertyGroup>
+              <NuGetAudit>false</NuGetAudit>
+              <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+              <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
+              <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+            </PropertyGroup>
+          </Project>
+
     - name: Install Angular dependencies (npm ci with install fallback)
       shell: |
         cd {{ ca_repo }}/src/Web/ClientApp

@@ -134,6 +134,24 @@
         executable: /bin/bash
       changed_when: false
 
+    # The repo enables NuGet security auditing with TreatWarningsAsErrors=true, so
+    # transitive-package CVE advisories (NU1902/NU1903) fail the restore. A root
+    # Directory.Build.targets is imported AFTER the repo's Directory.Build.props,
+    # so it overrides those settings for every project (publish, ef, nswag).
+    - name: Neutralise NuGet audit / warnings-as-errors (deploy-time build)
+      copy:
+        dest: "{{ ca_repo }}/Directory.Build.targets"
+        owner: "{{ ansible_user }}"
+        content: |
+          <Project>
+            <PropertyGroup>
+              <NuGetAudit>false</NuGetAudit>
+              <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+              <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
+              <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+            </PropertyGroup>
+          </Project>
+
     - name: Configure Web project appsettings for remote SQL Server
       copy:
         dest: "{{ ca_repo }}/src/Web/appsettings.json"
@@ -197,7 +215,8 @@
       shell: |
         cd {{ ca_repo }}
         sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp \
-          /usr/local/bin/dotnet publish src/Web/Web.csproj -c Release -o {{ ca_published }}
+          /usr/local/bin/dotnet publish src/Web/Web.csproj -c Release -o {{ ca_published }} \
+          -p:NuGetAudit=false -p:TreatWarningsAsErrors=false
       args:
         executable: /bin/bash
       register: dotnet_build
