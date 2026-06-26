@@ -105,6 +105,11 @@
               <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
               <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
             </PropertyGroup>
+            <!-- The API server does not need the Angular SPA (the frontend VM builds and
+                 serves it). Override the template's PublishRunWebpack target with an empty
+                 one so `dotnet publish` never invokes npm/ng build and reliably emits the
+                 API assembly. -->
+            <Target Name="PublishRunWebpack" AfterTargets="ComputeFilesToPublish" />
           </Project>
 
     # Re-point the repo's pinned SDK (e.g. 10.0.201) at whatever 10.x SDK is installed
@@ -155,7 +160,12 @@
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$env:USERPROFILE\.dotnet\tools"
         $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
         Set-Location "{{ ca_repo }}"
+        # Restore first so the migrations build finds artifacts/obj/.../project.assets.json
+        dotnet restore 2>&1 | Out-String
         dotnet ef database update `
           --project src/Infrastructure/Infrastructure.csproj `
           --startup-project src/Web/Web.csproj `
@@ -173,8 +183,12 @@
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
         Set-Location "{{ ca_repo }}"
-        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}" -p:NuGetAudit=false -p:TreatWarningsAsErrors=false
+        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}" -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+        exit $LASTEXITCODE
       register: build_result
       timeout: 1200
 

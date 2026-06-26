@@ -139,6 +139,7 @@
         Set-Location "{{ ca_repo }}\src\Web\ClientApp"
         npm ci 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) { npm install 2>&1 | Out-String }
+        exit $LASTEXITCODE
       register: npm_install
       changed_when: false
       timeout: 1200
@@ -152,8 +153,12 @@
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
         $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
         $env:ConnectionStrings__CleanArchitectureDb = "Server=localhost;Database=CleanArchitectureDb;User Id=sa;Password=BuildOnly1!;TrustServerCertificate=True"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
         Set-Location "{{ ca_repo }}"
         dotnet build src/Web/Web.csproj -c Release -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+        exit $LASTEXITCODE
       register: openapi_build
       changed_when: false
       timeout: 1200
@@ -161,8 +166,12 @@
     - name: Build Angular SPA (production)
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
         Set-Location "{{ ca_repo }}\src\Web\ClientApp"
         npm run build 2>&1 | Out-String
+        exit $LASTEXITCODE
       register: npm_build
       changed_when: false
       timeout: 1200
