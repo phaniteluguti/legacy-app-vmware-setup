@@ -82,6 +82,37 @@
         group: "{{ ansible_user }}"
         recurse: true
 
+    # The Angular `npm run build` runs a prebuild step (`nswag run /runtime:Net100`)
+    # that needs the .NET 10 SDK/runtime present to generate the API client.
+    - name: Check if .NET 10.0 SDK is already installed
+      shell: /usr/share/dotnet/dotnet --list-sdks 2>/dev/null | grep -q '^10\.' && echo yes || echo no
+      register: dotnet10_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Install .NET SDK 10.0 via install script (required by nswag generate-api)
+      shell: |
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --install-dir /usr/share/dotnet
+        ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+      when: dotnet10_installed.stdout != 'yes'
+
+    # Re-point the repo's pinned SDK (e.g. 10.0.201) at whatever 10.x SDK is
+    # actually installed so nswag/dotnet never fail on a patch-version mismatch.
+    - name: Align global.json to the installed .NET SDK
+      shell: |
+        installed=$(/usr/local/bin/dotnet --list-sdks | awk '{print $1}' | sort -V | tail -n1)
+        cat > {{ ca_repo }}/global.json <<EOF
+        {
+          "sdk": {
+            "version": "$installed",
+            "rollForward": "latestFeature"
+          }
+        }
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Install Angular dependencies (npm ci with install fallback)
       shell: |
         cd {{ ca_repo }}/src/Web/ClientApp
@@ -93,7 +124,7 @@
     - name: Build Angular SPA (production)
       shell: |
         cd {{ ca_repo }}/src/Web/ClientApp
-        sudo -u {{ ansible_user }} npm run build
+        sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp PATH="/usr/local/bin:$PATH" npm run build
       args:
         executable: /bin/bash
       changed_when: false

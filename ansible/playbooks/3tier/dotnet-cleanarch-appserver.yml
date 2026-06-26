@@ -1,7 +1,7 @@
 ---
 # =============================================================================
 # .NET 3-Tier (CleanArchitecture) — App Server VM
-# jasontaylordev/CleanArchitecture ASP.NET Core 8 Web API on Kestrel (:5000),
+# jasontaylordev/CleanArchitecture ASP.NET Core Web API on Kestrel (:5000),
 # connecting to SQL Server on the database VM. EF Core migrations are applied
 # explicitly, and the service runs in Production (avoids the SpaProxy that the
 # template uses only in Development).
@@ -59,17 +59,17 @@
         state: absent
       ignore_errors: true
 
-    - name: Check if .NET 8.0 SDK is already installed
-      shell: /usr/share/dotnet/dotnet --list-sdks 2>/dev/null | grep -q '^8\.' && echo yes || echo no
-      register: dotnet8_installed
+    - name: Check if .NET 10.0 SDK is already installed
+      shell: /usr/share/dotnet/dotnet --list-sdks 2>/dev/null | grep -q '^10\.' && echo yes || echo no
+      register: dotnet10_installed
       changed_when: false
       failed_when: false
 
-    - name: Install .NET SDK 8.0 via install script
+    - name: Install .NET SDK 10.0 via install script
       shell: |
-        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 10.0 --install-dir /usr/share/dotnet
         ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
-      when: dotnet8_installed.stdout != 'yes'
+      when: dotnet10_installed.stdout != 'yes'
 
     # Node.js is required because `dotnet publish src/Web` builds the bundled
     # Angular SPA as part of the Web project build.
@@ -116,6 +116,24 @@
         group: "{{ ansible_user }}"
         recurse: true
 
+    # The repo pins an exact SDK in global.json (e.g. 10.0.201). Re-point it at
+    # whatever 10.x SDK actually got installed so `dotnet publish` never fails on
+    # a patch-version mismatch.
+    - name: Align global.json to the installed .NET SDK
+      shell: |
+        installed=$(/usr/local/bin/dotnet --list-sdks | awk '{print $1}' | sort -V | tail -n1)
+        cat > {{ ca_repo }}/global.json <<EOF
+        {
+          "sdk": {
+            "version": "$installed",
+            "rollForward": "latestFeature"
+          }
+        }
+        EOF
+      args:
+        executable: /bin/bash
+      changed_when: false
+
     - name: Configure Web project appsettings for remote SQL Server
       copy:
         dest: "{{ ca_repo }}/src/Web/appsettings.json"
@@ -145,8 +163,8 @@
     - name: Install dotnet-ef tool (local to the repo)
       shell: |
         cd {{ ca_repo }}
-        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool install dotnet-ef --version 8.* --tool-path {{ ca_base }}/tools || \
-        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool update dotnet-ef --version 8.* --tool-path {{ ca_base }}/tools
+        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool install dotnet-ef --version 10.* --tool-path {{ ca_base }}/tools || \
+        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool update dotnet-ef --version 10.* --tool-path {{ ca_base }}/tools
       args:
         executable: /bin/bash
       environment:
