@@ -928,6 +928,13 @@ collect_apps() {
             prompt "  Selection (1/2)" "$_def_choice"
             if [[ "$REPLY" == "2" ]]; then
                 DOTNET_3TIER_APP="cleanarch"
+                echo ""
+                echo -e "  ${Y}Note:${NC} CleanArchitecture deploys onto the SAME .NET 3-tier VMs"
+                echo -e "        (frontend / app / database) — it does NOT create an extra VM set."
+                echo -e "        If those .NET 3-tier VMs already exist in Terraform state, they are"
+                echo -e "        reused and the app on them is swapped to CleanArchitecture; no new"
+                echo -e "        VMs are added, and any new hostnames/IPs you type for the .NET"
+                echo -e "        3-tier are ignored in favor of the existing ones."
                 prompt "  CleanArchitecture Git repo" "$DOTNET_CLEANARCH_REPO"; DOTNET_CLEANARCH_REPO="$REPLY"
                 prompt "  CleanArchitecture branch" "$DOTNET_CLEANARCH_BRANCH"; DOTNET_CLEANARCH_BRANCH="$REPLY"
             else
