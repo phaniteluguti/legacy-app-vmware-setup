@@ -1899,11 +1899,17 @@ run_ansible() {
     local limit_groups=""
     if [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_frontend:java_appserver:java_database" || true
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_frontend:dotnet_appserver:dotnet_database" || true
+        # eShop .NET groups only when NOT a CleanArchitecture deployment (mirrors inventory gating)
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_frontend:dotnet_appserver:dotnet_database" || true
+        # CleanArchitecture targets its own dedicated VM set
+        [[ "$DEPLOY_CLEANARCH" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}dotnet_cln_frontend:dotnet_cln_appserver:dotnet_cln_database" || true
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_frontend:php_appserver:php_database" || true
     elif [[ "$DEPLOY_MODE" == "windows-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_frontend:win_java_appserver:win_java_database" || true
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_frontend:win_dotnet_appserver:win_dotnet_database" || true
+        # eShop .NET groups only when NOT a CleanArchitecture deployment (mirrors inventory gating)
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_frontend:win_dotnet_appserver:win_dotnet_database" || true
+        # CleanArchitecture targets its own dedicated VM set
+        [[ "$DEPLOY_CLEANARCH" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_cln_frontend:win_dotnet_cln_appserver:win_dotnet_cln_database" || true
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_frontend:win_php_appserver:win_php_database" || true
     elif [[ "$DEPLOY_MODE" == "linux" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}java_servers" || true
