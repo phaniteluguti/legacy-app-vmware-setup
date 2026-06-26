@@ -14,13 +14,13 @@
 # genuine, separately-built frontend is served by win-dotnet-cleanarch-frontend.yml
 # =============================================================================
 - name: Deploy CleanArchitecture App Server (Windows .NET 3-Tier)
-  hosts: win_dotnet_appserver
+  hosts: win_dotnet_cln_appserver
   gather_facts: true
   become: false
   vars_files:
     - ../../group_vars/all.yml
   vars:
-    db_host: "{{ hostvars[groups['win_dotnet_database'][0]]['ansible_host'] | default(groups['win_dotnet_database'][0]) }}"
+    db_host: "{{ hostvars[groups['win_dotnet_cln_database'][0]]['ansible_host'] | default(groups['win_dotnet_cln_database'][0]) }}"
     cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
     cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
     cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"

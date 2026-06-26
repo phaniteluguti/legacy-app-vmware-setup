@@ -8,12 +8,12 @@
 # Selected when group_vars: dotnet_3tier_app == 'cleanarch'
 # =============================================================================
 - name: Deploy CleanArchitecture App Server (.NET 3-Tier)
-  hosts: dotnet_appserver
+  hosts: dotnet_cln_appserver
   become: true
   vars_files:
     - ../../group_vars/all.yml
   vars:
-    db_host: "{{ hostvars[groups['dotnet_database'][0]]['ansible_host'] | default(groups['dotnet_database'][0]) }}"
+    db_host: "{{ hostvars[groups['dotnet_cln_database'][0]]['ansible_host'] | default(groups['dotnet_cln_database'][0]) }}"
     cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
     cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
     cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"

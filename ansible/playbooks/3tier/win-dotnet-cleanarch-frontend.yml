@@ -8,13 +8,13 @@
 # Selected when group_vars: dotnet_3tier_app == 'cleanarch'
 # =============================================================================
 - name: Deploy IIS Angular Frontend (Windows .NET 3-Tier / CleanArchitecture)
-  hosts: win_dotnet_frontend
+  hosts: win_dotnet_cln_frontend
   gather_facts: true
   become: false
   vars_files:
     - ../../group_vars/all.yml
   vars:
-    app_host: "{{ hostvars[groups['win_dotnet_appserver'][0]]['ansible_host'] | default(groups['win_dotnet_appserver'][0]) }}"
+    app_host: "{{ hostvars[groups['win_dotnet_cln_appserver'][0]]['ansible_host'] | default(groups['win_dotnet_cln_appserver'][0]) }}"
     cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
     cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
     ca_src: C:\Apps\CleanArchitecture

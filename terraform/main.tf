@@ -112,30 +112,30 @@ locals {
       win-java-vm = {
         name          = coalesce(var.win_java_vm_hostname, var.java_vm_hostname)
         computer_name = substr(upper(replace(coalesce(var.win_java_vm_hostname, var.java_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.java_vm_cpus
-        memory = var.java_vm_memory
-        disk   = var.java_vm_disk
-        ip     = coalesce(var.win_java_vm_ip, var.java_vm_ip)
+        cpus          = var.java_vm_cpus
+        memory        = var.java_vm_memory
+        disk          = var.java_vm_disk
+        ip            = coalesce(var.win_java_vm_ip, var.java_vm_ip)
       }
     } : {},
     var.deploy_dotnet ? {
       win-dotnet-vm = {
         name          = coalesce(var.win_dotnet_vm_hostname, var.dotnet_vm_hostname)
         computer_name = substr(upper(replace(coalesce(var.win_dotnet_vm_hostname, var.dotnet_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.dotnet_vm_cpus
-        memory = var.dotnet_vm_memory
-        disk   = var.dotnet_vm_disk
-        ip     = coalesce(var.win_dotnet_vm_ip, var.dotnet_vm_ip)
+        cpus          = var.dotnet_vm_cpus
+        memory        = var.dotnet_vm_memory
+        disk          = var.dotnet_vm_disk
+        ip            = coalesce(var.win_dotnet_vm_ip, var.dotnet_vm_ip)
       }
     } : {},
     var.deploy_php ? {
       win-php-vm = {
         name          = coalesce(var.win_php_vm_hostname, var.php_vm_hostname)
         computer_name = substr(upper(replace(coalesce(var.win_php_vm_hostname, var.php_vm_hostname), "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.php_vm_cpus
-        memory = var.php_vm_memory
-        disk   = var.php_vm_disk
-        ip     = coalesce(var.win_php_vm_ip, var.php_vm_ip)
+        cpus          = var.php_vm_cpus
+        memory        = var.php_vm_memory
+        disk          = var.php_vm_disk
+        ip            = coalesce(var.win_php_vm_ip, var.php_vm_ip)
       }
     } : {}
   ) : {}
@@ -210,6 +210,29 @@ locals {
         disk   = var.db_disk
         ip     = var.php_db_ip
       }
+    } : {},
+    var.deploy_cleanarch ? {
+      cln-fe = {
+        name   = var.cln_fe_hostname
+        cpus   = var.fe_cpus
+        memory = var.fe_memory
+        disk   = var.fe_disk
+        ip     = var.cln_fe_ip
+      }
+      cln-app = {
+        name   = var.cln_app_hostname
+        cpus   = var.app_cpus
+        memory = var.app_memory
+        disk   = var.app_disk
+        ip     = var.cln_app_ip
+      }
+      cln-db = {
+        name   = var.cln_db_hostname
+        cpus   = var.db_cpus
+        memory = var.db_memory
+        disk   = var.db_disk
+        ip     = var.cln_db_ip
+      }
     } : {}
   ) : {}
 
@@ -219,78 +242,104 @@ locals {
       win-java-fe = {
         name          = var.win_java_fe_hostname
         computer_name = substr(upper(replace(var.win_java_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.fe_cpus
-        memory = var.fe_memory
-        disk   = var.fe_disk
-        ip     = var.win_java_fe_ip
+        cpus          = var.fe_cpus
+        memory        = var.fe_memory
+        disk          = var.fe_disk
+        ip            = var.win_java_fe_ip
       }
       win-java-app = {
         name          = var.win_java_app_hostname
         computer_name = substr(upper(replace(var.win_java_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.app_cpus
-        memory = var.app_memory
-        disk   = var.app_disk
-        ip     = var.win_java_app_ip
+        cpus          = var.app_cpus
+        memory        = var.app_memory
+        disk          = var.app_disk
+        ip            = var.win_java_app_ip
       }
       win-java-db = {
         name          = var.win_java_db_hostname
         computer_name = substr(upper(replace(var.win_java_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.db_cpus
-        memory = var.db_memory
-        disk   = var.db_disk
-        ip     = var.win_java_db_ip
+        cpus          = var.db_cpus
+        memory        = var.db_memory
+        disk          = var.db_disk
+        ip            = var.win_java_db_ip
       }
     } : {},
     var.deploy_dotnet ? {
       win-dotnet-fe = {
         name          = var.win_dotnet_fe_hostname
         computer_name = substr(upper(replace(var.win_dotnet_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.fe_cpus
-        memory = var.fe_memory
-        disk   = var.fe_disk
-        ip     = var.win_dotnet_fe_ip
+        cpus          = var.fe_cpus
+        memory        = var.fe_memory
+        disk          = var.fe_disk
+        ip            = var.win_dotnet_fe_ip
       }
       win-dotnet-app = {
         name          = var.win_dotnet_app_hostname
         computer_name = substr(upper(replace(var.win_dotnet_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.app_cpus
-        memory = var.app_memory
-        disk   = var.app_disk
-        ip     = var.win_dotnet_app_ip
+        cpus          = var.app_cpus
+        memory        = var.app_memory
+        disk          = var.app_disk
+        ip            = var.win_dotnet_app_ip
       }
       win-dotnet-db = {
         name          = var.win_dotnet_db_hostname
         computer_name = substr(upper(replace(var.win_dotnet_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.db_cpus
-        memory = var.db_memory
-        disk   = var.db_disk
-        ip     = var.win_dotnet_db_ip
+        cpus          = var.db_cpus
+        memory        = var.db_memory
+        disk          = var.db_disk
+        ip            = var.win_dotnet_db_ip
       }
     } : {},
     var.deploy_php ? {
       win-php-fe = {
         name          = var.win_php_fe_hostname
         computer_name = substr(upper(replace(var.win_php_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.fe_cpus
-        memory = var.fe_memory
-        disk   = var.fe_disk
-        ip     = var.win_php_fe_ip
+        cpus          = var.fe_cpus
+        memory        = var.fe_memory
+        disk          = var.fe_disk
+        ip            = var.win_php_fe_ip
       }
       win-php-app = {
         name          = var.win_php_app_hostname
         computer_name = substr(upper(replace(var.win_php_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.app_cpus
-        memory = var.app_memory
-        disk   = var.app_disk
-        ip     = var.win_php_app_ip
+        cpus          = var.app_cpus
+        memory        = var.app_memory
+        disk          = var.app_disk
+        ip            = var.win_php_app_ip
       }
       win-php-db = {
         name          = var.win_php_db_hostname
         computer_name = substr(upper(replace(var.win_php_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
-        cpus   = var.db_cpus
-        memory = var.db_memory
-        disk   = var.db_disk
-        ip     = var.win_php_db_ip
+        cpus          = var.db_cpus
+        memory        = var.db_memory
+        disk          = var.db_disk
+        ip            = var.win_php_db_ip
+      }
+    } : {},
+    var.deploy_cleanarch ? {
+      win-cln-fe = {
+        name          = var.win_cln_fe_hostname
+        computer_name = substr(upper(replace(var.win_cln_fe_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        cpus          = var.fe_cpus
+        memory        = var.fe_memory
+        disk          = var.fe_disk
+        ip            = var.win_cln_fe_ip
+      }
+      win-cln-app = {
+        name          = var.win_cln_app_hostname
+        computer_name = substr(upper(replace(var.win_cln_app_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        cpus          = var.app_cpus
+        memory        = var.app_memory
+        disk          = var.app_disk
+        ip            = var.win_cln_app_ip
+      }
+      win-cln-db = {
+        name          = var.win_cln_db_hostname
+        computer_name = substr(upper(replace(var.win_cln_db_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        cpus          = var.db_cpus
+        memory        = var.db_memory
+        disk          = var.db_disk
+        ip            = var.win_cln_db_ip
       }
     } : {}
   ) : {}
@@ -363,8 +412,8 @@ resource "vsphere_virtual_machine" "win_vm" {
   guest_id = local.use_content_library ? var.windows_guest_id : data.vsphere_virtual_machine.windows_template[0].guest_id
   firmware = local.use_content_library ? var.windows_firmware : data.vsphere_virtual_machine.windows_template[0].firmware
 
-  wait_for_guest_net_timeout  = 15
-  wait_for_guest_ip_timeout   = 15
+  wait_for_guest_net_timeout = 15
+  wait_for_guest_ip_timeout  = 15
 
   network_interface {
     network_id   = data.vsphere_network.network.id
@@ -537,18 +586,18 @@ resource "local_file" "ansible_inventory" {
     deploy_windows_1tier = var.deploy_windows_1tier
     deploy_linux_3tier   = var.deploy_linux_3tier
     deploy_windows_3tier = var.deploy_windows_3tier
-    deploy_java   = var.deploy_java
-    deploy_dotnet = var.deploy_dotnet
-    deploy_php    = var.deploy_php
-    java_ip       = var.deploy_linux_1tier && var.deploy_java ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : ""
-    dotnet_ip     = var.deploy_linux_1tier && var.deploy_dotnet ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : ""
-    php_ip        = var.deploy_linux_1tier && var.deploy_php ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : ""
-    ssh_user      = var.vm_ssh_user
-    ssh_auth_line = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
-    win_java_ip   = var.deploy_windows_1tier && var.deploy_java ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
-    win_dotnet_ip = var.deploy_windows_1tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
-    win_php_ip    = var.deploy_windows_1tier && var.deploy_php ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
-    win_password  = var.win_admin_password
+    deploy_java          = var.deploy_java
+    deploy_dotnet        = var.deploy_dotnet
+    deploy_php           = var.deploy_php
+    java_ip              = var.deploy_linux_1tier && var.deploy_java ? vsphere_virtual_machine.vm["java-vm"].default_ip_address : ""
+    dotnet_ip            = var.deploy_linux_1tier && var.deploy_dotnet ? vsphere_virtual_machine.vm["dotnet-vm"].default_ip_address : ""
+    php_ip               = var.deploy_linux_1tier && var.deploy_php ? vsphere_virtual_machine.vm["php-vm"].default_ip_address : ""
+    ssh_user             = var.vm_ssh_user
+    ssh_auth_line        = var.vm_ssh_auth_method == "password" ? "ansible_ssh_pass=${var.vm_ssh_password} ansible_become_pass=${var.vm_ssh_password} ansible_ssh_common_args='-o StrictHostKeyChecking=no'" : "ansible_ssh_private_key_file=${var.vm_ssh_private_key_path}"
+    win_java_ip          = var.deploy_windows_1tier && var.deploy_java ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
+    win_dotnet_ip        = var.deploy_windows_1tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
+    win_php_ip           = var.deploy_windows_1tier && var.deploy_php ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
+    win_password         = var.win_admin_password
     # 3-tier Linux IPs
     java_fe_ip    = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-fe"].default_ip_address : ""
     java_app_ip   = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-app"].default_ip_address : ""
@@ -559,6 +608,11 @@ resource "local_file" "ansible_inventory" {
     php_fe_ip     = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-fe"].default_ip_address : ""
     php_app_ip    = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-app"].default_ip_address : ""
     php_db_ip     = var.deploy_linux_3tier && var.deploy_php ? vsphere_virtual_machine.vm_3tier["php-db"].default_ip_address : ""
+    # 3-tier Linux CleanArchitecture IPs
+    deploy_cleanarch = var.deploy_cleanarch
+    cln_fe_ip        = var.deploy_linux_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.vm_3tier["cln-fe"].default_ip_address : ""
+    cln_app_ip       = var.deploy_linux_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.vm_3tier["cln-app"].default_ip_address : ""
+    cln_db_ip        = var.deploy_linux_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.vm_3tier["cln-db"].default_ip_address : ""
     # 3-tier Windows IPs
     win_java_fe_ip    = var.deploy_windows_3tier && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-fe"].default_ip_address : ""
     win_java_app_ip   = var.deploy_windows_3tier && var.deploy_java ? vsphere_virtual_machine.win_vm_3tier["win-java-app"].default_ip_address : ""
@@ -569,6 +623,10 @@ resource "local_file" "ansible_inventory" {
     win_php_fe_ip     = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-fe"].default_ip_address : ""
     win_php_app_ip    = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-app"].default_ip_address : ""
     win_php_db_ip     = var.deploy_windows_3tier && var.deploy_php ? vsphere_virtual_machine.win_vm_3tier["win-php-db"].default_ip_address : ""
+    # 3-tier Windows CleanArchitecture IPs
+    win_cln_fe_ip  = var.deploy_windows_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.win_vm_3tier["win-cln-fe"].default_ip_address : ""
+    win_cln_app_ip = var.deploy_windows_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.win_vm_3tier["win-cln-app"].default_ip_address : ""
+    win_cln_db_ip  = var.deploy_windows_3tier && var.deploy_cleanarch ? vsphere_virtual_machine.win_vm_3tier["win-cln-db"].default_ip_address : ""
   })
   filename = "${path.module}/../ansible/inventory/hosts.ini"
 }

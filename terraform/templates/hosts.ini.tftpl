@@ -86,6 +86,18 @@ ${dotnet_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 ${dotnet_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
 %{ endif }
 
+%{ if deploy_cleanarch }
+# --- .NET CleanArchitecture 3-Tier ---
+[dotnet_cln_frontend]
+${cln_fe_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[dotnet_cln_appserver]
+${cln_app_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+
+[dotnet_cln_database]
+${cln_db_ip} ansible_user=${ssh_user} ${ssh_auth_line}
+%{ endif }
+
 %{ if deploy_php }
 # --- PHP 3-Tier ---
 [php_frontend]
@@ -106,6 +118,9 @@ java_frontend
 %{ if deploy_dotnet }
 dotnet_frontend
 %{ endif }
+%{ if deploy_cleanarch }
+dotnet_cln_frontend
+%{ endif }
 %{ if deploy_php }
 php_frontend
 %{ endif }
@@ -117,6 +132,9 @@ java_appserver
 %{ if deploy_dotnet }
 dotnet_appserver
 %{ endif }
+%{ if deploy_cleanarch }
+dotnet_cln_appserver
+%{ endif }
 %{ if deploy_php }
 php_appserver
 %{ endif }
@@ -127,6 +145,9 @@ java_database
 %{ endif }
 %{ if deploy_dotnet }
 dotnet_database
+%{ endif }
+%{ if deploy_cleanarch }
+dotnet_cln_database
 %{ endif }
 %{ if deploy_php }
 php_database
@@ -162,6 +183,18 @@ ${win_dotnet_app_ip}
 ${win_dotnet_db_ip}
 %{ endif }
 
+%{ if deploy_cleanarch }
+# --- .NET CleanArchitecture 3-Tier ---
+[win_dotnet_cln_frontend]
+${win_cln_fe_ip}
+
+[win_dotnet_cln_appserver]
+${win_cln_app_ip}
+
+[win_dotnet_cln_database]
+${win_cln_db_ip}
+%{ endif }
+
 %{ if deploy_php }
 # --- PHP 3-Tier ---
 [win_php_frontend]
@@ -182,6 +215,9 @@ win_java_frontend
 %{ if deploy_dotnet }
 win_dotnet_frontend
 %{ endif }
+%{ if deploy_cleanarch }
+win_dotnet_cln_frontend
+%{ endif }
 %{ if deploy_php }
 win_php_frontend
 %{ endif }
@@ -193,6 +229,9 @@ win_java_appserver
 %{ if deploy_dotnet }
 win_dotnet_appserver
 %{ endif }
+%{ if deploy_cleanarch }
+win_dotnet_cln_appserver
+%{ endif }
 %{ if deploy_php }
 win_php_appserver
 %{ endif }
@@ -203,6 +242,9 @@ win_java_database
 %{ endif }
 %{ if deploy_dotnet }
 win_dotnet_database
+%{ endif }
+%{ if deploy_cleanarch }
+win_dotnet_cln_database
 %{ endif }
 %{ if deploy_php }
 win_php_database

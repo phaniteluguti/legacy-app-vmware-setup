@@ -6,7 +6,7 @@
 # (Near-identical to dotnet-database.yml, but creates the CleanArchitecture DB.)
 # =============================================================================
 - name: Deploy SQL Server Database (.NET 3-Tier / CleanArchitecture)
-  hosts: dotnet_database
+  hosts: dotnet_cln_database
   become: true
   vars_files:
     - ../../group_vars/all.yml

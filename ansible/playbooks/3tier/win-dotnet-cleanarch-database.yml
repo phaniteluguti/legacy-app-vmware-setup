@@ -6,7 +6,7 @@
 # Selected when group_vars: dotnet_3tier_app == 'cleanarch'
 # =============================================================================
 - name: Deploy SQL Server Database (Windows .NET 3-Tier / CleanArchitecture)
-  hosts: win_dotnet_database
+  hosts: win_dotnet_cln_database
   gather_facts: true
   become: false
   vars_files:

@@ -42,6 +42,13 @@ variable "deploy_php" {
   default     = true
 }
 
+# --- CleanArchitecture .NET 3-Tier (separate VM set, additive) ---
+variable "deploy_cleanarch" {
+  description = "Deploy a separate CleanArchitecture .NET 3-tier VM set (FE/app/DB). Coexists with the eShop .NET VMs; additive and off by default."
+  type        = bool
+  default     = false
+}
+
 # --- vSphere Connection ---
 variable "vsphere_server" {
   description = "vCenter Server FQDN or IP"
@@ -427,6 +434,38 @@ variable "php_db_hostname" {
   default     = "lin-php-db"
 }
 
+# --- CleanArchitecture 3-Tier — Linux VMs (separate set) ---
+variable "cln_fe_ip" {
+  description = "Static IP for CleanArchitecture frontend VM (Nginx + Angular)"
+  type        = string
+  default     = "10.1.2.40"
+}
+variable "cln_fe_hostname" {
+  description = "Hostname for CleanArchitecture frontend VM"
+  type        = string
+  default     = "lin-dotnet-fe-cln"
+}
+variable "cln_app_ip" {
+  description = "Static IP for CleanArchitecture app server VM (ASP.NET Core Web API)"
+  type        = string
+  default     = "10.1.2.41"
+}
+variable "cln_app_hostname" {
+  description = "Hostname for CleanArchitecture app server VM"
+  type        = string
+  default     = "lin-dotnet-app-cln"
+}
+variable "cln_db_ip" {
+  description = "Static IP for CleanArchitecture database VM (SQL Server)"
+  type        = string
+  default     = "10.1.2.42"
+}
+variable "cln_db_hostname" {
+  description = "Hostname for CleanArchitecture database VM"
+  type        = string
+  default     = "lin-dotnet-db-cln"
+}
+
 # =============================================================================
 # 3-Tier Mode — Windows VMs (9 VMs)
 # =============================================================================
@@ -519,6 +558,38 @@ variable "win_php_db_hostname" {
   description = "Hostname for Windows PHP database VM"
   type        = string
   default     = "win-php-db"
+}
+
+# --- CleanArchitecture 3-Tier — Windows VMs (separate set) ---
+variable "win_cln_fe_ip" {
+  description = "Static IP for Windows CleanArchitecture frontend VM (IIS + ARR)"
+  type        = string
+  default     = "10.1.2.43"
+}
+variable "win_cln_fe_hostname" {
+  description = "Hostname for Windows CleanArchitecture frontend VM"
+  type        = string
+  default     = "win-dotnet-fe-cln"
+}
+variable "win_cln_app_ip" {
+  description = "Static IP for Windows CleanArchitecture app server VM (ASP.NET Core Web API)"
+  type        = string
+  default     = "10.1.2.44"
+}
+variable "win_cln_app_hostname" {
+  description = "Hostname for Windows CleanArchitecture app server VM"
+  type        = string
+  default     = "win-dotnet-app-cln"
+}
+variable "win_cln_db_ip" {
+  description = "Static IP for Windows CleanArchitecture database VM (SQL Server)"
+  type        = string
+  default     = "10.1.2.45"
+}
+variable "win_cln_db_hostname" {
+  description = "Hostname for Windows CleanArchitecture database VM"
+  type        = string
+  default     = "win-dotnet-db-cln"
 }
 
 # =============================================================================

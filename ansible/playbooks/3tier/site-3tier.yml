@@ -36,31 +36,26 @@
         state: started
         enabled: true
 
-# NOTE: the .NET tier deploys one of two apps based on `dotnet_3tier_app`
-#   (set in group_vars/all.yml by the interactive wizard):
-#     - 'eshop'     -> eShopOnWeb behind an Nginx reverse proxy (default)
-#     - 'cleanarch' -> jasontaylordev/CleanArchitecture (genuine Angular FE + Web API)
+# NOTE: the eShop and CleanArchitecture .NET tiers target SEPARATE host groups
+#   and coexist (Model B). Each play below simply skips when its target group
+#   has no hosts in the inventory:
+#     - eShopOnWeb            -> dotnet_* groups        (deploy_dotnet)
+#     - jasontaylordev/CleanArchitecture -> dotnet_cln_* groups (deploy_cleanarch)
 
 # --- Phase 1: Databases (must come first) ---
 - import_playbook: java-database.yml
 - import_playbook: dotnet-database.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'eshop'
 - import_playbook: dotnet-cleanarch-database.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'cleanarch'
 - import_playbook: php-database.yml
 
 # --- Phase 2: Application Servers ---
 - import_playbook: java-appserver.yml
 - import_playbook: dotnet-appserver.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'eshop'
 - import_playbook: dotnet-cleanarch-appserver.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'cleanarch'
 - import_playbook: php-appserver.yml
 
 # --- Phase 3: Frontends ---
 - import_playbook: java-frontend.yml
 - import_playbook: dotnet-frontend.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'eshop'
 - import_playbook: dotnet-cleanarch-frontend.yml
-  when: (dotnet_3tier_app | default('eshop')) == 'cleanarch'
 - import_playbook: php-frontend.yml
