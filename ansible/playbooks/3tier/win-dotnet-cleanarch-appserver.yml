@@ -104,6 +104,11 @@
               <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
               <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
               <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+              <!-- The template selects its DB provider with a `dotnet new` compile symbol;
+                   a raw clone defaults to the #else (SQLite) branch. Define UseSqlServer so
+                   `options.UseSqlServer(...)` + EnrichSqlServerDbContext target the SQL Server
+                   database VM. The SqlServer EF packages are already referenced in the clone. -->
+              <DefineConstants>$(DefineConstants);UseSqlServer</DefineConstants>
             </PropertyGroup>
             <!-- The API server does not need the Angular SPA (the frontend VM builds and
                  serves it). Override the template's PublishRunWebpack target with an empty
@@ -166,6 +171,16 @@
         Set-Location "{{ ca_repo }}"
         # Restore first so the migrations build finds artifacts/obj/.../project.assets.json
         dotnet restore 2>&1 | Out-String
+        # The template ships no migrations (they are scaffolded by `dotnet new`); generate an
+        # initial SQL Server migration (UseSqlServer is defined via Directory.Build.targets).
+        $migDir = "{{ ca_repo }}\src\Infrastructure\Data\Migrations"
+        $hasMig = Get-ChildItem -Path $migDir -Filter *.cs -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'Snapshot' }
+        if (-not $hasMig) {
+          dotnet ef migrations add InitialCreate `
+            --project src/Infrastructure/Infrastructure.csproj `
+            --startup-project src/Web/Web.csproj `
+            --output-dir Data/Migrations 2>&1 | Out-String
+        }
         dotnet ef database update `
           --project src/Infrastructure/Infrastructure.csproj `
           --startup-project src/Web/Web.csproj `
@@ -173,7 +188,7 @@
       register: ef_update
       changed_when: false
       ignore_errors: true
-      timeout: 600
+      timeout: 900
 
     - name: Show EF migration result
       debug:
@@ -192,9 +207,24 @@
       register: build_result
       timeout: 1200
 
-    - name: Find published entry DLL (via runtimeconfig.json)
+    - name: Find published entry DLL (stage from artifacts publish dir if needed)
       win_shell: |
-        $rc = Get-ChildItem -Path "{{ ca_published }}" -Filter *.runtimeconfig.json | Select-Object -First 1
+        $pub = "{{ ca_published }}"
+        $rc = Get-ChildItem -Path $pub -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $rc) {
+          # The .NET artifacts-output feature may have placed publish output under artifacts\publish\...
+          $art = Get-ChildItem -Path "{{ ca_repo }}\artifacts\publish" -Recurse -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -match 'Web' } | Select-Object -First 1
+          if (-not $art) {
+            $art = Get-ChildItem -Path "{{ ca_repo }}" -Recurse -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue |
+                   Where-Object { $_.FullName -match '\\publish\\' -and $_.Name -match 'Web' } | Select-Object -First 1
+          }
+          if ($art) {
+            New-Item -ItemType Directory -Path $pub -Force | Out-Null
+            Copy-Item -Path (Join-Path $art.DirectoryName '*') -Destination $pub -Recurse -Force
+            $rc = Get-ChildItem -Path $pub -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+        }
         if ($rc) { $rc.BaseName + ".dll" } else { "Web.dll" }
       register: entry_dll
       changed_when: false
