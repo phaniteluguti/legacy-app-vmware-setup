@@ -119,6 +119,8 @@ Each app is split across 3 VMs: Frontend (web server / reverse proxy), App Serve
 │                                                                              │
 │  Windows 3-Tier (deploy_windows_3tier = true)  per app: 3 VMs               │
 │  Same layout with IIS+ARR frontends, IIS/NSSM app servers, Windows DBs      │
+│  .NET app choice: eShopOnWeb (default) OR CleanArchitecture (genuine split:  │
+│    IIS+Angular SPA → ASP.NET Core Web API :5000 → SQL Server :1433)          │
 │                                                                              │
 │  Per-app selection: deploy 1, 2, or all 3 stacks (3 to 9 VMs per OS)        │
 │  Enable multiple tiers simultaneously — up to 18 VMs (all 4 tiers enabled)  │
@@ -466,6 +468,17 @@ Step 3: Choose Architecture
   2) 3-Tier     — Separate Frontend, App Server, and Database VMs
 ```
 
+> **3-Tier + .NET extra question:** Whenever 3-Tier (Linux or Windows) is
+> enabled together with the .NET app (any app combination), the wizard asks
+> which .NET application to deploy across the 3 tiers:
+> ```
+>   1) eShopOnWeb        — monolith behind a reverse proxy   [default]
+>   2) CleanArchitecture — genuine split: Nginx/IIS + Angular SPA → ASP.NET
+>                          Core Web API (:5000) → SQL Server (:1433)
+> ```
+> eShopOnWeb remains the default (and the only .NET option for 1-tier).
+> Selecting CleanArchitecture also prompts for its Git repo and branch.
+
 After the 3-step selection, the wizard collects:
 
 | Section | What It Asks | Example |
@@ -474,7 +487,7 @@ After the 3-step selection, the wizard collects:
 | vSphere Infrastructure | Datacenter, cluster, datastore, template name(s) | `Datacenter1`, `ubuntu-2204-template` |
 | Network Settings | Gateway, DNS, SSH user, key path, Windows password | `192.168.1.1`, `ubuntu` |
 | VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM; 3-Tier offers same-for-all, per-tier, or recommended defaults | `192.168.1.101`, 2 CPU, 4096 MB |
-| App & DB Config | Git repos, versions, database passwords (only for selected apps) | JDK 17, PostgreSQL password |
+| App & DB Config | Git repos, versions, database passwords (only for selected apps); 3-Tier .NET app choice (eShopOnWeb / CleanArchitecture) | JDK 17, PostgreSQL password |
 | Azure Migrate | Install dependency agent? | Yes/No |
 
 After confirming the summary, choose a run mode:
@@ -795,7 +808,8 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
 | **Java** | Angular + Nginx (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
-| **.NET** | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
+| **.NET** (eShopOnWeb, default) | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
+| **.NET** (CleanArchitecture) | Nginx serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 8 Web API Kestrel (:5000) | SQL Server 2022 Express (:1433) |
 | **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
 
 ### Windows 3-Tier (deploy_windows_3tier = true)
@@ -803,7 +817,8 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 | Stack | Frontend VM | App Server VM | Database VM |
 |-------|------------|---------------|-------------|
 | **Java** | IIS + ARR reverse proxy (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
-| **.NET** | IIS + ARR reverse proxy (:80) | IIS ASP.NET (:80) | SQL Server Express (:1433) |
+| **.NET** (eShopOnWeb, default) | IIS + ARR reverse proxy (:80) | eShopOnWeb ASP.NET Core (NSSM, :5000) | SQL Server 2019 Express (:1433) |
+| **.NET** (CleanArchitecture) | IIS + ARR serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 8 Web API (NSSM, :5000) | SQL Server 2019 Express (:1433) |
 | **PHP** | IIS + ARR reverse proxy (:80) | IIS + PHP FastCGI (:80) | MySQL (:3306) |
 
 ### Per-App Selection

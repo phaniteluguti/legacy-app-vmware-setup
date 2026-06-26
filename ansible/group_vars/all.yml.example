@@ -25,6 +25,14 @@ dotnet_app_repo: "https://github.com/dotnet/eShop.git"
 dotnet_app_branch: "main"
 dotnet_app_port: 5000
 
+# 3-tier only (Linux or Windows): choose which .NET app to deploy.
+#   eshop     -> eShopOnWeb behind a reverse proxy (default)
+#   cleanarch -> jasontaylordev/CleanArchitecture (genuine Angular FE + Web API)
+dotnet_3tier_app: "eshop"
+dotnet_cleanarch_repo: "https://github.com/jasontaylordev/CleanArchitecture.git"
+dotnet_cleanarch_branch: "main"
+dotnet_cleanarch_db_name: "CleanArchitectureDb"
+
 # SQL Server
 mssql_edition: "express"
 mssql_sa_password: "Str0ngP@ss!2024"  # CHANGE THIS — must meet complexity

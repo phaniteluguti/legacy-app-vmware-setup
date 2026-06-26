@@ -1,0 +1,206 @@
+---
+# =============================================================================
+# Windows .NET 3-Tier (CleanArchitecture) — Frontend VM
+# Builds the Angular SPA (src/Web/ClientApp) and serves it as static content on
+# IIS. API calls (/api, /swagger, /health) are reverse-proxied to the
+# CleanArchitecture Web API on the app-server VM, giving a genuine
+# frontend -> backend -> database dependency chain.
+# Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+# =============================================================================
+- name: Deploy IIS Angular Frontend (Windows .NET 3-Tier / CleanArchitecture)
+  hosts: win_dotnet_frontend
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['win_dotnet_appserver'][0]]['ansible_host'] | default(groups['win_dotnet_appserver'][0]) }}"
+    cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
+    cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
+    ca_src: C:\Apps\CleanArchitecture
+    ca_repo: C:\Apps\CleanArchitecture\repo
+    web_root: C:\inetpub\CleanArchFrontend
+
+  tasks:
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+          - Web-Static-Content
+          - Web-Default-Doc
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    - name: Install Chocolatey
+      win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install Git, Node.js LTS, URL Rewrite and ARR
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - nodejs-lts
+        - urlrewrite
+        - iis-arr
+
+    - name: Enable ARR proxy globally
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config
+        -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      changed_when: false
+      ignore_errors: true
+
+    - name: Unlock httpErrors section
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config
+        -section:system.webServer/httpErrors
+      changed_when: false
+      ignore_errors: true
+
+    - name: Create app source directory
+      win_file:
+        path: "{{ ca_src }}"
+        state: directory
+
+    - name: Clone CleanArchitecture repository
+      win_shell: >
+        & "C:/Program Files/Git/bin/git.exe" clone -b {{ cleanarch_branch }}
+        {{ cleanarch_repo }} "{{ ca_repo }}"
+      args:
+        creates: '{{ ca_repo }}\src\Web\ClientApp\package.json'
+
+    - name: Install Angular dependencies (npm ci with install fallback)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ ca_repo }}\src\Web\ClientApp"
+        npm ci 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { npm install 2>&1 | Out-String }
+      register: npm_install
+      changed_when: false
+      timeout: 1200
+
+    - name: Build Angular SPA (production)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ ca_repo }}\src\Web\ClientApp"
+        npm run build 2>&1 | Out-String
+      register: npm_build
+      changed_when: false
+      timeout: 1200
+
+    - name: Locate built SPA output folder (the dist dir containing index.html)
+      win_shell: |
+        $dist = Get-ChildItem -Path "{{ ca_repo }}\src\Web\ClientApp\dist" -Recurse -Filter index.html -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        if ($dist) { $dist.DirectoryName } else { "" }
+      register: spa_dist
+      changed_when: false
+
+    - name: Fail if SPA build output was not found
+      fail:
+        msg: "Angular build produced no index.html under ClientApp\\dist — check npm build output."
+      when: (spa_dist.stdout | trim) == ""
+
+    - name: Create frontend web directory
+      win_file:
+        path: "{{ web_root }}"
+        state: directory
+
+    - name: Clear previous frontend content
+      win_shell: >
+        Remove-Item -Path "{{ web_root }}\*" -Recurse -Force -ErrorAction SilentlyContinue
+      changed_when: false
+
+    - name: Copy built SPA to IIS web root
+      win_shell: >
+        Copy-Item -Path "{{ spa_dist.stdout | trim }}\*" -Destination "{{ web_root }}" -Recurse -Force
+      changed_when: false
+
+    - name: Create web.config (reverse-proxy /api to app server + SPA fallback)
+      win_copy:
+        dest: "{{ web_root }}\\web.config"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <httpErrors existingResponse="PassThrough" />
+              <rewrite>
+                <rules>
+                  <rule name="Proxy API to app server" stopProcessing="true">
+                    <match url="^(api|swagger|health|_configuration|connect|Identity)(/.*)?$" />
+                    <action type="Rewrite" url="http://{{ app_host }}:{{ dotnet_app_port }}/{R:0}" />
+                  </rule>
+                  <rule name="SPA fallback" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/index.html" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool (No Managed Code)
+      win_iis_webapppool:
+        name: CleanArchFrontendPool
+        state: started
+        attributes:
+          managedRuntimeVersion: ''
+
+    - name: Create IIS website
+      win_iis_website:
+        name: CleanArchFrontend
+        state: started
+        port: 80
+        physical_path: "{{ web_root }}"
+        application_pool: CleanArchFrontendPool
+
+    - name: Allow HTTP through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Reset IIS to apply ARR and rewrite changes
+      win_shell: iisreset /restart
+      changed_when: false
+
+    - name: Verify app server API is reachable from frontend
+      win_uri:
+        url: "http://{{ app_host }}:{{ dotnet_app_port }}/"
+        return_content: false
+        status_code: [200, 302, 404]
+      register: app_check
+      retries: 5
+      delay: 10
+      until: app_check.status_code is defined and app_check.status_code in [200, 302, 404]
+      ignore_errors: true
+
+    - name: Warn if app server is not reachable
+      debug:
+        msg: "WARNING — CleanArchitecture API at {{ app_host }}:{{ dotnet_app_port }} is not responding. Deploy the app server first."
+      when: app_check is failed

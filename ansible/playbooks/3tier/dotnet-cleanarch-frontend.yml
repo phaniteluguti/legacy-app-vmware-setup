@@ -1,0 +1,208 @@
+---
+# =============================================================================
+# .NET 3-Tier (CleanArchitecture) — Frontend VM
+# Builds the Angular SPA (src/Web/ClientApp) and serves it as static content on
+# Nginx. API calls (/api, /swagger, /health, ...) are reverse-proxied to the
+# CleanArchitecture Web API on the app-server VM, giving a genuine
+# frontend -> backend -> database dependency chain.
+# Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+# =============================================================================
+- name: Deploy Nginx Angular Frontend (.NET 3-Tier / CleanArchitecture)
+  hosts: dotnet_frontend
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    app_host: "{{ hostvars[groups['dotnet_appserver'][0]]['ansible_host'] | default(groups['dotnet_appserver'][0]) }}"
+    cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
+    cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
+    ca_base: /opt/cleanarch-fe
+    ca_repo: /opt/cleanarch-fe/repo
+    web_root: /var/www/cleanarch
+
+  tasks:
+    # ---- Passwordless sudo ----
+    - name: Grant passwordless sudo to {{ ansible_user }}
+      copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Update apt cache
+      apt:
+        update_cache: true
+        cache_valid_time: 3600
+
+    - name: Install Nginx and Git
+      apt:
+        name: [nginx, git, curl, ca-certificates]
+        state: present
+
+    - name: Check if Node.js is installed
+      shell: node --version 2>/dev/null || echo missing
+      register: node_check
+      changed_when: false
+      failed_when: false
+
+    - name: Add NodeSource repository (Node.js 20 LTS)
+      shell: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      when: "'missing' in node_check.stdout"
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+      when: "'missing' in node_check.stdout"
+
+    - name: Create build directory
+      file:
+        path: "{{ ca_base }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Set git safe.directory globally
+      command: git config --global --add safe.directory '*'
+      changed_when: false
+      failed_when: false
+
+    - name: Clone CleanArchitecture repository
+      git:
+        repo: "{{ cleanarch_repo }}"
+        dest: "{{ ca_repo }}"
+        version: "{{ cleanarch_branch }}"
+        force: true
+
+    - name: Fix repo ownership
+      file:
+        path: "{{ ca_repo }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
+
+    - name: Install Angular dependencies (npm ci with install fallback)
+      shell: |
+        cd {{ ca_repo }}/src/Web/ClientApp
+        sudo -u {{ ansible_user }} npm ci || sudo -u {{ ansible_user }} npm install
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Build Angular SPA (production)
+      shell: |
+        cd {{ ca_repo }}/src/Web/ClientApp
+        sudo -u {{ ansible_user }} npm run build
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Locate built SPA output folder (the dist dir containing index.html)
+      shell: |
+        dir=$(find {{ ca_repo }}/src/Web/ClientApp/dist -name index.html -printf '%h\n' 2>/dev/null | head -n1)
+        echo "$dir"
+      args:
+        executable: /bin/bash
+      register: spa_dist
+      changed_when: false
+
+    - name: Fail if SPA build output was not found
+      fail:
+        msg: "Angular build produced no index.html under ClientApp/dist — check npm build output."
+      when: (spa_dist.stdout | trim) == ""
+
+    - name: Create web root
+      file:
+        path: "{{ web_root }}"
+        state: directory
+        mode: "0755"
+
+    - name: Clear previous frontend content
+      shell: rm -rf {{ web_root }}/*
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Copy built SPA to Nginx web root
+      shell: cp -r "{{ spa_dist.stdout | trim }}/." "{{ web_root }}/"
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Configure Nginx (serve SPA + reverse-proxy API to app server)
+      copy:
+        dest: /etc/nginx/sites-available/cleanarch
+        content: |
+          server {
+              listen 80;
+              server_name _;
+              root {{ web_root }};
+              index index.html;
+
+              # Reverse-proxy API / backend routes to the app server.
+              location ~ ^/(api|swagger|health|_configuration|connect|Identity) {
+                  proxy_pass         http://{{ app_host }}:{{ dotnet_app_port }};
+                  proxy_http_version 1.1;
+                  proxy_set_header   Upgrade $http_upgrade;
+                  proxy_set_header   Connection keep-alive;
+                  proxy_set_header   Host $host;
+                  proxy_set_header   X-Real-IP $remote_addr;
+                  proxy_set_header   X-Forwarded-For $proxy_add_x_forwarded_for;
+                  proxy_set_header   X-Forwarded-Proto $scheme;
+                  proxy_cache_bypass $http_upgrade;
+              }
+
+              # SPA fallback — serve index.html for client-side routes.
+              location / {
+                  try_files $uri $uri/ /index.html;
+              }
+          }
+      notify: Restart Nginx
+
+    - name: Enable the Nginx site
+      file:
+        src: /etc/nginx/sites-available/cleanarch
+        dest: /etc/nginx/sites-enabled/cleanarch
+        state: link
+      notify: Restart Nginx
+
+    - name: Remove default Nginx site
+      file:
+        path: /etc/nginx/sites-enabled/default
+        state: absent
+      notify: Restart Nginx
+
+    - name: Ensure Nginx is started and enabled
+      systemd:
+        name: nginx
+        state: started
+        enabled: true
+
+    - name: Allow HTTP through UFW
+      ufw:
+        rule: allow
+        port: "80"
+        proto: tcp
+      ignore_errors: true
+
+    - name: Verify app server API is reachable from frontend
+      uri:
+        url: "http://{{ app_host }}:{{ dotnet_app_port }}/"
+        status_code: [200, 302, 404]
+      register: app_check
+      retries: 5
+      delay: 10
+      until: app_check.status is defined and app_check.status in [200, 302, 404]
+      ignore_errors: true
+
+    - name: Warn if app server is not reachable
+      debug:
+        msg: "WARNING — CleanArchitecture API at {{ app_host }}:{{ dotnet_app_port }} is not responding. Deploy the app server first."
+      when: app_check is failed
+
+  handlers:
+    - name: Restart Nginx
+      systemd:
+        name: nginx
+        state: restarted

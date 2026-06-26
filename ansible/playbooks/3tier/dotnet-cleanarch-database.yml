@@ -1,0 +1,163 @@
+---
+# =============================================================================
+# .NET 3-Tier (CleanArchitecture) — Database VM: SQL Server Express
+# Accepts connections from the app-server VM.
+# Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+# (Near-identical to dotnet-database.yml, but creates the CleanArchitecture DB.)
+# =============================================================================
+- name: Deploy SQL Server Database (.NET 3-Tier / CleanArchitecture)
+  hosts: dotnet_database
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"
+
+  tasks:
+    # ---- Passwordless sudo ----
+    - name: Grant passwordless sudo to {{ ansible_user }}
+      copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Clean apt cache and fix broken state
+      shell: |
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+        apt-get update -y || true
+        apt-get -f install -y || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates]
+        state: present
+
+    - name: Add Microsoft package signing key
+      shell: |
+        wget -q https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
+        dpkg -i /tmp/packages-microsoft-prod.deb
+        rm -f /tmp/packages-microsoft-prod.deb
+      args:
+        creates: /etc/apt/sources.list.d/microsoft-prod.list
+
+    # SQL Server 2022 supports Ubuntu 20.04 / 22.04; Ubuntu 24.04+ uses 2025.
+    - name: Select SQL Server major version for this Ubuntu release
+      ansible.builtin.set_fact:
+        mssql_repo_version: "{{ '2025' if ansible_distribution_version is version('24.04', '>=') else '2022' }}"
+
+    - name: Import Microsoft GPG key for SQL Server repo
+      shell: |
+        curl -fsSL https://packages.microsoft.com/keys/microsoft.asc | gpg --dearmor -o /usr/share/keyrings/microsoft-archive-keyring.gpg
+      args:
+        creates: /usr/share/keyrings/microsoft-archive-keyring.gpg
+
+    - name: Remove stale SQL Server repo lists from previous runs (any mismatched version)
+      ansible.builtin.shell: |
+        find /etc/apt/sources.list.d -maxdepth 1 -name 'mssql-server-*.list' \
+          ! -name 'mssql-server-{{ mssql_repo_version }}.list' -delete || true
+      changed_when: false
+
+    - name: Add SQL Server APT repository
+      copy:
+        dest: "/etc/apt/sources.list.d/mssql-server-{{ mssql_repo_version }}.list"
+        content: "deb [arch=amd64 signed-by=/usr/share/keyrings/microsoft-archive-keyring.gpg] https://packages.microsoft.com/ubuntu/{{ ansible_distribution_version }}/mssql-server-{{ mssql_repo_version }} {{ ansible_distribution_release }} main\n"
+
+    - name: Update apt cache after adding SQL Server repo
+      apt:
+        update_cache: true
+
+    - name: Install SQL Server {{ mssql_repo_version }}
+      apt:
+        name: mssql-server
+        state: present
+
+    - name: Check if SQL Server is already configured
+      shell: systemctl is-active mssql-server
+      register: mssql_status
+      ignore_errors: true
+      changed_when: false
+
+    - name: Stop SQL Server for reconfiguration
+      systemd:
+        name: mssql-server
+        state: stopped
+      when: mssql_status.rc != 0
+
+    - name: Configure SQL Server Express edition
+      shell: |
+        MSSQL_SA_PASSWORD="{{ mssql_sa_password }}" \
+        MSSQL_PID="{{ mssql_edition }}" \
+        /opt/mssql/bin/mssql-conf -n setup accept-eula
+      environment:
+        ACCEPT_EULA: "Y"
+      when: mssql_status.rc != 0
+
+    - name: Ensure SQL Server is started
+      systemd:
+        name: mssql-server
+        state: started
+        enabled: true
+
+    - name: Install SQL Server command-line tools
+      apt:
+        name:
+          - mssql-tools18
+          - unixodbc-dev
+        state: present
+        update_cache: true
+      environment:
+        ACCEPT_EULA: "Y"
+
+    - name: Wait for SQL Server to be ready
+      shell: /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "SELECT 1"
+      register: sql_ready
+      retries: 10
+      delay: 5
+      until: sql_ready.rc == 0
+      changed_when: false
+
+    - name: Ensure SQL Server TCP port is set to 1433
+      shell: |
+        current=$(/opt/mssql/bin/mssql-conf get network.tcpport 2>/dev/null | grep -oP '\d+' || echo "default")
+        if [ "$current" != "1433" ]; then
+          /opt/mssql/bin/mssql-conf set network.tcpport 1433
+          echo "CHANGED"
+        else
+          echo "OK"
+        fi
+      register: tcpport_result
+      changed_when: "'CHANGED' in tcpport_result.stdout"
+      notify: Restart SQL Server
+
+    - name: Ensure SQL Server listens on all interfaces
+      shell: /opt/mssql/bin/mssql-conf set network.ipaddress 0.0.0.0
+      changed_when: false
+      ignore_errors: true
+
+    - name: Flush SQL Server restart if config changed
+      meta: flush_handlers
+
+    - name: Create CleanArchitecture application database
+      shell: |
+        /opt/mssql-tools18/bin/sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}" -C -Q "
+        IF NOT EXISTS (SELECT name FROM sys.databases WHERE name = '{{ cleanarch_db_name }}')
+        BEGIN CREATE DATABASE [{{ cleanarch_db_name }}] END"
+      changed_when: false
+
+    - name: Allow SQL Server port through UFW
+      ufw:
+        rule: allow
+        port: "1433"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart SQL Server
+      systemd:
+        name: mssql-server
+        state: restarted

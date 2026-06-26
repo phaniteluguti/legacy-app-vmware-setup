@@ -1,0 +1,233 @@
+---
+# =============================================================================
+# Windows .NET 3-Tier (CleanArchitecture) — App Server VM
+# Builds & runs the jasontaylordev/CleanArchitecture ASP.NET Core Web API
+# (Kestrel via NSSM, port {{ dotnet_app_port }}), connected to SQL Server on
+# the database VM. Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+#
+# Assumptions (jasontaylordev/CleanArchitecture, .NET 8 layout):
+#   - Web host project:      src/Web/Web.csproj
+#   - EF migrations project: src/Infrastructure/Infrastructure.csproj
+#   - Connection string key: ConnectionStrings:DefaultConnection
+#   - Angular SPA lives in   src/Web/ClientApp (built during publish — Node req'd)
+# Node.js is installed so `dotnet publish` can build the bundled SPA; the
+# genuine, separately-built frontend is served by win-dotnet-cleanarch-frontend.yml
+# =============================================================================
+- name: Deploy CleanArchitecture App Server (Windows .NET 3-Tier)
+  hosts: win_dotnet_appserver
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['win_dotnet_database'][0]]['ansible_host'] | default(groups['win_dotnet_database'][0]) }}"
+    cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
+    cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
+    cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"
+    ca_src: C:\Apps\CleanArchitecture
+    ca_repo: C:\Apps\CleanArchitecture\repo
+    ca_published: C:\Apps\CleanArchitecture\published
+    ca_logs: C:\Apps\CleanArchitecture\logs
+    ca_conn: "Server={{ db_host }};Database={{ cleanarch_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+
+  tasks:
+    - name: Install Chocolatey
+      win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install Git, NSSM and Node.js LTS via Chocolatey
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - nssm
+        - nodejs-lts
+
+    - name: Install .NET 8 SDK
+      win_chocolatey:
+        name: dotnet-8.0-sdk
+        state: present
+
+    - name: Refresh environment PATH
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        dotnet --version
+      register: dotnet_check
+      changed_when: false
+
+    - name: Create app directories
+      win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - '{{ ca_src }}'
+        - '{{ ca_logs }}'
+        - '{{ ca_src }}\temp'
+
+    - name: Clone CleanArchitecture repository
+      win_shell: >
+        & "C:/Program Files/Git/bin/git.exe" clone -b {{ cleanarch_branch }}
+        {{ cleanarch_repo }} "{{ ca_repo }}"
+      args:
+        creates: '{{ ca_repo }}\src\Web\Web.csproj'
+
+    - name: Write appsettings.json (point DefaultConnection at the database VM)
+      win_copy:
+        dest: '{{ ca_repo }}\src\Web\appsettings.json'
+        content: |
+          {
+            "UseInMemoryDatabase": false,
+            "ConnectionStrings": {
+              "DefaultConnection": "{{ ca_conn }}"
+            },
+            "Logging": {
+              "LogLevel": {
+                "Default": "Information",
+                "Microsoft.AspNetCore": "Warning"
+              }
+            },
+            "AllowedHosts": "*"
+          }
+
+    - name: Wait for SQL Server on database VM
+      win_wait_for:
+        host: "{{ db_host }}"
+        port: 1433
+        timeout: 120
+        state: started
+
+    - name: Install dotnet-ef global tool
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$env:USERPROFILE\.dotnet\tools"
+        dotnet tool install --global dotnet-ef --version 8.* 2>&1 | Out-String
+        dotnet tool update  --global dotnet-ef --version 8.* 2>&1 | Out-String
+      register: ef_tool
+      changed_when: false
+      ignore_errors: true
+
+    - name: Apply EF Core migrations to the database VM (best effort)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$env:USERPROFILE\.dotnet\tools"
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        Set-Location "{{ ca_repo }}"
+        dotnet ef database update `
+          --project src/Infrastructure/Infrastructure.csproj `
+          --startup-project src/Web/Web.csproj `
+          --connection "{{ ca_conn }}" 2>&1 | Out-String
+      register: ef_update
+      changed_when: false
+      ignore_errors: true
+      timeout: 600
+
+    - name: Show EF migration result
+      debug:
+        msg: "{{ (ef_update.stdout | default('')) | regex_replace('(?i)password=[^;\"]*', 'Password=***') }}"
+
+    - name: Build and publish CleanArchitecture Web project
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        Set-Location "{{ ca_repo }}"
+        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}"
+      register: build_result
+      timeout: 1200
+
+    - name: Find published entry DLL (via runtimeconfig.json)
+      win_shell: |
+        $rc = Get-ChildItem -Path "{{ ca_published }}" -Filter *.runtimeconfig.json | Select-Object -First 1
+        if ($rc) { $rc.BaseName + ".dll" } else { "Web.dll" }
+      register: entry_dll
+      changed_when: false
+
+    - name: Verify published entry DLL exists
+      win_stat:
+        path: '{{ ca_published }}\{{ entry_dll.stdout | trim }}'
+      register: web_dll
+      failed_when: not web_dll.stat.exists
+
+    - name: Detect dotnet.exe full path
+      win_shell: (Get-Command dotnet).Source
+      register: dotnet_exe
+      changed_when: false
+
+    - name: Detect dotnet root directory
+      win_shell: Split-Path "{{ dotnet_exe.stdout | trim }}"
+      register: dotnet_root_dir
+      changed_when: false
+
+    - name: Stop existing CleanArchitecture service if running
+      win_shell: nssm stop CleanArchitecture
+      ignore_errors: true
+      changed_when: false
+
+    - name: Remove existing NSSM service for clean reinstall
+      win_shell: nssm remove CleanArchitecture confirm
+      ignore_errors: true
+      changed_when: false
+
+    - name: Install CleanArchitecture as Windows service via NSSM
+      win_shell: >
+        nssm install CleanArchitecture "{{ dotnet_exe.stdout | trim }}"
+        "{{ ca_published }}\{{ entry_dll.stdout | trim }}"
+
+    - name: Configure NSSM service parameters
+      win_shell: |
+        nssm set CleanArchitecture AppDirectory "{{ ca_published }}"
+        nssm set CleanArchitecture AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Production" "ASPNETCORE_URLS=http://0.0.0.0:{{ dotnet_app_port }}" "DOTNET_CLI_HOME={{ ca_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
+        nssm set CleanArchitecture AppStdout "{{ ca_logs }}\stdout.log"
+        nssm set CleanArchitecture AppStderr "{{ ca_logs }}\stderr.log"
+        nssm set CleanArchitecture AppStdoutCreationDisposition 4
+        nssm set CleanArchitecture AppStderrCreationDisposition 4
+        nssm set CleanArchitecture AppRotateFiles 1
+        nssm set CleanArchitecture AppRotateBytes 10485760
+      changed_when: false
+
+    - name: Start CleanArchitecture service
+      win_service:
+        name: CleanArchitecture
+        start_mode: auto
+        state: started
+
+    - name: Wait for CleanArchitecture to start responding
+      win_uri:
+        url: "http://localhost:{{ dotnet_app_port }}/"
+        return_content: false
+        status_code: [200, 302, 404]
+      register: ca_check
+      retries: 18
+      delay: 10
+      until: ca_check.status_code is defined and ca_check.status_code in [200, 302, 404]
+      ignore_errors: true
+
+    - name: Show CleanArchitecture startup status
+      debug:
+        msg: "CleanArchitecture API is {{ 'running' if ca_check is succeeded else 'NOT responding — check logs at ' + ca_logs }}"
+
+    - name: Show NSSM stderr log if service failed to start
+      win_shell: >
+        Get-Content "{{ ca_logs }}\stderr.log" -Tail 50 -ErrorAction SilentlyContinue
+      register: stderr_log
+      changed_when: false
+      when: ca_check is failed
+
+    - name: Display diagnostic logs
+      debug:
+        msg:
+          - "=== STDERR (last 50 lines) ==="
+          - "{{ stderr_log.stdout_lines | default(['(empty)']) }}"
+      when: ca_check is failed
+
+    - name: Allow app port through Windows Firewall
+      win_firewall_rule:
+        name: "CleanArchitecture HTTP"
+        localport: "{{ dotnet_app_port }}"
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true

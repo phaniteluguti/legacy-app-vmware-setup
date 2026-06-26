@@ -206,6 +206,8 @@ load_previous() {
     PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="21"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
+    PREV_DOTNET_3TIER_APP="eshop"
+    PREV_DOTNET_CLEANARCH_REPO="https://github.com/jasontaylordev/CleanArchitecture.git"; PREV_DOTNET_CLEANARCH_BRANCH="main"
     PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
     PREV_AZ_AGENT="false"
     # 3-Tier sizing defaults
@@ -368,6 +370,9 @@ load_previous() {
         PREV_DOTNET_SDK="$(ymlval dotnet_sdk_version "6.0")"
         PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet/eShop.git")"
         PREV_DOTNET_BRANCH="$(ymlval dotnet_app_branch "main")"
+        PREV_DOTNET_3TIER_APP="$(ymlval dotnet_3tier_app "eshop")"
+        PREV_DOTNET_CLEANARCH_REPO="$(ymlval dotnet_cleanarch_repo "https://github.com/jasontaylordev/CleanArchitecture.git")"
+        PREV_DOTNET_CLEANARCH_BRANCH="$(ymlval dotnet_cleanarch_branch "main")"
         PREV_PHP_VER="$(ymlval php_version "8.1")"
         PREV_PHP_REPO="$(ymlval php_app_repo "https://github.com/laravel/laravel.git")"
         PREV_PHP_BRANCH="$(ymlval php_app_branch "10.x")"
@@ -877,6 +882,9 @@ collect_apps() {
     PETCLINIC_REPO="$PREV_PETCLINIC_REPO"; PETCLINIC_BRANCH="$PREV_PETCLINIC_BRANCH"; JAVA_VER="$PREV_JAVA_VER"
     PG_PASS="placeholder"
     DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
+    DOTNET_3TIER_APP="${PREV_DOTNET_3TIER_APP:-eshop}"
+    DOTNET_CLEANARCH_REPO="${PREV_DOTNET_CLEANARCH_REPO:-https://github.com/jasontaylordev/CleanArchitecture.git}"
+    DOTNET_CLEANARCH_BRANCH="${PREV_DOTNET_CLEANARCH_BRANCH:-main}"
     MSSQL_PASS="Placeholder1!"
     PHP_VER="$PREV_PHP_VER"; PHP_REPO="$PREV_PHP_REPO"; PHP_BRANCH="$PREV_PHP_BRANCH"
     MYSQL_ROOT="placeholder"; MYSQL_APP="placeholder"
@@ -908,6 +916,23 @@ collect_apps() {
             prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
             prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
             prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
+        fi
+        # Extra question: which .NET app to deploy for a 3-tier split.
+        # Shown whenever ANY 3-tier (Linux or Windows) + .NET are selected.
+        if [[ "$DEPLOY_LINUX_3TIER" == "true" || "$DEPLOY_WINDOWS_3TIER" == "true" ]]; then
+            echo ""
+            echo -e "  ${Y}3-tier — choose the .NET application:${NC}"
+            echo -e "    ${GR}1)${NC} eShopOnWeb   (monolith behind a reverse proxy) ${GR}[default]${NC}"
+            echo -e "    ${GR}2)${NC} CleanArchitecture (genuine Angular FE + Web API + SQL Server)"
+            local _def_choice="1"; [[ "$DOTNET_3TIER_APP" == "cleanarch" ]] && _def_choice="2"
+            prompt "  Selection (1/2)" "$_def_choice"
+            if [[ "$REPLY" == "2" ]]; then
+                DOTNET_3TIER_APP="cleanarch"
+                prompt "  CleanArchitecture Git repo" "$DOTNET_CLEANARCH_REPO"; DOTNET_CLEANARCH_REPO="$REPLY"
+                prompt "  CleanArchitecture branch" "$DOTNET_CLEANARCH_BRANCH"; DOTNET_CLEANARCH_BRANCH="$REPLY"
+            else
+                DOTNET_3TIER_APP="eshop"
+            fi
         fi
         prompt_secret "  SQL Server SA password (8+ chars, complexity)"; MSSQL_PASS="$REPLY"
         echo ""
@@ -1192,6 +1217,12 @@ dotnet_sdk_version: "$DOTNET_SDK"
 dotnet_app_repo: "$DOTNET_REPO"
 dotnet_app_branch: "$DOTNET_BRANCH"
 dotnet_app_port: 5000
+
+# Windows 3-tier .NET app selector: eshop (default) | cleanarch
+dotnet_3tier_app: "$DOTNET_3TIER_APP"
+dotnet_cleanarch_repo: "$DOTNET_CLEANARCH_REPO"
+dotnet_cleanarch_branch: "$DOTNET_CLEANARCH_BRANCH"
+dotnet_cleanarch_db_name: "CleanArchitectureDb"
 
 mssql_edition: "express"
 mssql_sa_password: "$MSSQL_PASS"

@@ -1,0 +1,246 @@
+---
+# =============================================================================
+# .NET 3-Tier (CleanArchitecture) — App Server VM
+# jasontaylordev/CleanArchitecture ASP.NET Core 8 Web API on Kestrel (:5000),
+# connecting to SQL Server on the database VM. EF Core migrations are applied
+# explicitly, and the service runs in Production (avoids the SpaProxy that the
+# template uses only in Development).
+# Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+# =============================================================================
+- name: Deploy CleanArchitecture App Server (.NET 3-Tier)
+  hosts: dotnet_appserver
+  become: true
+  vars_files:
+    - ../../group_vars/all.yml
+  vars:
+    db_host: "{{ hostvars[groups['dotnet_database'][0]]['ansible_host'] | default(groups['dotnet_database'][0]) }}"
+    cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
+    cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
+    cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"
+    ca_base: /opt/cleanarch
+    ca_repo: /opt/cleanarch/repo
+    ca_published: /opt/cleanarch/published
+    ca_conn: "Server={{ db_host }};Database={{ cleanarch_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+
+  tasks:
+    # ---- Passwordless sudo ----
+    - name: Grant passwordless sudo to {{ ansible_user }}
+      copy:
+        content: "{{ ansible_user }} ALL=(ALL) NOPASSWD: ALL\n"
+        dest: "/etc/sudoers.d/{{ ansible_user }}"
+        mode: '0440'
+        validate: 'visudo -cf %s'
+
+    - name: Clean apt cache and fix broken state
+      shell: |
+        apt-get clean
+        rm -rf /var/lib/apt/lists/*
+        apt-get update -y || true
+      args:
+        executable: /bin/bash
+      changed_when: false
+
+    - name: Install base packages
+      apt:
+        name: [git, curl, wget, gnupg2, software-properties-common, ca-certificates]
+        state: present
+
+    - name: Add Microsoft package signing key
+      shell: |
+        wget -q https://packages.microsoft.com/config/ubuntu/{{ ansible_distribution_version }}/packages-microsoft-prod.deb -O /tmp/packages-microsoft-prod.deb
+        dpkg -i /tmp/packages-microsoft-prod.deb
+        rm -f /tmp/packages-microsoft-prod.deb
+      args:
+        creates: /etc/apt/sources.list.d/microsoft-prod.list
+
+    - name: Remove conflicting dotnet packages
+      apt:
+        name: [dotnet-sdk-6.0, dotnet-host, dotnet-hostfxr-6.0]
+        state: absent
+      ignore_errors: true
+
+    - name: Check if .NET 8.0 SDK is already installed
+      shell: /usr/share/dotnet/dotnet --list-sdks 2>/dev/null | grep -q '^8\.' && echo yes || echo no
+      register: dotnet8_installed
+      changed_when: false
+      failed_when: false
+
+    - name: Install .NET SDK 8.0 via install script
+      shell: |
+        curl -sSL https://dot.net/v1/dotnet-install.sh | bash -s -- --channel 8.0 --install-dir /usr/share/dotnet
+        ln -sf /usr/share/dotnet/dotnet /usr/local/bin/dotnet
+      when: dotnet8_installed.stdout != 'yes'
+
+    # Node.js is required because `dotnet publish src/Web` builds the bundled
+    # Angular SPA as part of the Web project build.
+    - name: Check if Node.js is installed
+      shell: node --version 2>/dev/null || echo missing
+      register: node_check
+      changed_when: false
+      failed_when: false
+
+    - name: Add NodeSource repository (Node.js 20 LTS)
+      shell: curl -fsSL https://deb.nodesource.com/setup_20.x | bash -
+      when: "'missing' in node_check.stdout"
+
+    - name: Install Node.js
+      apt:
+        name: nodejs
+        state: present
+      when: "'missing' in node_check.stdout"
+
+    - name: Create app directory
+      file:
+        path: "{{ ca_base }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        mode: "0755"
+
+    - name: Set git safe.directory globally
+      command: git config --global --add safe.directory '*'
+      changed_when: false
+      failed_when: false
+
+    - name: Clone CleanArchitecture repository
+      git:
+        repo: "{{ cleanarch_repo }}"
+        dest: "{{ ca_repo }}"
+        version: "{{ cleanarch_branch }}"
+        force: true
+
+    - name: Fix repo ownership
+      file:
+        path: "{{ ca_repo }}"
+        state: directory
+        owner: "{{ ansible_user }}"
+        group: "{{ ansible_user }}"
+        recurse: true
+
+    - name: Configure Web project appsettings for remote SQL Server
+      copy:
+        dest: "{{ ca_repo }}/src/Web/appsettings.json"
+        content: |
+          {
+            "UseInMemoryDatabase": false,
+            "ConnectionStrings": {
+              "DefaultConnection": "{{ ca_conn }}"
+            },
+            "Logging": {
+              "LogLevel": {
+                "Default": "Information",
+                "Microsoft.AspNetCore": "Warning"
+              }
+            },
+            "AllowedHosts": "*"
+          }
+        owner: "{{ ansible_user }}"
+
+    - name: Wait for SQL Server on database VM to be reachable
+      wait_for:
+        host: "{{ db_host }}"
+        port: 1433
+        timeout: 90
+        state: started
+
+    - name: Install dotnet-ef tool (local to the repo)
+      shell: |
+        cd {{ ca_repo }}
+        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool install dotnet-ef --version 8.* --tool-path {{ ca_base }}/tools || \
+        sudo -u {{ ansible_user }} /usr/local/bin/dotnet tool update dotnet-ef --version 8.* --tool-path {{ ca_base }}/tools
+      args:
+        executable: /bin/bash
+      environment:
+        DOTNET_CLI_HOME: "/tmp"
+      changed_when: false
+      failed_when: false
+
+    - name: Apply EF Core migrations (best-effort)
+      shell: |
+        cd {{ ca_repo }}
+        sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp PATH="/usr/local/bin:$PATH" \
+          {{ ca_base }}/tools/dotnet-ef database update \
+          --project src/Infrastructure --startup-project src/Web --connection "{{ ca_conn }}"
+      args:
+        executable: /bin/bash
+      register: ef_update
+      changed_when: ef_update.rc == 0
+      failed_when: false
+
+    - name: Show EF migration result (password masked)
+      debug:
+        msg: "{{ (ef_update.stdout | default('') ~ ' ' ~ (ef_update.stderr | default(''))) | regex_replace(mssql_sa_password, '***') | truncate(400) }}"
+
+    - name: Clean stale published directory
+      file:
+        path: "{{ ca_published }}"
+        state: absent
+
+    - name: Build and publish CleanArchitecture Web project
+      shell: |
+        cd {{ ca_repo }}
+        sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp \
+          /usr/local/bin/dotnet publish src/Web/Web.csproj -c Release -o {{ ca_published }}
+      args:
+        executable: /bin/bash
+      register: dotnet_build
+      changed_when: dotnet_build.rc == 0
+      notify: Restart CleanArch
+
+    - name: Detect published entry DLL
+      shell: |
+        cfg=$(ls {{ ca_published }}/*.runtimeconfig.json 2>/dev/null | head -n1)
+        if [ -n "$cfg" ]; then
+          base=$(basename "$cfg" .runtimeconfig.json)
+          echo "$base.dll"
+        else
+          echo "Web.dll"
+        fi
+      args:
+        executable: /bin/bash
+      register: entry_dll
+      changed_when: false
+
+    - name: Create CleanArchitecture systemd service
+      copy:
+        dest: /etc/systemd/system/cleanarch-web.service
+        content: |
+          [Unit]
+          Description=CleanArchitecture ASP.NET Core Web API
+          After=network.target
+
+          [Service]
+          Type=simple
+          User={{ ansible_user }}
+          WorkingDirectory={{ ca_published }}
+          ExecStart=/usr/local/bin/dotnet {{ ca_published }}/{{ entry_dll.stdout | trim }}
+          Restart=on-failure
+          RestartSec=10
+          StandardOutput=journal
+          StandardError=journal
+          Environment=ASPNETCORE_ENVIRONMENT=Production
+          Environment=ASPNETCORE_URLS=http://0.0.0.0:{{ dotnet_app_port }}
+          Environment=DOTNET_CLI_HOME=/tmp
+
+          [Install]
+          WantedBy=multi-user.target
+      notify: Restart CleanArch
+
+    - name: Enable and start CleanArchitecture service
+      systemd:
+        name: cleanarch-web
+        daemon_reload: true
+        enabled: true
+        state: started
+
+    - name: Allow app port through UFW
+      ufw:
+        rule: allow
+        port: "{{ dotnet_app_port }}"
+        proto: tcp
+      ignore_errors: true
+
+  handlers:
+    - name: Restart CleanArch
+      systemd:
+        name: cleanarch-web
+        state: restarted
