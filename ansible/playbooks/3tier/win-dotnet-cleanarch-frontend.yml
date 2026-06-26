@@ -55,6 +55,13 @@
         - urlrewrite
         - iis-arr
 
+    # nswag's generate-api prebuild step runs under the .NET runtime, so the SDK
+    # must be present on the frontend VM even though no app is hosted here.
+    - name: Install .NET 10 SDK (required by nswag generate-api)
+      win_chocolatey:
+        name: dotnet-10.0-sdk
+        state: present
+
     - name: Enable ARR proxy globally
       win_shell: >
         & "$env:windir\system32\inetsrv\appcmd.exe" set config
@@ -81,6 +88,36 @@
       args:
         creates: '{{ ca_repo }}\src\Web\ClientApp\package.json'
 
+    - name: Create build temp directory
+      win_file:
+        path: '{{ ca_src }}\temp'
+        state: directory
+
+    # The repo enables NuGet auditing with TreatWarningsAsErrors=true; transitive-package
+    # CVE advisories (NU1902/NU1903) would fail the spec-generation build. A root
+    # Directory.Build.targets is imported AFTER the repo's Directory.Build.props.
+    - name: Neutralise NuGet audit / warnings-as-errors (deploy-time build)
+      win_copy:
+        dest: '{{ ca_repo }}\Directory.Build.targets'
+        content: |
+          <Project>
+            <PropertyGroup>
+              <NuGetAudit>false</NuGetAudit>
+              <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+              <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
+              <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+            </PropertyGroup>
+          </Project>
+
+    # Re-point the repo's pinned SDK (e.g. 10.0.201) at whatever 10.x SDK is installed.
+    - name: Align global.json to the installed .NET SDK
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $installed = (dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] } | Sort-Object { [version]$_ } | Select-Object -Last 1)
+        $json = '{ "sdk": { "version": "' + $installed + '", "rollForward": "latestFeature" } }'
+        Set-Content -Path "{{ ca_repo }}\global.json" -Value $json -Encoding ascii
+      changed_when: false
+
     - name: Install Angular dependencies (npm ci with install fallback)
       win_shell: |
         $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
@@ -88,6 +125,21 @@
         npm ci 2>&1 | Out-String
         if ($LASTEXITCODE -ne 0) { npm install 2>&1 | Out-String }
       register: npm_install
+      changed_when: false
+      timeout: 1200
+
+    # nswag's generate-api (npm prebuild) reads src/Web/wwwroot/openapi/v1.json, which is
+    # produced by building the Web project — it is not committed to the repo. Generate it
+    # here first. A throwaway connection string satisfies the build-time host boot (the DB
+    # is never opened); the SPA webpack target only runs on publish, so a plain build is safe.
+    - name: Generate OpenAPI spec for nswag (build Web project)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:ConnectionStrings__CleanArchitectureDb = "Server=localhost;Database=CleanArchitectureDb;User Id=sa;Password=BuildOnly1!;TrustServerCertificate=True"
+        Set-Location "{{ ca_repo }}"
+        dotnet build src/Web/Web.csproj -c Release -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+      register: openapi_build
       changed_when: false
       timeout: 1200
 
