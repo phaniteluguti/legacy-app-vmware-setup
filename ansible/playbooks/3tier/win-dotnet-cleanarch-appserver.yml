@@ -246,7 +246,7 @@
             $rc = Get-ChildItem -Path $pub -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -First 1
           }
         }
-        if ($rc) { $rc.BaseName + ".dll" } else { "Web.dll" }
+        if ($rc) { $rc.Name.Replace('.runtimeconfig.json', '.dll') } else { "Web.dll" }
       register: entry_dll
       changed_when: false
 
