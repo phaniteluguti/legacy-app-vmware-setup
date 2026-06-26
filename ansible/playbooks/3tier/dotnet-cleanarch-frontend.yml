@@ -143,10 +143,14 @@
     # which is emitted by building the .NET Web project (Microsoft.Extensions.ApiDescription.Server,
     # OpenApiDocumentsDirectory=./wwwroot/openapi, --file-name v1). A plain `dotnet build`
     # generates it without triggering the SPA webpack target (that runs only on publish).
+    # The doc generator boots the app host, which guards on the 'CleanArchitectureDb'
+    # connection string. It never opens the DB at build time, so we inject a throwaway
+    # value via env var to satisfy the guard without depending on the repo's appsettings.
     - name: Generate OpenAPI spec for nswag (build Web project)
       shell: |
         cd {{ ca_repo }}
         sudo -u {{ ansible_user }} env DOTNET_CLI_HOME=/tmp PATH="/usr/local/bin:$PATH" \
+          ConnectionStrings__CleanArchitectureDb="Server=localhost;Database=CleanArchitectureDb;User Id=sa;Password=BuildOnly1!;TrustServerCertificate=True" \
           /usr/local/bin/dotnet build src/Web/Web.csproj -c Release \
           -p:NuGetAudit=false -p:TreatWarningsAsErrors=false
       args:
