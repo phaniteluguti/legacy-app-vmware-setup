@@ -175,6 +175,43 @@
       changed_when: false
       when: dg_state != 'absent'
 
+    - name: Verify each TCP endpoint NOW (short connect, logs OK/FAIL)
+      ansible.builtin.shell: |
+        CONF=/opt/azmigrate/endpoints.conf
+        LOG=/var/log/azmigrate-depprobe.log
+        ts=$(date '+%F %T')
+        [ -f "$CONF" ] || { echo "NO_CONF"; exit 0; }
+        while IFS='|' read -r ip port proto label; do
+          ip=$(echo "${ip:-}" | tr -d '[:space:]'); [ -z "$ip" ] && continue
+          case "$ip" in \#*) continue ;; esac
+          if [ "$proto" = dns ]; then
+            if timeout 3 bash -c "exec 3<>/dev/udp/$ip/$port" 2>/dev/null; then r="OK"; else r="FAIL"; fi
+          else
+            if timeout 3 bash -c "exec 3<>/dev/tcp/$ip/$port" 2>/dev/null; then r="OK"; else r="FAIL"; fi
+          fi
+          echo "$ts CHECK $r $label $ip:$port/$proto" | tee -a "$LOG"
+        done < "$CONF"
+      register: dep_check
+      changed_when: false
+      when: dg_state != 'absent'
+
+    - name: Show connectivity check result (server-level pass/fail)
+      ansible.builtin.debug:
+        msg: "{{ dep_check.stdout_lines | default(['(no result)']) }}"
+      when: dg_state != 'absent' and dep_check is defined
+
+    - name: Show last 15 held-connection log lines
+      ansible.builtin.command: tail -n 15 /var/log/azmigrate-depprobe.log
+      register: dep_log_tail
+      changed_when: false
+      failed_when: false
+      when: dg_state != 'absent'
+
+    - name: Display held-connection log tail
+      ansible.builtin.debug:
+        msg: "{{ dep_log_tail.stdout_lines | default(['(log empty - probe may still be running)']) }}"
+      when: dg_state != 'absent' and dep_log_tail is defined
+
     - name: Report Linux endpoint plan
       ansible.builtin.command: cat /opt/azmigrate/endpoints.conf
       register: dep_conf_out
@@ -316,6 +353,44 @@
       ansible.windows.win_shell: schtasks /Run /TN "AzureMigrateDepProbe"
       changed_when: false
       when: dg_state != 'absent'
+
+    - name: Verify each TCP endpoint NOW (short connect, logs OK/FAIL)
+      ansible.windows.win_shell: |
+        $conf = 'C:\azmigrate\endpoints.conf'
+        $log  = 'C:\azmigrate\dep-probe.log'
+        if (-not (Test-Path $conf)) { 'NO_CONF'; exit 0 }
+        foreach ($line in Get-Content $conf) {
+          if ([string]::IsNullOrWhiteSpace($line)) { continue }
+          if ($line.TrimStart().StartsWith('#')) { continue }
+          $f = $line.Split('|'); if ($f.Count -lt 4) { continue }
+          $ip = $f[0].Trim(); $port = $f[1].Trim(); $proto = $f[2].Trim(); $label = $f[3].Trim()
+          $t = Test-NetConnection -ComputerName $ip -Port $port -WarningAction SilentlyContinue
+          $r = if ($t.TcpTestSucceeded) { 'OK' } else { 'FAIL' }
+          $ts = Get-Date -Format 'yyyy-MM-dd HH:mm:ss'
+          $msg = "$ts CHECK $r $label ${ip}:$port/$proto"
+          $msg
+          Add-Content -Path $log -Value $msg
+        }
+      register: dep_check_win
+      changed_when: false
+      when: dg_state != 'absent'
+
+    - name: Show connectivity check result (server-level pass/fail)
+      ansible.builtin.debug:
+        msg: "{{ dep_check_win.stdout_lines | default(['(no result)']) }}"
+      when: dg_state != 'absent' and dep_check_win is defined
+
+    - name: Show last 15 held-connection log lines
+      ansible.windows.win_shell: if (Test-Path C:\azmigrate\dep-probe.log) { Get-Content C:\azmigrate\dep-probe.log -Tail 15 }
+      register: dep_log_win
+      changed_when: false
+      failed_when: false
+      when: dg_state != 'absent'
+
+    - name: Display held-connection log tail
+      ansible.builtin.debug:
+        msg: "{{ dep_log_win.stdout_lines | default(['(log empty - probe may still be running)']) }}"
+      when: dg_state != 'absent' and dep_log_win is defined
 
     - name: Report Windows endpoint plan
       ansible.windows.win_shell: Get-Content C:\azmigrate\endpoints.conf
