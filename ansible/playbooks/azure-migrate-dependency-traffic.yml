@@ -38,6 +38,7 @@
   vars:
     dg_state: "{{ dep_state | default('present') }}"
     dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_interval: "{{ dep_interval_min | default(5) }}"
     dg_file_ip: "{{ dep_file_server_ip | default('') }}"
     dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
     dg_smb_port: "{{ dep_smb_port | default(445) }}"
@@ -163,7 +164,7 @@
     - name: Schedule probe every 15 minutes (cron)
       ansible.builtin.cron:
         name: azmigrate-dep-probe
-        minute: "*/15"
+        minute: "*/{{ dg_interval }}"
         job: "/opt/azmigrate/dep-probe.sh >/dev/null 2>&1"
         state: present
       when: dg_state != 'absent'
@@ -231,6 +232,7 @@
   vars:
     dg_state: "{{ dep_state | default('present') }}"
     dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_interval: "{{ dep_interval_min | default(5) }}"
     dg_file_ip: "{{ dep_file_server_ip | default('') }}"
     dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
     dg_smb_port: "{{ dep_smb_port | default(445) }}"
@@ -345,7 +347,7 @@
       ansible.windows.win_shell: >
         schtasks /Create /TN "AzureMigrateDepProbe"
         /TR "powershell.exe -NoProfile -ExecutionPolicy Bypass -File C:\azmigrate\dep-probe.ps1"
-        /SC MINUTE /MO 15 /RU SYSTEM /RL HIGHEST /F
+        /SC MINUTE /MO {{ dg_interval }} /RU SYSTEM /RL HIGHEST /F
       changed_when: true
       when: dg_state != 'absent'
 
