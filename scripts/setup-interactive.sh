@@ -2389,13 +2389,17 @@ run_domain_join() {
         local os_label="$1" has_1t="$2" has_3t="$3" prev_pick="$4"
         local pick="1"
         if [[ "$has_1t" == "true" && "$has_3t" == "true" ]]; then
-            echo ""
-            echo -e "  ${Y}Inventory has BOTH 1-tier and 3-tier ${os_label} hosts.${NC}"
-            echo -e "  ${Y}Target which tier(s)?${NC}"
-            echo -e "    ${G}1)${NC} All deployed $os_label hosts (1-tier + 3-tier)"
-            echo -e "    ${G}2)${NC} 1-tier only"
-            echo -e "    ${G}3)${NC} 3-tier only"
-            read -rp "  Choice [${prev_pick:-1}]: " pick
+            # NOTE: this function runs inside $(...) so stdout is captured by the
+            # caller. All human-facing menu text MUST go to stderr (>&2); only the
+            # final `echo "$pick"` may write to stdout, otherwise the menu lines
+            # corrupt the captured tier choice.
+            echo "" >&2
+            echo -e "  ${Y}Inventory has BOTH 1-tier and 3-tier ${os_label} hosts.${NC}" >&2
+            echo -e "  ${Y}Target which tier(s)?${NC}" >&2
+            echo -e "    ${G}1)${NC} All deployed $os_label hosts (1-tier + 3-tier)" >&2
+            echo -e "    ${G}2)${NC} 1-tier only" >&2
+            echo -e "    ${G}3)${NC} 3-tier only" >&2
+            read -rp "  ${os_label} tier choice [${prev_pick:-1}]: " pick
             pick="${pick:-${prev_pick:-1}}"
         elif [[ "$has_1t" == "true" ]]; then
             pick="2"
