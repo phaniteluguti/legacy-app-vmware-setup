@@ -2,8 +2,10 @@
 # =============================================================================
 # Windows .NET 3-Tier (CleanArchitecture) — App Server VM
 # Builds & runs the jasontaylordev/CleanArchitecture ASP.NET Core Web API
-# (Kestrel via NSSM, port {{ dotnet_app_port }}), connected to SQL Server on
-# the database VM. Selected when group_vars: dotnet_3tier_app == 'cleanarch'
+# (IIS via the ASP.NET Core Module / Hosting Bundle, in-process, port
+# {{ dotnet_app_port }}), connected to SQL Server on the database VM. Hosting
+# under IIS (rather than Kestrel/NSSM) lets Azure Migrate discover it as a
+# .NET/IIS web app. Selected when group_vars: dotnet_3tier_app == 'cleanarch'
 #
 # Assumptions (jasontaylordev/CleanArchitecture, .NET 10 layout):
 #   - Web host project:      src/Web/Web.csproj
@@ -263,43 +265,118 @@
       register: dotnet_exe
       changed_when: false
 
-    - name: Detect dotnet root directory
-      win_shell: Split-Path "{{ dotnet_exe.stdout | trim }}"
-      register: dotnet_root_dir
-      changed_when: false
+    # -------------------------------------------------------------------------
+    # Host the API under IIS (ASP.NET Core Module / Hosting Bundle, in-process)
+    # instead of Kestrel/NSSM, so Azure Migrate discovers it as a .NET/IIS web
+    # app. The IIS site binds {{ dotnet_app_port }} — the same port the frontend
+    # VM reverse-proxies to — so the dependency chain is unchanged.
+    # -------------------------------------------------------------------------
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+          - Web-Static-Content
+          - Web-Default-Doc
+        state: present
+      register: iis_install
 
-    - name: Stop existing CleanArchitecture service if running
-      win_shell: nssm stop CleanArchitecture
-      ignore_errors: true
-      changed_when: false
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
 
-    - name: Remove existing NSSM service for clean reinstall
-      win_shell: nssm remove CleanArchitecture confirm
-      ignore_errors: true
-      changed_when: false
+    - name: Install ASP.NET Core Hosting Bundle (provides AspNetCoreModuleV2)
+      win_chocolatey:
+        name: dotnet-hosting
+        state: present
 
-    - name: Install CleanArchitecture as Windows service via NSSM
-      win_shell: >
-        nssm install CleanArchitecture "{{ dotnet_exe.stdout | trim }}"
-        "{{ ca_published }}\{{ entry_dll.stdout | trim }}"
+    - name: Ensure IIS stdout log directory exists
+      win_file:
+        path: '{{ ca_logs }}\iis'
+        state: directory
 
-    - name: Configure NSSM service parameters
+    - name: Write web.config for in-process ASP.NET Core hosting
+      win_copy:
+        dest: '{{ ca_published }}\web.config'
+        content: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <location path="." inheritInChildApplications="false">
+              <system.webServer>
+                <handlers>
+                  <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+                </handlers>
+                <aspNetCore processPath="{{ dotnet_exe.stdout | trim }}"
+                            arguments=".\{{ entry_dll.stdout | trim }}"
+                            stdoutLogEnabled="true"
+                            stdoutLogFile="{{ ca_logs }}\iis\stdout"
+                            hostingModel="inprocess">
+                  <environmentVariables>
+                    <environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Production" />
+                    <environmentVariable name="DOTNET_ROOT" value="C:\Program Files\dotnet" />
+                  </environmentVariables>
+                </aspNetCore>
+              </system.webServer>
+            </location>
+          </configuration>
+
+    - name: Stop and remove any legacy NSSM Kestrel service (migration from old deploy)
       win_shell: |
-        nssm set CleanArchitecture AppDirectory "{{ ca_published }}"
-        nssm set CleanArchitecture AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Production" "ASPNETCORE_URLS=http://0.0.0.0:{{ dotnet_app_port }}" "DOTNET_CLI_HOME={{ ca_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
-        nssm set CleanArchitecture AppStdout "{{ ca_logs }}\stdout.log"
-        nssm set CleanArchitecture AppStderr "{{ ca_logs }}\stderr.log"
-        nssm set CleanArchitecture AppStdoutCreationDisposition 4
-        nssm set CleanArchitecture AppStderrCreationDisposition 4
-        nssm set CleanArchitecture AppRotateFiles 1
-        nssm set CleanArchitecture AppRotateBytes 10485760
-      changed_when: false
+        if (Get-Service CleanArchitecture -ErrorAction SilentlyContinue) {
+          nssm stop CleanArchitecture
+          nssm remove CleanArchitecture confirm
+          'removed'
+        } else { 'absent' }
+      register: nssm_cleanup
+      changed_when: "'removed' in nssm_cleanup.stdout"
+      ignore_errors: true
 
-    - name: Start CleanArchitecture service
-      win_service:
+    - name: Create IIS application pool (No Managed Code)
+      win_iis_webapppool:
         name: CleanArchitecture
-        start_mode: auto
         state: started
+        attributes:
+          managedRuntimeVersion: ""
+          startMode: AlwaysRunning
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS website bound to the app port
+      win_iis_website:
+        name: CleanArchitecture
+        state: started
+        port: "{{ dotnet_app_port }}"
+        physical_path: '{{ ca_published }}'
+        application_pool: CleanArchitecture
+      register: iis_site
+
+    - name: Grant the app pool identity read access to the published folder
+      win_acl:
+        path: '{{ ca_published }}'
+        user: "IIS AppPool\\CleanArchitecture"
+        rights: ReadAndExecute
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    - name: Grant the app pool identity write access to the log folder
+      win_acl:
+        path: '{{ ca_logs }}'
+        user: "IIS AppPool\\CleanArchitecture"
+        rights: Modify
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    - name: Reset IIS to load the ASP.NET Core Module
+      win_shell: iisreset /restart
+      changed_when: false
 
     - name: Wait for CleanArchitecture to start responding
       win_uri:
@@ -314,20 +391,22 @@
 
     - name: Show CleanArchitecture startup status
       debug:
-        msg: "CleanArchitecture API is {{ 'running' if ca_check is succeeded else 'NOT responding — check logs at ' + ca_logs }}"
+        msg: "CleanArchitecture API (IIS) is {{ 'running' if ca_check is succeeded else 'NOT responding — check ' + ca_logs + '\\iis\\stdout*.log' }}"
 
-    - name: Show NSSM stderr log if service failed to start
+    - name: Show ASP.NET Core stdout log if site failed to start
       win_shell: >
-        Get-Content "{{ ca_logs }}\stderr.log" -Tail 50 -ErrorAction SilentlyContinue
-      register: stderr_log
+        Get-ChildItem "{{ ca_logs }}\iis\stdout*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 1 |
+        Get-Content -Tail 50 -ErrorAction SilentlyContinue
+      register: stdout_log
       changed_when: false
       when: ca_check is failed
 
     - name: Display diagnostic logs
       debug:
         msg:
-          - "=== STDERR (last 50 lines) ==="
-          - "{{ stderr_log.stdout_lines | default(['(empty)']) }}"
+          - "=== ASP.NET Core stdout (last 50 lines) ==="
+          - "{{ stdout_log.stdout_lines | default(['(empty)']) }}"
       when: ca_check is failed
 
     - name: Allow app port through Windows Firewall
