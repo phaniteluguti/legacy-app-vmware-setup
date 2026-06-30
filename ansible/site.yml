@@ -61,6 +61,24 @@
         delay: 5
         sleep: 10
 
+    - name: Allow inbound ICMP echo (ping) through Windows Firewall — all profiles
+      win_shell: |
+        $rules = @(
+          @{ Name='Allow-ICMPv4-In-Echo'; Display='Allow ICMPv4-In (Echo Request)'; Proto='ICMPv4'; Type='8'   },
+          @{ Name='Allow-ICMPv6-In-Echo'; Display='Allow ICMPv6-In (Echo Request)'; Proto='ICMPv6'; Type='128' }
+        )
+        $created = $false
+        foreach ($r in $rules) {
+          if (-not (Get-NetFirewallRule -Name $r.Name -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -Name $r.Name -DisplayName $r.Display -Protocol $r.Proto `
+              -IcmpType $r.Type -Direction Inbound -Action Allow -Profile Any | Out-Null
+            $created = $true
+          }
+        }
+        if ($created) { 'created' } else { 'exists' }
+      register: icmp_fw
+      changed_when: "'created' in icmp_fw.stdout"
+
 # Deploy each application stack (Windows single-VM)
 - import_playbook: playbooks/win-java-petclinic.yml
 - import_playbook: playbooks/win-iis-app.yml

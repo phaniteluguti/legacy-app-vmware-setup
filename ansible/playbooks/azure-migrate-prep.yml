@@ -156,3 +156,33 @@
       systemd:
         name: sysstat
         state: restarted
+
+# =============================================================================
+# Windows VMs — allow inbound ICMP echo (ping) so the Azure Migrate appliance
+# and admins can reach hosts for connectivity checks. ICMP is NOT required by
+# Azure Migrate, but Windows blocks Echo by default which is confusing during
+# validation. Idempotent: rules are created once and survive domain join
+# (Profile=Any covers the Domain profile).
+# =============================================================================
+- name: Allow ping (ICMP echo) on Windows VMs
+  hosts: win_servers:win_servers_3tier
+  gather_facts: false
+  become: false
+  tasks:
+    - name: Allow inbound ICMP echo (ping) through Windows Firewall — all profiles
+      win_shell: |
+        $rules = @(
+          @{ Name='Allow-ICMPv4-In-Echo'; Display='Allow ICMPv4-In (Echo Request)'; Proto='ICMPv4'; Type='8'   },
+          @{ Name='Allow-ICMPv6-In-Echo'; Display='Allow ICMPv6-In (Echo Request)'; Proto='ICMPv6'; Type='128' }
+        )
+        $created = $false
+        foreach ($r in $rules) {
+          if (-not (Get-NetFirewallRule -Name $r.Name -ErrorAction SilentlyContinue)) {
+            New-NetFirewallRule -Name $r.Name -DisplayName $r.Display -Protocol $r.Proto `
+              -IcmpType $r.Type -Direction Inbound -Action Allow -Profile Any | Out-Null
+            $created = $true
+          }
+        }
+        if ($created) { 'created' } else { 'exists' }
+      register: icmp_fw
+      changed_when: "'created' in icmp_fw.stdout"
