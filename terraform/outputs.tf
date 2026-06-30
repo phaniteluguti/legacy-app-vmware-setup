@@ -113,3 +113,20 @@ output "win_cln_3tier_ips" {
 output "ansible_inventory_path" {
   value = local_file.ansible_inventory.filename
 }
+
+# --- DNS registration source (actual VM hostname => IP, from Terraform state) ---
+output "dns_records" {
+  description = "Map of VM hostname => IPv4 address for DNS registration, sourced from Terraform state across all tiers."
+  value = merge(
+    { for k, vm in vsphere_virtual_machine.vm : vm.name => vm.default_ip_address },
+    { for k, vm in vsphere_virtual_machine.win_vm : vm.name => vm.default_ip_address },
+    { for k, vm in vsphere_virtual_machine.vm_3tier : vm.name => vm.default_ip_address },
+    { for k, vm in vsphere_virtual_machine.win_vm_3tier : vm.name => vm.default_ip_address }
+  )
+}
+
+# --- DNS zone (domain) the records belong to ---
+output "dns_zone" {
+  description = "DNS zone/domain for the registered records (matches vm_domain)."
+  value       = var.vm_domain
+}
