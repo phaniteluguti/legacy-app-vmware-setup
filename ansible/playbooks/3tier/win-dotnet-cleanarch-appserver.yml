@@ -286,9 +286,13 @@
       win_reboot:
       when: iis_install.reboot_required | default(false)
 
+    # The ASP.NET Core Hosting Bundle ships the AspNetCoreModuleV2 (ANCM) that IIS
+    # needs to host the app in-process. The Chocolatey package is
+    # "dotnet-windowshosting" (metapackage → latest GA hosting bundle, currently
+    # .NET 10); "dotnet-hosting" does NOT exist on the community feed.
     - name: Install ASP.NET Core Hosting Bundle (provides AspNetCoreModuleV2)
       win_chocolatey:
-        name: dotnet-hosting
+        name: dotnet-windowshosting
         state: present
 
     - name: Ensure IIS stdout log directory exists
