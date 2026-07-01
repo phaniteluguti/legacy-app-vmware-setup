@@ -9,9 +9,20 @@
 #
 # This playbook deploys a small "probe" agent to every 1-tier and 3-tier VM
 # (Linux + Windows) that periodically opens the REAL inter-tier connections
-# (frontend -> appserver -> database, per stack) and HOLDS each connection open
-# long enough (default 330s) to overlap at least one appliance poll, so the
-# dependency is reliably captured. A scheduled job re-runs it every 15 minutes.
+# (frontend -> appserver -> database, per stack) and HOLDS each connection open.
+#
+# The hold (default 720s) is deliberately > 2x the re-launch interval (default
+# 5 min) so that at any instant there are ALWAYS >=2 overlapping holders per
+# endpoint -> the connection is truly gap-free and is present in EVERY appliance
+# poll, exactly like a real DB connection pool. This is critical for the
+# frontend -> appserver hop: unlike the appserver -> database hop (which is
+# backed by the app's permanently-open pooled connection and is therefore
+# observed even if the probe blinks), the SPA/reverse-proxy front end only opens
+# short-lived per-request sockets, so it relies ENTIRELY on the probe. A thin
+# overlap margin lets scheduled-task/Start-Job startup latency and clock drift
+# open brief gaps, so the appliance sees frontend -> app only intermittently and
+# never promotes it to a stable dependency. A generous hold removes those gaps.
+# A scheduled job re-launches the probe every {{ dep_interval_min | default(5) }} minutes.
 #
 # Optionally, a common file server (SMB 445 / NFS 2049) and/or DNS server
 # (port 53) shared by all 1-tier and 3-tier VMs can be probed too.
@@ -37,7 +48,7 @@
   become: true
   vars:
     dg_state: "{{ dep_state | default('present') }}"
-    dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_hold: "{{ dep_hold_seconds | default(720) }}"
     dg_interval: "{{ dep_interval_min | default(5) }}"
     dg_file_ip: "{{ dep_file_server_ip | default('') }}"
     dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
@@ -233,7 +244,7 @@
   become: false
   vars:
     dg_state: "{{ dep_state | default('present') }}"
-    dg_hold: "{{ dep_hold_seconds | default(330) }}"
+    dg_hold: "{{ dep_hold_seconds | default(720) }}"
     dg_interval: "{{ dep_interval_min | default(5) }}"
     dg_file_ip: "{{ dep_file_server_ip | default('') }}"
     dg_dns_ip: "{{ dep_dns_server_ip | default('') }}"
