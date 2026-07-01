@@ -51,6 +51,8 @@
       java_appserver:   { target_group: java_database,    port: 5432 }
       dotnet_frontend:  { target_group: dotnet_appserver, port: 5000 }
       dotnet_appserver: { target_group: dotnet_database,  port: 1433 }
+      dotnet_cln_frontend:  { target_group: dotnet_cln_appserver, port: 5000 }
+      dotnet_cln_appserver: { target_group: dotnet_cln_database,  port: 1433 }
       php_frontend:     { target_group: php_appserver,    port: 8000 }
       php_appserver:    { target_group: php_database,     port: 3306 }
 
@@ -243,6 +245,8 @@
       win_java_appserver:   { target_group: win_java_database,    port: 5432 }
       win_dotnet_frontend:  { target_group: win_dotnet_appserver, port: 5000 }
       win_dotnet_appserver: { target_group: win_dotnet_database,  port: 1433 }
+      win_dotnet_cln_frontend:  { target_group: win_dotnet_cln_appserver, port: 5000 }
+      win_dotnet_cln_appserver: { target_group: win_dotnet_cln_database,  port: 1433 }
       win_php_frontend:     { target_group: win_php_appserver,    port: 8000 }
       win_php_appserver:    { target_group: win_php_database,     port: 3306 }
 
