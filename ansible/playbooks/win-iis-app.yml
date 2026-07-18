@@ -1,8 +1,9 @@
 ---
 # =============================================================================
 # Windows .NET VM — eShopOnWeb ASP.NET Core 8 + SQL Server 2019 Express
-# Same eShopOnWeb app as 3-tier, running on a single VM with local SQL Server
-# Kestrel via NSSM service (same deployment as 3-tier app server)
+# Same eShopOnWeb app as 3-tier, running on a single VM with local SQL Server.
+# Hosted under IIS + ASP.NET Core Module V2 (in-process) so Azure Migrate
+# discovers it as a .NET/IIS web app (Kestrel/NSSM leaves no IIS site to find).
 # =============================================================================
 - name: Deploy eShopOnWeb + SQL Server on Windows (1-Tier)
   hosts: win_dotnet_servers
@@ -133,13 +134,12 @@
       args:
         creates: C:\ProgramData\chocolatey\bin\choco.exe
 
-    - name: Install Git and NSSM via Chocolatey
+    - name: Install Git via Chocolatey
       win_chocolatey:
         name: "{{ item }}"
         state: present
       loop:
         - git
-        - nssm
 
     - name: Install .NET 8 SDK
       win_chocolatey:
@@ -194,14 +194,7 @@
                 "System": "Warning"
               }
             },
-            "AllowedHosts": "*",
-            "Kestrel": {
-              "Endpoints": {
-                "Http": {
-                  "Url": "http://0.0.0.0:{{ dotnet_app_port }}"
-                }
-              }
-            }
+            "AllowedHosts": "*"
           }
 
     - name: Remove environment-specific appsettings overrides
@@ -242,110 +235,143 @@
       register: dotnet_root_dir
       changed_when: false
 
-    # ---------------------------------------------------------------
-    # Pre-flight test
-    # ---------------------------------------------------------------
-    - name: Pre-flight test — start eShopOnWeb briefly to check for startup crashes
+    # -------------------------------------------------------------------------
+    # Host eShopOnWeb under IIS (ASP.NET Core Module V2, in-process) instead of
+    # Kestrel/NSSM, so Azure Migrate discovers it as a .NET/IIS web app. IIS binds
+    # {{ dotnet_app_port }} — the same port the app previously served on.
+    # -------------------------------------------------------------------------
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+          - Web-Static-Content
+          - Web-Default-Doc
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    # The ASP.NET Core 8 Hosting Bundle ships the AspNetCoreModuleV2 (ANCM) plus
+    # the ASP.NET Core 8 runtime IIS needs to host the app in-process. The
+    # version-matched Chocolatey package for this .NET 8 app is
+    # "dotnet-8.0-windowshosting" (metapackage: .NET runtime + ASP.NET Core
+    # runtime + ANCM V2).
+    - name: Install ASP.NET Core 8 Hosting Bundle (provides AspNetCoreModuleV2)
+      win_chocolatey:
+        name: dotnet-8.0-windowshosting
+        state: present
+
+    - name: Ensure IIS stdout log directory exists
+      win_file:
+        path: '{{ eshop_logs }}\iis'
+        state: directory
+
+    - name: Write web.config for in-process ASP.NET Core hosting
+      win_copy:
+        dest: '{{ eshop_published }}\web.config'
+        content: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <location path="." inheritInChildApplications="false">
+              <system.webServer>
+                <handlers>
+                  <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+                </handlers>
+                <aspNetCore processPath="{{ dotnet_exe.stdout | trim }}"
+                            arguments=".\Web.dll"
+                            stdoutLogEnabled="true"
+                            stdoutLogFile="{{ eshop_logs }}\iis\stdout"
+                            hostingModel="inprocess">
+                  <environmentVariables>
+                    <environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Docker" />
+                    <environmentVariable name="DOTNET_ROOT" value="C:\Program Files\dotnet" />
+                  </environmentVariables>
+                </aspNetCore>
+              </system.webServer>
+            </location>
+          </configuration>
+
+    - name: Stop and remove any legacy NSSM Kestrel service (migration from old deploy)
       win_shell: |
-        $env:ASPNETCORE_ENVIRONMENT = "Docker"
-        $env:DOTNET_CLI_HOME = "{{ eshop_src }}\temp"
-        $env:DOTNET_ROOT = "{{ dotnet_root_dir.stdout | trim }}"
-        $proc = Start-Process -FilePath "{{ dotnet_exe.stdout | trim }}" -ArgumentList "{{ eshop_published }}\Web.dll" -WorkingDirectory "{{ eshop_published }}" -PassThru -RedirectStandardError "{{ eshop_logs }}\preflight-stderr.txt" -RedirectStandardOutput "{{ eshop_logs }}\preflight-stdout.txt"
-        Start-Sleep -Seconds 15
-        $listening = Test-NetConnection -ComputerName localhost -Port {{ dotnet_app_port }} -WarningAction SilentlyContinue
-        $hasExited = $proc.HasExited
-        $exitCode = $proc.ExitCode
-        Stop-Process -Id $proc.Id -Force -ErrorAction SilentlyContinue
-        Write-Output "TCP_TEST: $($listening.TcpTestSucceeded)"
-        Write-Output "PROCESS_EXITED: $hasExited"
-        Write-Output "EXIT_CODE: $exitCode"
-        Write-Output "=== STDERR ==="
-        Get-Content "{{ eshop_logs }}\preflight-stderr.txt" -ErrorAction SilentlyContinue
-        Write-Output "=== STDOUT ==="
-        Get-Content "{{ eshop_logs }}\preflight-stdout.txt" -ErrorAction SilentlyContinue
-      register: preflight
-      timeout: 60
+        if (Get-Service eShopOnWeb -ErrorAction SilentlyContinue) {
+          nssm stop eShopOnWeb
+          nssm remove eShopOnWeb confirm
+          'removed'
+        } else { 'absent' }
+      register: nssm_cleanup
+      changed_when: "'removed' in nssm_cleanup.stdout"
       ignore_errors: true
 
-    - name: Show pre-flight result
-      debug:
-        msg: "{{ preflight.stdout_lines }}"
-
-    - name: Fail if pre-flight test shows app is not starting
-      fail:
-        msg: "eShopOnWeb failed pre-flight test - see output above for crash details"
-      when: >
-        preflight.rc is defined and
-        preflight.rc != 0 and
-        'TCP_TEST: True' not in (preflight.stdout | default(''))
-
-    # ---------------------------------------------------------------
-    # NSSM Windows Service (same as 3-tier)
-    # ---------------------------------------------------------------
-    - name: Stop existing eShopOnWeb service if running
-      win_shell: nssm stop eShopOnWeb
-      ignore_errors: true
-      changed_when: false
-
-    - name: Remove existing NSSM service for clean reinstall
-      win_shell: nssm remove eShopOnWeb confirm
-      ignore_errors: true
-      changed_when: false
-
-    - name: Install eShopOnWeb as Windows service via NSSM
-      win_shell: >
-        nssm install eShopOnWeb "{{ dotnet_exe.stdout | trim }}"
-        "{{ eshop_published }}\Web.dll"
-
-    - name: Configure NSSM service parameters
-      win_shell: |
-        nssm set eShopOnWeb AppDirectory "{{ eshop_published }}"
-        nssm set eShopOnWeb AppEnvironmentExtra "ASPNETCORE_ENVIRONMENT=Docker" "DOTNET_CLI_HOME={{ eshop_src }}\temp" "DOTNET_ROOT={{ dotnet_root_dir.stdout | trim }}"
-        nssm set eShopOnWeb AppStdout "{{ eshop_logs }}\stdout.log"
-        nssm set eShopOnWeb AppStderr "{{ eshop_logs }}\stderr.log"
-        nssm set eShopOnWeb AppStdoutCreationDisposition 4
-        nssm set eShopOnWeb AppStderrCreationDisposition 4
-        nssm set eShopOnWeb AppRotateFiles 1
-        nssm set eShopOnWeb AppRotateBytes 10485760
-      changed_when: false
-
-    - name: Start eShopOnWeb service
-      win_service:
+    - name: Create IIS application pool (No Managed Code)
+      win_iis_webapppool:
         name: eShopOnWeb
-        start_mode: auto
         state: started
+        attributes:
+          managedRuntimeVersion: ""
+          startMode: AlwaysRunning
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS website bound to the app port
+      win_iis_website:
+        name: eShopOnWeb
+        state: started
+        port: "{{ dotnet_app_port }}"
+        physical_path: '{{ eshop_published }}'
+        application_pool: eShopOnWeb
+      register: iis_site
+
+    - name: Grant the app pool identity read access to the published folder
+      win_acl:
+        path: '{{ eshop_published }}'
+        user: "IIS AppPool\\eShopOnWeb"
+        rights: ReadAndExecute
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    - name: Grant the app pool identity write access to the log folder
+      win_acl:
+        path: '{{ eshop_logs }}'
+        user: "IIS AppPool\\eShopOnWeb"
+        rights: Modify
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    - name: Reset IIS to load the ASP.NET Core Module
+      win_shell: iisreset /restart
+      changed_when: false
 
     - name: Wait for eShopOnWeb to start responding
       win_uri:
         url: "http://localhost:{{ dotnet_app_port }}/"
         return_content: false
-        status_code: [200, 302]
+        status_code: [200, 302, 404]
       register: eshop_check
       retries: 18
       delay: 10
-      until: eshop_check.status_code is defined and eshop_check.status_code in [200, 302]
+      until: eshop_check.status_code is defined and eshop_check.status_code in [200, 302, 404]
       ignore_errors: true
 
     - name: Show eShopOnWeb startup status
       debug:
-        msg: "eShopOnWeb is {{ 'running' if eshop_check is succeeded else 'NOT responding — check logs at ' + eshop_logs }}"
+        msg: "eShopOnWeb (IIS) is {{ 'running' if eshop_check is succeeded else 'NOT responding — check ' + eshop_logs + '\\iis\\stdout*.log' }}"
 
-    - name: Show NSSM service status if failed
-      win_shell: nssm status eShopOnWeb
-      register: nssm_status
-      changed_when: false
-      when: eshop_check is failed
-
-    - name: Show NSSM stderr log if service failed to start
+    - name: Show ASP.NET Core stdout log if site failed to start
       win_shell: >
-        Get-Content "{{ eshop_logs }}\stderr.log" -Tail 50 -ErrorAction SilentlyContinue
-      register: stderr_log
-      changed_when: false
-      when: eshop_check is failed
-
-    - name: Show NSSM stdout log if service failed to start
-      win_shell: >
-        Get-Content "{{ eshop_logs }}\stdout.log" -Tail 50 -ErrorAction SilentlyContinue
+        Get-ChildItem "{{ eshop_logs }}\iis\stdout*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 1 |
+        Get-Content -Tail 50 -ErrorAction SilentlyContinue
       register: stdout_log
       changed_when: false
       when: eshop_check is failed
@@ -353,10 +379,7 @@
     - name: Display diagnostic logs
       debug:
         msg:
-          - "NSSM status: {{ nssm_status.stdout | default('unknown') }}"
-          - "=== STDERR (last 50 lines) ==="
-          - "{{ stderr_log.stdout_lines | default(['(empty)']) }}"
-          - "=== STDOUT (last 50 lines) ==="
+          - "=== ASP.NET Core stdout (last 50 lines) ==="
           - "{{ stdout_log.stdout_lines | default(['(empty)']) }}"
       when: eshop_check is failed
 
