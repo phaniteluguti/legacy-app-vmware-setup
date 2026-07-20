@@ -137,6 +137,16 @@ locals {
         disk          = var.php_vm_disk
         ip            = coalesce(var.win_php_vm_ip, var.php_vm_ip)
       }
+    } : {},
+    var.deploy_cleanarch ? {
+      win-cln-1tier = {
+        name          = var.win_cln_1tier_hostname
+        computer_name = substr(upper(replace(var.win_cln_1tier_hostname, "/[^a-zA-Z0-9-]/", "")), 0, 15)
+        cpus          = var.dotnet_vm_cpus
+        memory        = var.dotnet_vm_memory
+        disk          = var.dotnet_vm_disk
+        ip            = var.win_cln_1tier_ip
+      }
     } : {}
   ) : {}
 
@@ -597,6 +607,7 @@ resource "local_file" "ansible_inventory" {
     win_java_ip          = var.deploy_windows_1tier && var.deploy_java ? vsphere_virtual_machine.win_vm["win-java-vm"].default_ip_address : ""
     win_dotnet_ip        = var.deploy_windows_1tier && var.deploy_dotnet ? vsphere_virtual_machine.win_vm["win-dotnet-vm"].default_ip_address : ""
     win_php_ip           = var.deploy_windows_1tier && var.deploy_php ? vsphere_virtual_machine.win_vm["win-php-vm"].default_ip_address : ""
+    win_cln_1tier_ip     = var.deploy_windows_1tier && var.deploy_cleanarch ? vsphere_virtual_machine.win_vm["win-cln-1tier"].default_ip_address : ""
     win_password         = var.win_admin_password
     # 3-tier Linux IPs
     java_fe_ip    = var.deploy_linux_3tier && var.deploy_java ? vsphere_virtual_machine.vm_3tier["java-fe"].default_ip_address : ""

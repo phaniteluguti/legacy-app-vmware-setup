@@ -1,0 +1,650 @@
+---
+# =============================================================================
+# Windows .NET 1-Tier (CleanArchitecture) — single VM
+# Collapses the jasontaylordev/CleanArchitecture 3-tier stack onto ONE Windows
+# VM: SQL Server 2019 Express + ASP.NET Core Web API + Angular SPA.
+#   - The API is hosted under IIS + ASP.NET Core Module V2 (in-process) on
+#     {{ dotnet_app_port }} so Azure Migrate discovers it as a .NET/IIS web app
+#     (Kestrel/NSSM would leave no IIS site to find).
+#   - The Angular SPA is served by IIS as static content on port 80 and
+#     reverse-proxies /api, /swagger, /health to the local API on
+#     {{ dotnet_app_port }} (URL Rewrite + ARR), giving a working end-to-end app.
+#
+# Targets the win_dotnet_cln_1tier_servers inventory group (provisioned by
+# terraform when deploy_windows_1tier && deploy_cleanarch). Coexists with the
+# eShopOnWeb 1-tier VM (win_dotnet_servers) — this is additive, not a replacement.
+#
+# Assumptions (jasontaylordev/CleanArchitecture, .NET 10 layout):
+#   - Web host project:      src/Web/Web.csproj
+#   - EF migrations project: src/Infrastructure/Infrastructure.csproj
+#   - Connection string key: ConnectionStrings:CleanArchitectureDb
+#   - Angular SPA lives in   src/Web/ClientApp
+# =============================================================================
+- name: Deploy CleanArchitecture on a single Windows VM (1-Tier)
+  hosts: win_dotnet_cln_1tier_servers
+  gather_facts: true
+  become: false
+  vars_files:
+    - ../group_vars/all.yml
+  vars:
+    cleanarch_repo: "{{ dotnet_cleanarch_repo | default('https://github.com/jasontaylordev/CleanArchitecture.git') }}"
+    cleanarch_branch: "{{ dotnet_cleanarch_branch | default('main') }}"
+    cleanarch_db_name: "{{ dotnet_cleanarch_db_name | default('CleanArchitectureDb') }}"
+    ca_src: C:\Apps\CleanArchitecture
+    ca_repo: C:\Apps\CleanArchitecture\repo
+    ca_published: C:\Apps\CleanArchitecture\published
+    ca_logs: C:\Apps\CleanArchitecture\logs
+    web_root: C:\inetpub\CleanArchFrontend
+    ca_conn: "Server=localhost;Database={{ cleanarch_db_name }};User Id=SA;Password={{ mssql_sa_password }};TrustServerCertificate=True;Encrypt=False;MultipleActiveResultSets=true"
+
+  tasks:
+    # ---------------------------------------------------------------
+    # SQL Server 2019 Express (silent install) — local database
+    # ---------------------------------------------------------------
+    - name: Check if SQL Server is already installed
+      win_service:
+        name: MSSQLSERVER
+      register: mssql_svc
+      ignore_errors: true
+
+    - name: Create SQL Server installer directory
+      win_file:
+        path: C:\SQLInstall
+        state: directory
+      when: mssql_svc.state is not defined or mssql_svc.state != 'running'
+
+    - name: Download SQL Server 2019 Express installer
+      win_get_url:
+        url: https://go.microsoft.com/fwlink/?linkid=866658
+        dest: C:\SQLInstall\SQL2019-SSEI-Expr.exe
+      when: mssql_svc.state is not defined or mssql_svc.state != 'running'
+
+    - name: Download SQL Server media
+      win_command: >
+        C:\SQLInstall\SQL2019-SSEI-Expr.exe /Action=Download
+        /MediaPath=C:\SQLInstall /MediaType=Core /Quiet
+      args:
+        creates: C:\SQLInstall\SQLEXPR_x64_ENU.exe
+      when: mssql_svc.state is not defined or mssql_svc.state != 'running'
+
+    - name: Extract SQL Server media
+      win_command: >
+        C:\SQLInstall\SQLEXPR_x64_ENU.exe /x:C:\SQLInstall\extracted /Q
+      args:
+        creates: C:\SQLInstall\extracted\setup.exe
+      when: mssql_svc.state is not defined or mssql_svc.state != 'running'
+
+    - name: Install SQL Server 2019 Express
+      win_command: >
+        C:\SQLInstall\extracted\setup.exe /Q /IACCEPTSQLSERVERLICENSETERMS
+        /ACTION=Install /FEATURES=SQLENGINE
+        /INSTANCENAME=MSSQLSERVER
+        /SECURITYMODE=SQL
+        /SAPWD="{{ mssql_sa_password }}"
+        /SQLSVCACCOUNT="NT AUTHORITY\SYSTEM"
+        /TCPENABLED=1
+        /UpdateEnabled=False
+      args:
+        creates: C:\Program Files\Microsoft SQL Server\MSSQL15.MSSQLSERVER
+      when: mssql_svc.state is not defined or mssql_svc.state != 'running'
+      register: sql_install
+
+    - name: Reboot after SQL Server install
+      win_reboot:
+      when: sql_install is changed
+
+    - name: Ensure SQL Server service is running
+      win_service:
+        name: MSSQLSERVER
+        start_mode: auto
+        state: started
+
+    - name: Ensure SQL Server Browser is running
+      win_service:
+        name: SQLBrowser
+        start_mode: auto
+        state: started
+
+    - name: Wait for SQL Server to be ready
+      win_command: >
+        sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}"
+        -Q "SELECT 1"
+      register: sql_ready
+      retries: 12
+      delay: 10
+      until: sql_ready.rc == 0
+      changed_when: false
+
+    - name: Ensure SQL Server TCP/IP protocol is enabled
+      win_shell: |
+        Import-Module SQLPS -DisableNameChecking -ErrorAction SilentlyContinue
+        $wmi = New-Object Microsoft.SqlServer.Management.Smo.Wmi.ManagedComputer $env:COMPUTERNAME
+        $tcp = $wmi.ServerInstances['MSSQLSERVER'].ServerProtocols['Tcp']
+        if (-not $tcp.IsEnabled) {
+          $tcp.IsEnabled = $true
+          $tcp.Alter()
+          Restart-Service MSSQLSERVER -Force
+          Write-Output "TCP enabled and service restarted"
+        } else {
+          Write-Output "TCP already enabled"
+        }
+      register: tcp_result
+      changed_when: "'restarted' in tcp_result.stdout"
+      ignore_errors: true
+
+    - name: Create application database
+      win_command: >
+        sqlcmd -S localhost -U SA -P "{{ mssql_sa_password }}"
+        -Q "IF NOT EXISTS (SELECT * FROM sys.databases WHERE name='{{ cleanarch_db_name }}') CREATE DATABASE [{{ cleanarch_db_name }}]"
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Chocolatey + build/hosting dependencies
+    # ---------------------------------------------------------------
+    - name: Install Chocolatey
+      win_shell: |
+        Set-ExecutionPolicy Bypass -Scope Process -Force
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        Invoke-Expression ((New-Object System.Net.WebClient).DownloadString('https://community.chocolatey.org/install.ps1'))
+      args:
+        creates: C:\ProgramData\chocolatey\bin\choco.exe
+
+    - name: Install Git, Node.js LTS, URL Rewrite and ARR
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - git
+        - nodejs-lts
+        - urlrewrite
+        - iis-arr
+
+    - name: Install .NET 10 SDK (official dotnet-install script)
+      win_shell: |
+        $ErrorActionPreference = "Stop"
+        [System.Net.ServicePointManager]::SecurityProtocol = [System.Net.ServicePointManager]::SecurityProtocol -bor 3072
+        $installDir = "C:\Program Files\dotnet"
+        $have10 = Get-ChildItem -Path "$installDir\sdk" -Directory -ErrorAction SilentlyContinue | Where-Object { $_.Name -like '10.*' }
+        if (-not $have10) {
+          $script = Join-Path $env:TEMP 'dotnet-install.ps1'
+          Invoke-WebRequest -Uri https://dot.net/v1/dotnet-install.ps1 -OutFile $script -UseBasicParsing
+          & $script -Channel 10.0 -InstallDir $installDir
+          Write-Output "INSTALLED_10"
+        }
+        $machinePath = [System.Environment]::GetEnvironmentVariable("Path","Machine")
+        if ($machinePath -notlike "*$installDir*") {
+          [System.Environment]::SetEnvironmentVariable("Path", ($machinePath.TrimEnd(';') + ";" + $installDir), "Machine")
+        }
+        & "$installDir\dotnet.exe" --list-sdks
+      register: dotnet10_install
+      changed_when: "'INSTALLED_10' in (dotnet10_install.stdout | default(''))"
+
+    - name: Refresh environment PATH
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        dotnet --version
+      register: dotnet_check
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Clone CleanArchitecture (single clone used for both API + SPA build)
+    # ---------------------------------------------------------------
+    - name: Create app directories
+      win_file:
+        path: "{{ item }}"
+        state: directory
+      loop:
+        - '{{ ca_src }}'
+        - '{{ ca_logs }}'
+        - '{{ ca_src }}\temp'
+
+    - name: Clone CleanArchitecture repository
+      win_shell: >
+        & "C:/Program Files/Git/bin/git.exe" clone -b {{ cleanarch_branch }}
+        {{ cleanarch_repo }} "{{ ca_repo }}"
+      args:
+        creates: '{{ ca_repo }}\src\Web\Web.csproj'
+
+    # The repo enables NuGet auditing with TreatWarningsAsErrors=true; transitive-package
+    # CVE advisories (NU1902/NU1903) would fail the build. A root Directory.Build.targets
+    # is imported AFTER the repo's Directory.Build.props and overrides those settings.
+    # UseSqlServer selects the SQL Server EF provider (a raw clone defaults to SQLite).
+    # The empty PublishRunWebpack target stops `dotnet publish` invoking npm for the API
+    # build — the SPA is built and served separately below.
+    - name: Neutralise NuGet audit / warnings-as-errors and select SQL Server provider
+      win_copy:
+        dest: '{{ ca_repo }}\Directory.Build.targets'
+        content: |
+          <Project>
+            <PropertyGroup>
+              <NuGetAudit>false</NuGetAudit>
+              <TreatWarningsAsErrors>false</TreatWarningsAsErrors>
+              <MSBuildTreatWarningsAsErrors>false</MSBuildTreatWarningsAsErrors>
+              <WarningsNotAsErrors>$(WarningsNotAsErrors);NU1901;NU1902;NU1903;NU1904</WarningsNotAsErrors>
+              <DefineConstants>$(DefineConstants);UseSqlServer</DefineConstants>
+            </PropertyGroup>
+            <Target Name="PublishRunWebpack" AfterTargets="ComputeFilesToPublish" />
+          </Project>
+
+    - name: Align global.json to the installed .NET SDK
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $installed = (dotnet --list-sdks | ForEach-Object { ($_ -split ' ')[0] } | Sort-Object { [version]$_ } | Select-Object -Last 1)
+        $json = '{ "sdk": { "version": "' + $installed + '", "rollForward": "latestFeature" } }'
+        Set-Content -Path "{{ ca_repo }}\global.json" -Value $json -Encoding ascii
+      changed_when: false
+
+    - name: Write appsettings.json (point the DB connection at the local SQL Server)
+      win_copy:
+        dest: '{{ ca_repo }}\src\Web\appsettings.json'
+        content: |
+          {
+            "UseInMemoryDatabase": false,
+            "ConnectionStrings": {
+              "CleanArchitectureDb": "{{ ca_conn }}"
+            },
+            "Logging": {
+              "LogLevel": {
+                "Default": "Information",
+                "Microsoft.AspNetCore": "Warning"
+              }
+            },
+            "AllowedHosts": "*"
+          }
+
+    # ---------------------------------------------------------------
+    # EF Core migrations (against the local SQL Server)
+    # ---------------------------------------------------------------
+    - name: Install dotnet-ef global tool
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$env:USERPROFILE\.dotnet\tools"
+        dotnet tool install --global dotnet-ef --version 10.* 2>&1 | Out-String
+        dotnet tool update  --global dotnet-ef --version 10.* 2>&1 | Out-String
+      register: ef_tool
+      changed_when: false
+      ignore_errors: true
+
+    - name: Apply EF Core migrations to the local database (best effort)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User") + ";$env:USERPROFILE\.dotnet\tools"
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
+        Set-Location "{{ ca_repo }}"
+        dotnet restore 2>&1 | Out-String
+        $migDir = "{{ ca_repo }}\src\Infrastructure\Data\Migrations"
+        $hasMig = Get-ChildItem -Path $migDir -Filter *.cs -ErrorAction SilentlyContinue | Where-Object { $_.Name -notmatch 'Snapshot' }
+        if (-not $hasMig) {
+          dotnet ef migrations add InitialCreate `
+            --project src/Infrastructure/Infrastructure.csproj `
+            --startup-project src/Web/Web.csproj `
+            --output-dir Data/Migrations 2>&1 | Out-String
+        }
+        dotnet ef database update `
+          --project src/Infrastructure/Infrastructure.csproj `
+          --startup-project src/Web/Web.csproj `
+          --connection "{{ ca_conn }}" 2>&1 | Out-String
+      register: ef_update
+      changed_when: false
+      ignore_errors: true
+      timeout: 900
+
+    - name: Show EF migration result
+      debug:
+        msg: "{{ (ef_update.stdout | default('')) | regex_replace('(?i)password=[^;\"]*', 'Password=***') }}"
+
+    # ---------------------------------------------------------------
+    # Build & publish the API, host it under IIS (in-process) on {{ dotnet_app_port }}
+    # ---------------------------------------------------------------
+    - name: Build and publish CleanArchitecture Web project
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
+        Set-Location "{{ ca_repo }}"
+        dotnet publish src/Web/Web.csproj -c Release -o "{{ ca_published }}" -p:UseArtifactsOutput=false -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+        exit $LASTEXITCODE
+      register: build_result
+      timeout: 1200
+
+    - name: Show publish output (diagnostic)
+      debug:
+        msg: "{{ (build_result.stdout | default('')) | regex_replace('(?i)password=[^;\"]*', 'Password=***') }}"
+
+    - name: Find published entry DLL (stage from artifacts publish dir if needed)
+      win_shell: |
+        $pub = "{{ ca_published }}"
+        $rc = Get-ChildItem -Path $pub -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -First 1
+        if (-not $rc) {
+          $artRoot = Join-Path "{{ ca_repo }}" "artifacts"
+          $art = Get-ChildItem -Path $artRoot -Recurse -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue |
+                 Where-Object { $_.Name -like '*Web*' } | Select-Object -First 1
+          if (-not $art) {
+            $art = Get-ChildItem -Path "{{ ca_repo }}" -Recurse -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue |
+                   Where-Object { $_.Name -like '*Web*' -and $_.FullName.ToLower().Contains('publish') } | Select-Object -First 1
+          }
+          if ($art) {
+            New-Item -ItemType Directory -Path $pub -Force | Out-Null
+            Copy-Item -Path (Join-Path $art.DirectoryName '*') -Destination $pub -Recurse -Force
+            $rc = Get-ChildItem -Path $pub -Filter *.runtimeconfig.json -ErrorAction SilentlyContinue | Select-Object -First 1
+          }
+        }
+        if ($rc) { $rc.Name.Replace('.runtimeconfig.json', '.dll') } else { "Web.dll" }
+      register: entry_dll
+      changed_when: false
+
+    - name: Verify published entry DLL exists
+      win_stat:
+        path: '{{ ca_published }}\{{ entry_dll.stdout | trim }}'
+      register: web_dll
+      failed_when: not web_dll.stat.exists
+
+    - name: Detect dotnet.exe full path
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        (Get-Command dotnet).Source
+      register: dotnet_exe
+      changed_when: false
+
+    - name: Install IIS with required features
+      win_feature:
+        name:
+          - Web-Server
+          - Web-Mgmt-Console
+          - Web-Mgmt-Tools
+          - Web-Static-Content
+          - Web-Default-Doc
+        state: present
+      register: iis_install
+
+    - name: Reboot if IIS install requires it
+      win_reboot:
+      when: iis_install.reboot_required | default(false)
+
+    # The ASP.NET Core Hosting Bundle ships the AspNetCoreModuleV2 (ANCM) that IIS
+    # needs to host the app in-process. The Chocolatey package is "dotnet-windowshosting"
+    # (metapackage → latest GA hosting bundle, currently .NET 10).
+    - name: Install ASP.NET Core Hosting Bundle (provides AspNetCoreModuleV2)
+      win_chocolatey:
+        name: dotnet-windowshosting
+        state: present
+
+    - name: Ensure IIS stdout log directory exists
+      win_file:
+        path: '{{ ca_logs }}\iis'
+        state: directory
+
+    - name: Write web.config for in-process ASP.NET Core hosting
+      win_copy:
+        dest: '{{ ca_published }}\web.config'
+        content: |
+          <?xml version="1.0" encoding="utf-8"?>
+          <configuration>
+            <location path="." inheritInChildApplications="false">
+              <system.webServer>
+                <handlers>
+                  <add name="aspNetCore" path="*" verb="*" modules="AspNetCoreModuleV2" resourceType="Unspecified" />
+                </handlers>
+                <aspNetCore processPath="{{ dotnet_exe.stdout | trim }}"
+                            arguments=".\{{ entry_dll.stdout | trim }}"
+                            stdoutLogEnabled="true"
+                            stdoutLogFile="{{ ca_logs }}\iis\stdout"
+                            hostingModel="inprocess">
+                  <environmentVariables>
+                    <environmentVariable name="ASPNETCORE_ENVIRONMENT" value="Production" />
+                    <environmentVariable name="DOTNET_ROOT" value="C:\Program Files\dotnet" />
+                  </environmentVariables>
+                </aspNetCore>
+              </system.webServer>
+            </location>
+          </configuration>
+
+    - name: Create IIS application pool for the API (No Managed Code)
+      win_iis_webapppool:
+        name: CleanArchitecture
+        state: started
+        attributes:
+          managedRuntimeVersion: ""
+          startMode: AlwaysRunning
+
+    - name: Create IIS website for the API bound to the app port
+      win_iis_website:
+        name: CleanArchitecture
+        state: started
+        port: "{{ dotnet_app_port }}"
+        physical_path: '{{ ca_published }}'
+        application_pool: CleanArchitecture
+      register: iis_site
+
+    - name: Grant the API app pool identity read access to the published folder
+      win_acl:
+        path: '{{ ca_published }}'
+        user: "IIS AppPool\\CleanArchitecture"
+        rights: ReadAndExecute
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    - name: Grant the API app pool identity write access to the log folder
+      win_acl:
+        path: '{{ ca_logs }}'
+        user: "IIS AppPool\\CleanArchitecture"
+        rights: Modify
+        type: allow
+        state: present
+        inherit: 'ContainerInherit, ObjectInherit'
+        propagation: 'None'
+
+    # ---------------------------------------------------------------
+    # Build the Angular SPA and serve it on IIS (port 80) with a reverse
+    # proxy to the local API on {{ dotnet_app_port }}
+    # ---------------------------------------------------------------
+    - name: Enable ARR proxy globally
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" set config
+        -section:system.webServer/proxy /enabled:"True" /commit:apphost
+      changed_when: false
+      ignore_errors: true
+
+    - name: Unlock httpErrors section
+      win_shell: >
+        & "$env:windir\system32\inetsrv\appcmd.exe" unlock config
+        -section:system.webServer/httpErrors
+      changed_when: false
+      ignore_errors: true
+
+    - name: Install Angular dependencies (npm ci with install fallback)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        Set-Location "{{ ca_repo }}\src\Web\ClientApp"
+        npm ci 2>&1 | Out-String
+        if ($LASTEXITCODE -ne 0) { npm install 2>&1 | Out-String }
+        exit $LASTEXITCODE
+      register: npm_install
+      changed_when: false
+      timeout: 1200
+
+    # nswag's generate-api (npm prebuild) reads src/Web/wwwroot/openapi/v1.json, produced by
+    # building the Web project — it is not committed to the repo. Generate it first.
+    - name: Generate OpenAPI spec for nswag (build Web project)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_CLI_HOME = "{{ ca_src }}\temp"
+        $env:ConnectionStrings__CleanArchitectureDb = "{{ ca_conn }}"
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
+        Set-Location "{{ ca_repo }}"
+        dotnet build src/Web/Web.csproj -c Release -p:NuGetAudit=false -p:TreatWarningsAsErrors=false 2>&1 | Out-String
+        exit $LASTEXITCODE
+      register: openapi_build
+      changed_when: false
+      timeout: 1200
+
+    - name: Build Angular SPA (production)
+      win_shell: |
+        $env:Path = [System.Environment]::GetEnvironmentVariable("Path","Machine") + ";" + [System.Environment]::GetEnvironmentVariable("Path","User")
+        $env:DOTNET_NOLOGO = "1"
+        $env:DOTNET_CLI_TELEMETRY_OPTOUT = "1"
+        $env:DOTNET_GENERATE_ASPNET_CERTIFICATE = "false"
+        Set-Location "{{ ca_repo }}\src\Web\ClientApp"
+        npm run build 2>&1 | Out-String
+        exit $LASTEXITCODE
+      register: npm_build
+      changed_when: false
+      timeout: 1200
+
+    - name: Locate built SPA output folder (the dist dir containing index.html)
+      win_shell: |
+        $dist = Get-ChildItem -Path "{{ ca_repo }}\src\Web\ClientApp\dist" -Recurse -Filter index.html -ErrorAction SilentlyContinue |
+                Select-Object -First 1
+        if ($dist) { $dist.DirectoryName } else { "" }
+      register: spa_dist
+      changed_when: false
+
+    - name: Fail if SPA build output was not found
+      fail:
+        msg: "Angular build produced no index.html under ClientApp\\dist — check npm build output."
+      when: (spa_dist.stdout | trim) == ""
+
+    - name: Create frontend web directory
+      win_file:
+        path: "{{ web_root }}"
+        state: directory
+
+    - name: Clear previous frontend content
+      win_shell: >
+        Remove-Item -Path "{{ web_root }}\*" -Recurse -Force -ErrorAction SilentlyContinue
+      changed_when: false
+
+    - name: Copy built SPA to IIS web root
+      win_shell: >
+        Copy-Item -Path "{{ spa_dist.stdout | trim }}\*" -Destination "{{ web_root }}" -Recurse -Force
+      changed_when: false
+
+    - name: Create web.config (reverse-proxy /api to local API + SPA fallback)
+      win_copy:
+        dest: "{{ web_root }}\\web.config"
+        content: |
+          <?xml version="1.0" encoding="UTF-8"?>
+          <configuration>
+            <system.webServer>
+              <httpErrors existingResponse="PassThrough" />
+              <rewrite>
+                <rules>
+                  <rule name="Proxy API to local app" stopProcessing="true">
+                    <match url="^(api|swagger|health|_configuration|connect|Identity)(/.*)?$" />
+                    <action type="Rewrite" url="http://localhost:{{ dotnet_app_port }}/{R:0}" />
+                  </rule>
+                  <rule name="SPA fallback" stopProcessing="true">
+                    <match url=".*" />
+                    <conditions logicalGrouping="MatchAll">
+                      <add input="{REQUEST_FILENAME}" matchType="IsFile" negate="true" />
+                      <add input="{REQUEST_FILENAME}" matchType="IsDirectory" negate="true" />
+                    </conditions>
+                    <action type="Rewrite" url="/index.html" />
+                  </rule>
+                </rules>
+              </rewrite>
+            </system.webServer>
+          </configuration>
+
+    - name: Remove default IIS website
+      win_iis_website:
+        name: "Default Web Site"
+        state: absent
+
+    - name: Create IIS application pool for the SPA (No Managed Code)
+      win_iis_webapppool:
+        name: CleanArchFrontendPool
+        state: started
+        attributes:
+          managedRuntimeVersion: ''
+
+    - name: Create IIS website for the SPA (port 80)
+      win_iis_website:
+        name: CleanArchFrontend
+        state: started
+        port: 80
+        physical_path: "{{ web_root }}"
+        application_pool: CleanArchFrontendPool
+
+    - name: Reset IIS to load ASP.NET Core Module, ARR and rewrite rules
+      win_shell: iisreset /restart
+      changed_when: false
+
+    # ---------------------------------------------------------------
+    # Firewall
+    # ---------------------------------------------------------------
+    - name: Allow API port through Windows Firewall
+      win_firewall_rule:
+        name: "CleanArchitecture API HTTP"
+        localport: "{{ dotnet_app_port }}"
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    - name: Allow HTTP (port 80) through Windows Firewall
+      win_firewall_rule:
+        name: "HTTP Inbound"
+        localport: 80
+        protocol: tcp
+        direction: in
+        action: allow
+        state: present
+        enabled: true
+
+    # ---------------------------------------------------------------
+    # Health checks
+    # ---------------------------------------------------------------
+    - name: Wait for the API to start responding
+      win_uri:
+        url: "http://localhost:{{ dotnet_app_port }}/"
+        return_content: false
+        status_code: [200, 302, 404]
+      register: ca_check
+      retries: 18
+      delay: 10
+      until: ca_check.status_code is defined and ca_check.status_code in [200, 302, 404]
+      ignore_errors: true
+
+    - name: Show API startup status
+      debug:
+        msg: "CleanArchitecture API (IIS) is {{ 'running' if ca_check is succeeded else 'NOT responding — check ' + ca_logs + '\\iis\\stdout*.log' }}"
+
+    - name: Show ASP.NET Core stdout log if the API failed to start
+      win_shell: >
+        Get-ChildItem "{{ ca_logs }}\iis\stdout*.log" -ErrorAction SilentlyContinue |
+        Sort-Object LastWriteTime | Select-Object -Last 1 |
+        Get-Content -Tail 50 -ErrorAction SilentlyContinue
+      register: stdout_log
+      changed_when: false
+      when: ca_check is failed
+
+    - name: Display diagnostic logs
+      debug:
+        msg:
+          - "=== ASP.NET Core stdout (last 50 lines) ==="
+          - "{{ stdout_log.stdout_lines | default(['(empty)']) }}"
+      when: ca_check is failed
+
+    - name: Verify the SPA front door responds
+      win_uri:
+        url: "http://localhost:80/"
+        return_content: false
+        status_code: [200, 302, 404]
+      register: spa_check
+      retries: 6
+      delay: 10
+      until: spa_check.status_code is defined and spa_check.status_code in [200, 302, 404]
+      ignore_errors: true
+
+    - name: Show SPA startup status
+      debug:
+        msg: "CleanArchitecture SPA (IIS, port 80) is {{ 'serving' if spa_check is succeeded else 'NOT responding — check the CleanArchFrontend site' }}"

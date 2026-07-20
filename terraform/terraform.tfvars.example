@@ -70,3 +70,9 @@ php_vm_memory   = 2048
 # win_dotnet_vm_hostname = "win-dotnet"
 # win_php_vm_ip        = "192.168.1.113"
 # win_php_vm_hostname  = "win-php"
+
+# Windows single-VM CleanArchitecture (1-tier: SQL + API on IIS + Angular SPA on one VM).
+# Provisioned when deploy_windows_1tier = true AND deploy_cleanarch = true. Additive —
+# coexists with the eShopOnWeb win-dotnet VM. Discovered by Azure Migrate as a .NET/IIS app.
+# win_cln_1tier_ip       = "192.168.1.114"
+# win_cln_1tier_hostname = "win-dotnet-cln"

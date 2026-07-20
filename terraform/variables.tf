@@ -328,6 +328,18 @@ variable "win_dotnet_vm_hostname" {
   default     = "win-dotnet"
 }
 
+variable "win_cln_1tier_ip" {
+  description = "Static IP for the single-VM Windows CleanArchitecture VM (1-tier). Provisioned when deploy_windows_1tier && deploy_cleanarch."
+  type        = string
+  default     = ""
+}
+
+variable "win_cln_1tier_hostname" {
+  description = "Hostname for the single-VM Windows CleanArchitecture VM (1-tier)"
+  type        = string
+  default     = "win-dotnet-cln"
+}
+
 variable "win_php_vm_ip" {
   description = "Static IP for the Windows PHP VM (both mode)"
   type        = string

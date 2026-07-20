@@ -41,6 +41,11 @@ ${win_dotnet_ip}
 ${win_php_ip}
 %{ endif }
 
+%{ if deploy_cleanarch }
+[win_dotnet_cln_1tier_servers]
+${win_cln_1tier_ip}
+%{ endif }
+
 [win_servers:children]
 %{ if deploy_java }
 win_java_servers
@@ -50,6 +55,9 @@ win_dotnet_servers
 %{ endif }
 %{ if deploy_php }
 win_php_servers
+%{ endif }
+%{ if deploy_cleanarch }
+win_dotnet_cln_1tier_servers
 %{ endif }
 
 [win_servers:vars]
