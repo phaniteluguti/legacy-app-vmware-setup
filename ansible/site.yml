@@ -82,6 +82,7 @@
 # Deploy each application stack (Windows single-VM)
 - import_playbook: playbooks/win-java-petclinic.yml
 - import_playbook: playbooks/win-iis-app.yml
+- import_playbook: playbooks/win-cleanarch-1tier.yml
 - import_playbook: playbooks/win-php-app.yml
 
 # Deploy 3-tier stacks (Linux)

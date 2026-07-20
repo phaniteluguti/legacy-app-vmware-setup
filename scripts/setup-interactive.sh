@@ -208,6 +208,7 @@ load_previous() {
     PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="21"
     PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
     PREV_DOTNET_3TIER_APP="eshop"
+    PREV_DOTNET_1TIER_APP="eshop"
     PREV_DOTNET_CLEANARCH_REPO="https://github.com/jasontaylordev/CleanArchitecture.git"; PREV_DOTNET_CLEANARCH_BRANCH="main"
     PREV_PHP_VER="8.1"; PREV_PHP_REPO="https://github.com/laravel/laravel.git"; PREV_PHP_BRANCH="10.x"
     PREV_AZ_AGENT="false"
@@ -372,6 +373,7 @@ load_previous() {
         PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet/eShop.git")"
         PREV_DOTNET_BRANCH="$(ymlval dotnet_app_branch "main")"
         PREV_DOTNET_3TIER_APP="$(ymlval dotnet_3tier_app "eshop")"
+        PREV_DOTNET_1TIER_APP="$(ymlval dotnet_1tier_app "eshop")"
         PREV_DOTNET_CLEANARCH_REPO="$(ymlval dotnet_cleanarch_repo "https://github.com/jasontaylordev/CleanArchitecture.git")"
         PREV_DOTNET_CLEANARCH_BRANCH="$(ymlval dotnet_cleanarch_branch "main")"
         PREV_PHP_VER="$(ymlval php_version "8.1")"
@@ -884,6 +886,7 @@ collect_apps() {
     PG_PASS="placeholder"
     DOTNET_SDK="$PREV_DOTNET_SDK"; DOTNET_REPO="$PREV_DOTNET_REPO"; DOTNET_BRANCH="$PREV_DOTNET_BRANCH"
     DOTNET_3TIER_APP="${PREV_DOTNET_3TIER_APP:-eshop}"
+    DOTNET_1TIER_APP="${PREV_DOTNET_1TIER_APP:-eshop}"
     DOTNET_CLEANARCH_REPO="${PREV_DOTNET_CLEANARCH_REPO:-https://github.com/jasontaylordev/CleanArchitecture.git}"
     DOTNET_CLEANARCH_BRANCH="${PREV_DOTNET_CLEANARCH_BRANCH:-main}"
     MSSQL_PASS="Placeholder1!"
@@ -918,7 +921,7 @@ collect_apps() {
             prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
             prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
         fi
-        # Extra question: which .NET app to deploy for a 3-tier split.
+        # Extra question: which .NET app to deploy.
         # Shown whenever ANY 3-tier (Linux or Windows) + .NET are selected.
         if [[ "$DEPLOY_LINUX_3TIER" == "true" || "$DEPLOY_WINDOWS_3TIER" == "true" ]]; then
             echo ""
@@ -940,6 +943,30 @@ collect_apps() {
                 prompt "  CleanArchitecture branch" "$DOTNET_CLEANARCH_BRANCH"; DOTNET_CLEANARCH_BRANCH="$REPLY"
             else
                 DOTNET_3TIER_APP="eshop"
+                DEPLOY_CLEANARCH="false"
+            fi
+        # Single-VM Windows: choose eShopOnWeb or CleanArchitecture (all-in-one,
+        # IIS-hosted so both are discoverable by Azure Migrate). Only offered for
+        # Windows single-VM — the 1-tier CleanArchitecture playbook is Windows-only.
+        elif [[ "$DEPLOY_WINDOWS_1TIER" == "true" ]]; then
+            echo ""
+            echo -e "  ${Y}Single-VM — choose the .NET application:${NC}"
+            echo -e "    ${GR}1)${NC} eShopOnWeb   (IIS + ASP.NET Core + SQL Server) ${GR}[default]${NC}"
+            echo -e "    ${GR}2)${NC} CleanArchitecture (Angular SPA + Web API + SQL Server, all on one VM)"
+            local _def_choice1="1"; [[ "$DOTNET_1TIER_APP" == "cleanarch" ]] && _def_choice1="2"
+            prompt "  Selection (1/2)" "$_def_choice1"
+            if [[ "$REPLY" == "2" ]]; then
+                DOTNET_1TIER_APP="cleanarch"
+                DEPLOY_CLEANARCH="true"
+                echo ""
+                echo -e "  ${Y}Note:${NC} CleanArchitecture deploys as a single all-in-one Windows VM"
+                echo -e "        (IIS-hosted API + Angular SPA + SQL Server Express) that replaces the"
+                echo -e "        eShop .NET VM for this single-VM deployment. IIS hosting makes the"
+                echo -e "        web app discoverable by Azure Migrate."
+                prompt "  CleanArchitecture Git repo" "$DOTNET_CLEANARCH_REPO"; DOTNET_CLEANARCH_REPO="$REPLY"
+                prompt "  CleanArchitecture branch" "$DOTNET_CLEANARCH_BRANCH"; DOTNET_CLEANARCH_BRANCH="$REPLY"
+            else
+                DOTNET_1TIER_APP="eshop"
                 DEPLOY_CLEANARCH="false"
             fi
         fi
@@ -1053,7 +1080,9 @@ show_summary() {
                 echo -e "    Java  $d_java_h  $d_java_ip   ${JAVA_CPU}CPU / ${JAVA_MEM}MB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB"
+                local d_dotnet_app="eShopOnWeb"
+                [[ "$mode" == windows* && "$DEPLOY_CLEANARCH" == "true" ]] && d_dotnet_app="CleanArchitecture"
+                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB  ($d_dotnet_app)"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "    PHP   $d_php_h  $d_php_ip    ${PHP_CPU}CPU / ${PHP_MEM}MB"
@@ -1167,6 +1196,12 @@ win_dotnet_vm_hostname = "${WIN_DOTNET_HOSTNAME:-$DOTNET_HOSTNAME}"
 win_php_vm_ip       = "${WIN_PHP_IP:-$PHP_IP}"
 win_php_vm_hostname = "${WIN_PHP_HOSTNAME:-$PHP_HOSTNAME}"
 
+# --- Single-VM CleanArchitecture (Windows, IIS-hosted, Azure Migrate discoverable) ---
+# Only provisioned when deploy_windows_1tier && deploy_cleanarch. Reuses the .NET
+# single-VM hostname/IP the user provided at the ".NET VM" prompt.
+win_cln_1tier_ip       = "${WIN_DOTNET_IP:-$DOTNET_IP}"
+win_cln_1tier_hostname = "${WIN_DOTNET_HOSTNAME:-${DOTNET_HOSTNAME:-win-dotnet-cln}}"
+
 # --- 3-Tier IPs & Hostnames (Linux) ---
 java_fe_ip       = "${JAVA_FE_IP:-10.1.2.20}"
 java_fe_hostname = "${JAVA_FE_HOSTNAME:-lin-java-fe}"
@@ -1260,6 +1295,8 @@ dotnet_app_port: 5000
 
 # Windows 3-tier .NET app selector: eshop (default) | cleanarch
 dotnet_3tier_app: "$DOTNET_3TIER_APP"
+# Windows single-VM .NET app selector: eshop (default) | cleanarch
+dotnet_1tier_app: "$DOTNET_1TIER_APP"
 dotnet_cleanarch_repo: "$DOTNET_CLEANARCH_REPO"
 dotnet_cleanarch_branch: "$DOTNET_CLEANARCH_BRANCH"
 dotnet_cleanarch_db_name: "CleanArchitectureDb"
@@ -1345,9 +1382,16 @@ EOF
 [win_java_servers]
 $w_java_ip
 EOF
-        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
+        # eShop single-VM .NET group (only when NOT CleanArchitecture)
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_dotnet_servers]
+$w_dotnet_ip
+EOF
+        # CleanArchitecture single-VM .NET group (IIS-hosted, Azure Migrate discoverable)
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && cat >> "$inv_file" <<EOF || true
+
+[win_dotnet_cln_1tier_servers]
 $w_dotnet_ip
 EOF
         [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
@@ -1359,7 +1403,8 @@ EOF
             echo ""
             echo "[win_servers:children]"
             [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_servers" || true
-            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_servers" || true
+            [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && echo "win_dotnet_servers" || true
+            [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && echo "win_dotnet_cln_1tier_servers" || true
             [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_servers" || true
             echo ""
             echo "[win_servers:vars]"
@@ -1792,7 +1837,7 @@ run_terraform() {
         done
 
         # Windows single-VM
-        for vm_key in win-java-vm win-dotnet-vm win-php-vm; do
+        for vm_key in win-java-vm win-dotnet-vm win-php-vm win-cln-1tier; do
             echo "$existing_resources" | grep -q "win_vm\[\"${vm_key}\"\]" || continue
             _preserve_vm_attrs "vsphere_virtual_machine.win_vm" "$vm_key" ""
         done
@@ -1917,7 +1962,10 @@ run_ansible() {
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_servers" || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_servers" || true
-        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers" || true
+        # eShop single-VM .NET group only when NOT a CleanArchitecture deployment
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers" || true
+        # CleanArchitecture single-VM targets its own dedicated group
+        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_cln_1tier_servers" || true
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_servers" || true
     fi
     local limit_arg=""
@@ -1990,7 +2038,11 @@ run_verify() {
         [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080") || true
-        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET IIS App|$DOTNET_IP|80") || true
+        if [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]]; then
+            checks+=("Win .NET CleanArch SPA (IIS)|$DOTNET_IP|80" "Win .NET CleanArch API (IIS)|$DOTNET_IP|5000")
+        elif [[ "$DEPLOY_DOTNET" == "true" ]]; then
+            checks+=("Win .NET eShop IIS App|$DOTNET_IP|5000")
+        fi
         [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]] && checks+=(
