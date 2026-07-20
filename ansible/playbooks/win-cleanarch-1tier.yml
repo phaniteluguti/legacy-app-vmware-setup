@@ -149,15 +149,16 @@
       args:
         creates: C:\ProgramData\chocolatey\bin\choco.exe
 
-    - name: Install Git, Node.js LTS, URL Rewrite and ARR
+    - name: Install Git and Node.js LTS
       win_chocolatey:
         name: "{{ item }}"
         state: present
       loop:
         - git
         - nodejs-lts
-        - urlrewrite
-        - iis-arr
+      # NOTE: urlrewrite + iis-arr are installed later, AFTER IIS is present.
+      # Their MSIs abort with a generic 1603 error if the IIS Web-Server role
+      # is not yet installed.
 
     - name: Install .NET 10 SDK (official dotnet-install script)
       win_shell: |
@@ -363,6 +364,17 @@
     - name: Reboot if IIS install requires it
       win_reboot:
       when: iis_install.reboot_required | default(false)
+
+    # URL Rewrite and ARR MUST be installed AFTER IIS (and after any pending
+    # reboot) — their MSIs return a generic 1603 error when the IIS Web-Server
+    # role is not yet present. iis-arr depends on urlrewrite.
+    - name: Install IIS URL Rewrite and Application Request Routing (ARR)
+      win_chocolatey:
+        name: "{{ item }}"
+        state: present
+      loop:
+        - urlrewrite
+        - iis-arr
 
     # The ASP.NET Core Hosting Bundle ships the AspNetCoreModuleV2 (ANCM) that IIS
     # needs to host the app in-process. The Chocolatey package is "dotnet-windowshosting"
