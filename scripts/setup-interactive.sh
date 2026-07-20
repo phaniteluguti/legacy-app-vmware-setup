@@ -314,6 +314,8 @@ load_previous() {
         PREV_WIN_JAVA_HOSTNAME="$(tfval win_java_vm_hostname "win-java")"
         PREV_WIN_DOTNET_IP="$(tfval win_dotnet_vm_ip "")"
         PREV_WIN_DOTNET_HOSTNAME="$(tfval win_dotnet_vm_hostname "win-dotnet")"
+        PREV_WIN_CLN_1TIER_IP="$(tfval win_cln_1tier_ip "")"
+        PREV_WIN_CLN_1TIER_HOSTNAME="$(tfval win_cln_1tier_hostname "win-dotnet-cln")"
         PREV_WIN_PHP_IP="$(tfval win_php_vm_ip "")"
         PREV_WIN_PHP_HOSTNAME="$(tfval win_php_vm_hostname "win-php")"
         # 3-Tier VM sizing
@@ -959,10 +961,13 @@ collect_apps() {
                 DOTNET_1TIER_APP="cleanarch"
                 DEPLOY_CLEANARCH="true"
                 echo ""
-                echo -e "  ${Y}Note:${NC} CleanArchitecture deploys as a single all-in-one Windows VM"
-                echo -e "        (IIS-hosted API + Angular SPA + SQL Server Express) that replaces the"
-                echo -e "        eShop .NET VM for this single-VM deployment. IIS hosting makes the"
-                echo -e "        web app discoverable by Azure Migrate."
+                echo -e "  ${Y}Note:${NC} CleanArchitecture deploys as a NEW, separate all-in-one Windows VM"
+                echo -e "        (IIS-hosted API + Angular SPA + SQL Server Express) that is ADDED"
+                echo -e "        alongside the eShop .NET VM — it does not replace or destroy it."
+                echo -e "        IIS hosting makes the web app discoverable by Azure Migrate."
+                echo -e "        Give this new VM its own hostname and IP (distinct from the eShop VM):"
+                prompt "  CleanArchitecture VM hostname" "${WIN_CLN_1TIER_HOSTNAME:-${PREV_WIN_CLN_1TIER_HOSTNAME:-win-dotnet-cln}}"; WIN_CLN_1TIER_HOSTNAME="$REPLY"
+                prompt_ip "  CleanArchitecture VM IP" "${WIN_CLN_1TIER_IP:-${PREV_WIN_CLN_1TIER_IP:-}}"; WIN_CLN_1TIER_IP="$REPLY"
                 prompt "  CleanArchitecture Git repo" "$DOTNET_CLEANARCH_REPO"; DOTNET_CLEANARCH_REPO="$REPLY"
                 prompt "  CleanArchitecture branch" "$DOTNET_CLEANARCH_BRANCH"; DOTNET_CLEANARCH_BRANCH="$REPLY"
             else
@@ -1080,9 +1085,10 @@ show_summary() {
                 echo -e "    Java  $d_java_h  $d_java_ip   ${JAVA_CPU}CPU / ${JAVA_MEM}MB"
             fi
             if [[ "$DEPLOY_DOTNET" == "true" ]]; then
-                local d_dotnet_app="eShopOnWeb"
-                [[ "$mode" == windows* && "$DEPLOY_CLEANARCH" == "true" ]] && d_dotnet_app="CleanArchitecture"
-                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB  ($d_dotnet_app)"
+                echo -e "    .NET  $d_dotnet_h  $d_dotnet_ip ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB  (eShopOnWeb)"
+            fi
+            if [[ "$mode" == windows* && "$DEPLOY_CLEANARCH" == "true" ]]; then
+                echo -e "    .NET  ${WIN_CLN_1TIER_HOSTNAME:-win-dotnet-cln}  ${WIN_CLN_1TIER_IP:-} ${DOTNET_CPU}CPU / ${DOTNET_MEM}MB  (CleanArchitecture)"
             fi
             if [[ "$DEPLOY_PHP" == "true" ]]; then
                 echo -e "    PHP   $d_php_h  $d_php_ip    ${PHP_CPU}CPU / ${PHP_MEM}MB"
@@ -1128,7 +1134,13 @@ write_tfvars() {
     local tf_deploy_cleanarch="false"
     if [[ "$DEPLOY_CLEANARCH" == "true" ]]; then
         tf_deploy_cleanarch="true"
-        tf_deploy_dotnet="false"
+        # 3-tier CleanArchitecture is cleanarch-only on a fresh lab (avoids a
+        # duplicate-IP eShop 3-tier set). Single-VM (1-tier) CleanArchitecture is
+        # purely ADDITIVE — it adds a new VM alongside the eShop VM (its own IP),
+        # so keep deploy_dotnet as selected (eShop VM is preserved, not replaced).
+        if [[ "$DEPLOY_WINDOWS_1TIER" != "true" ]]; then
+            tf_deploy_dotnet="false"
+        fi
     fi
 
     cat > "$TF_DIR/terraform.tfvars" <<EOF
@@ -1197,10 +1209,10 @@ win_php_vm_ip       = "${WIN_PHP_IP:-$PHP_IP}"
 win_php_vm_hostname = "${WIN_PHP_HOSTNAME:-$PHP_HOSTNAME}"
 
 # --- Single-VM CleanArchitecture (Windows, IIS-hosted, Azure Migrate discoverable) ---
-# Only provisioned when deploy_windows_1tier && deploy_cleanarch. Reuses the .NET
-# single-VM hostname/IP the user provided at the ".NET VM" prompt.
-win_cln_1tier_ip       = "${WIN_DOTNET_IP:-$DOTNET_IP}"
-win_cln_1tier_hostname = "${WIN_DOTNET_HOSTNAME:-${DOTNET_HOSTNAME:-win-dotnet-cln}}"
+# Only provisioned when deploy_windows_1tier && deploy_cleanarch. This is a NEW,
+# separate VM ADDED alongside the eShop .NET VM (its own hostname/IP), not a replacement.
+win_cln_1tier_ip       = "${WIN_CLN_1TIER_IP:-}"
+win_cln_1tier_hostname = "${WIN_CLN_1TIER_HOSTNAME:-win-dotnet-cln}"
 
 # --- 3-Tier IPs & Hostnames (Linux) ---
 java_fe_ip       = "${JAVA_FE_IP:-10.1.2.20}"
@@ -1372,6 +1384,7 @@ EOF
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         # In "both" mode, use WIN_ single-VM values; otherwise use base vars
         local w_java_ip="${JAVA_IP:-}" w_dotnet_ip="${DOTNET_IP:-}" w_php_ip="${PHP_IP:-}"
+        local w_cln_ip="${WIN_CLN_1TIER_IP:-}"
         if [[ "${OS_CHOICE:-}" == "both" ]]; then
             w_java_ip="${WIN_JAVA_IP:-$JAVA_IP}"
             w_dotnet_ip="${WIN_DOTNET_IP:-$DOTNET_IP}"
@@ -1382,17 +1395,18 @@ EOF
 [win_java_servers]
 $w_java_ip
 EOF
-        # eShop single-VM .NET group (only when NOT CleanArchitecture)
-        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && cat >> "$inv_file" <<EOF || true
+        # eShop single-VM .NET group — deployed whenever .NET is selected
+        [[ "$DEPLOY_DOTNET" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_dotnet_servers]
 $w_dotnet_ip
 EOF
-        # CleanArchitecture single-VM .NET group (IIS-hosted, Azure Migrate discoverable)
-        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && cat >> "$inv_file" <<EOF || true
+        # CleanArchitecture single-VM — ADDED alongside eShop as its own VM/IP
+        # (IIS-hosted, Azure Migrate discoverable)
+        [[ "$DEPLOY_CLEANARCH" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
 [win_dotnet_cln_1tier_servers]
-$w_dotnet_ip
+$w_cln_ip
 EOF
         [[ "$DEPLOY_PHP" == "true" ]] && cat >> "$inv_file" <<EOF || true
 
@@ -1403,8 +1417,8 @@ EOF
             echo ""
             echo "[win_servers:children]"
             [[ "$DEPLOY_JAVA" == "true" ]] && echo "win_java_servers" || true
-            [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && echo "win_dotnet_servers" || true
-            [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && echo "win_dotnet_cln_1tier_servers" || true
+            [[ "$DEPLOY_DOTNET" == "true" ]] && echo "win_dotnet_servers" || true
+            [[ "$DEPLOY_CLEANARCH" == "true" ]] && echo "win_dotnet_cln_1tier_servers" || true
             [[ "$DEPLOY_PHP" == "true" ]] && echo "win_php_servers" || true
             echo ""
             echo "[win_servers:vars]"
@@ -1962,10 +1976,10 @@ run_ansible() {
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}php_servers" || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && limit_groups="${limit_groups:+$limit_groups:}win_java_servers" || true
-        # eShop single-VM .NET group only when NOT a CleanArchitecture deployment
-        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" != "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers" || true
-        # CleanArchitecture single-VM targets its own dedicated group
-        [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_cln_1tier_servers" || true
+        # eShop single-VM .NET group — targeted whenever .NET is selected
+        [[ "$DEPLOY_DOTNET" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_servers" || true
+        # CleanArchitecture single-VM — its own dedicated group, ADDED alongside eShop
+        [[ "$DEPLOY_CLEANARCH" == "true" ]] && limit_groups="${limit_groups:+$limit_groups:}win_dotnet_cln_1tier_servers" || true
         [[ "$DEPLOY_PHP" == "true" ]]    && limit_groups="${limit_groups:+$limit_groups:}win_php_servers" || true
     fi
     local limit_arg=""
@@ -2038,10 +2052,9 @@ run_verify() {
         [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "windows" ]]; then
         [[ "$DEPLOY_JAVA" == "true" ]]   && checks+=("Win Java PetClinic|$JAVA_IP|8080") || true
-        if [[ "$DEPLOY_DOTNET" == "true" && "$DEPLOY_CLEANARCH" == "true" ]]; then
-            checks+=("Win .NET CleanArch SPA (IIS)|$DOTNET_IP|80" "Win .NET CleanArch API (IIS)|$DOTNET_IP|5000")
-        elif [[ "$DEPLOY_DOTNET" == "true" ]]; then
-            checks+=("Win .NET eShop IIS App|$DOTNET_IP|5000")
+        [[ "$DEPLOY_DOTNET" == "true" ]] && checks+=("Win .NET eShop IIS App|$DOTNET_IP|5000") || true
+        if [[ "$DEPLOY_CLEANARCH" == "true" ]]; then
+            checks+=("Win .NET CleanArch SPA (IIS)|${WIN_CLN_1TIER_IP:-}|80" "Win .NET CleanArch API (IIS)|${WIN_CLN_1TIER_IP:-}|5000")
         fi
         [[ "$DEPLOY_PHP" == "true" ]]    && checks+=("Win PHP Laravel|$PHP_IP|80") || true
     elif [[ "$DEPLOY_MODE" == "linux-3tier" ]]; then
