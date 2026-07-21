@@ -386,7 +386,7 @@ variable "java_db_hostname" {
   default     = "lin-java-db"
 }
 variable "dotnet_fe_ip" {
-  description = "Static IP for .NET frontend VM (Nginx + Blazor)"
+  description = "Static IP for .NET frontend VM (Nginx reverse proxy -> eShopOnWeb)"
   type        = string
   default     = "10.1.2.23"
 }

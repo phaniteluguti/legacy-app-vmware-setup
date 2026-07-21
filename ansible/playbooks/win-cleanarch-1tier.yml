@@ -11,8 +11,10 @@
 #     {{ dotnet_app_port }} (URL Rewrite + ARR), giving a working end-to-end app.
 #
 # Targets the win_dotnet_cln_1tier_servers inventory group (provisioned by
-# terraform when deploy_windows_1tier && deploy_cleanarch). Coexists with the
-# eShopOnWeb 1-tier VM (win_dotnet_servers) — this is additive, not a replacement.
+# terraform when deploy_windows_1tier && deploy_cleanarch). Runs on the same
+# single .NET VM you configured, in place of eShopOnWeb (the wizard sets
+# deploy_dotnet=false when CleanArchitecture is chosen); any pre-existing
+# eShopOnWeb VM already in Terraform state is preserved as-is.
 #
 # Assumptions (jasontaylordev/CleanArchitecture, .NET 10 layout):
 #   - Web host project:      src/Web/Web.csproj

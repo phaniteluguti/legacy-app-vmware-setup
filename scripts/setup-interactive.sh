@@ -204,9 +204,12 @@ load_previous() {
     PREV_CONTENT_LIBRARY=""
     PREV_LINUX_TEMPLATE_DISK_GB=""
     PREV_WINDOWS_TEMPLATE_DISK_GB=""
-    PREV_PETCLINIC_REPO="https://github.com/oreakinodidi98/AKS_APP_Mod_Demo"
-    PREV_PETCLINIC_BRANCH="main"; PREV_JAVA_VER="21"
-    PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet/eShop.git"; PREV_DOTNET_BRANCH="main"
+    # NOTE: The Java and .NET application repos are pinned inside the Ansible
+    # playbooks (spring-petclinic-rest @ v3.4.0, eShopOnWeb @ main). These
+    # defaults mirror what is actually cloned so group_vars/all.yml stays accurate.
+    PREV_PETCLINIC_REPO="https://github.com/spring-petclinic/spring-petclinic-rest.git"
+    PREV_PETCLINIC_BRANCH="v3.4.0"; PREV_JAVA_VER="21"
+    PREV_DOTNET_SDK="6.0"; PREV_DOTNET_REPO="https://github.com/dotnet-architecture/eShopOnWeb.git"; PREV_DOTNET_BRANCH="main"
     PREV_DOTNET_3TIER_APP="eshop"
     PREV_DOTNET_1TIER_APP="eshop"
     PREV_DOTNET_CLEANARCH_REPO="https://github.com/jasontaylordev/CleanArchitecture.git"; PREV_DOTNET_CLEANARCH_BRANCH="main"
@@ -368,11 +371,11 @@ load_previous() {
 
     if [[ -f "$ALLVARS_FILE" ]]; then
         step "Found previous config: group_vars/all.yml — loading as defaults"
-        PREV_PETCLINIC_REPO="$(ymlval petclinic_repo "https://github.com/oreakinodidi98/AKS_APP_Mod_Demo")"
-        PREV_PETCLINIC_BRANCH="$(ymlval petclinic_branch "main")"
+        PREV_PETCLINIC_REPO="$(ymlval petclinic_repo "https://github.com/spring-petclinic/spring-petclinic-rest.git")"
+        PREV_PETCLINIC_BRANCH="$(ymlval petclinic_branch "v3.4.0")"
         PREV_JAVA_VER="$(ymlval java_version "21")"
         PREV_DOTNET_SDK="$(ymlval dotnet_sdk_version "6.0")"
-        PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet/eShop.git")"
+        PREV_DOTNET_REPO="$(ymlval dotnet_app_repo "https://github.com/dotnet-architecture/eShopOnWeb.git")"
         PREV_DOTNET_BRANCH="$(ymlval dotnet_app_branch "main")"
         PREV_DOTNET_3TIER_APP="$(ymlval dotnet_3tier_app "eshop")"
         PREV_DOTNET_1TIER_APP="$(ymlval dotnet_1tier_app "eshop")"
@@ -909,6 +912,7 @@ collect_apps() {
 
     if [[ "$DEPLOY_JAVA" == "true" ]]; then
         echo -e "  ${Y}--- Java / PetClinic ---${NC}"
+        echo -e "  ${GR}Repo/branch are pinned in the playbook (spring-petclinic-rest @ v3.4.0).${NC}"
         prompt "  Git repo" "$PREV_PETCLINIC_REPO"; PETCLINIC_REPO="$REPLY"
         prompt "  Branch" "$PREV_PETCLINIC_BRANCH"; PETCLINIC_BRANCH="$REPLY"
         prompt "  JDK version" "$PREV_JAVA_VER"; JAVA_VER="$REPLY"
@@ -919,6 +923,7 @@ collect_apps() {
     if [[ "$DEPLOY_DOTNET" == "true" ]]; then
         echo -e "  ${Y}--- .NET / ASP.NET ---${NC}"
         if [[ "$OS_CHOICE" == "linux" ]]; then
+            echo -e "  ${GR}Repo/branch are pinned in the playbook (eShopOnWeb @ main).${NC}"
             prompt "  .NET SDK version" "$PREV_DOTNET_SDK"; DOTNET_SDK="$REPLY"
             prompt "  Git repo" "$PREV_DOTNET_REPO"; DOTNET_REPO="$REPLY"
             prompt "  Branch" "$PREV_DOTNET_BRANCH"; DOTNET_BRANCH="$REPLY"
