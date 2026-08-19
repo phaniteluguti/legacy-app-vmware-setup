@@ -65,7 +65,7 @@ Each app runs on a single VM with the application and database co-located (typic
 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04 │  │  Ubuntu 22.04│                      │
 │  │  Spring       │  │  ASP.NET Core │  │  Laravel     │                      │
 │  │  PetClinic    │  │  MVC + Nginx  │  │  + Apache2   │                      │
-│  │  (Java 21)    │  │  (.NET 6)     │  │  (PHP 8.1)   │                      │
+│  │  (Java 21)    │  │  (.NET 8)     │  │  (PHP 8.1)   │                      │
 │  │  PostgreSQL 15│  │  SQL Server   │  │  MySQL 8.0   │                      │
 │  │               │  │  2022 Express │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
@@ -75,8 +75,8 @@ Each app runs on a single VM with the application and database co-located (typic
 │  │ VM: win-java  │  │ VM: win-dotnet│  │ VM: win-php  │                      │
 │  │ Win Srv 2019  │  │ Win Srv 2019  │  │ Win Srv 2019 │                      │
 │  │ Spring        │  │ ASP.NET       │  │ Laravel      │                      │
-│  │ PetClinic     │  │ Framework     │  │ + IIS        │                      │
-│  │ (Java 21)     │  │ IIS (.NET 4.5)│  │ (PHP + CGI)  │                      │
+│  │ PetClinic     │  │ Core          │  │ + IIS        │                      │
+│  │ (Java 21)     │  │ IIS (.NET 8.0)│  │ (PHP + CGI)  │                      │
 │  │ PostgreSQL 15 │  │ SQL Server    │  │ MySQL        │                      │
 │  │               │  │ 2019 Express  │  │              │                      │
 │  └──────────────┘  └──────────────┘  └──────────────┘                       │
@@ -476,8 +476,9 @@ Step 3: Choose Architecture
 >   2) CleanArchitecture — genuine split: Nginx/IIS + Angular SPA → ASP.NET
 >                          Core Web API (:5000) → SQL Server (:1433)
 > ```
-> eShopOnWeb remains the default (and the only .NET option for 1-tier).
-> Selecting CleanArchitecture also prompts for its Git repo and branch.
+> eShopOnWeb is the default. For **Windows single-VM** the wizard also offers
+> CleanArchitecture (all-in-one); for **Linux single-VM**, eShopOnWeb is the
+> only .NET option. Selecting CleanArchitecture also prompts for its Git repo and branch.
 
 After the 3-step selection, the wizard collects:
 
@@ -487,7 +488,7 @@ After the 3-step selection, the wizard collects:
 | vSphere Infrastructure | Datacenter, cluster, datastore, template name(s) | `Datacenter1`, `ubuntu-2204-template` |
 | Network Settings | Gateway, DNS, SSH user, key path, Windows password | `192.168.1.1`, `ubuntu` |
 | VM Sizing & IPs | Static IP + CPU/RAM/Disk per VM; 3-Tier offers same-for-all, per-tier, or recommended defaults | `192.168.1.101`, 2 CPU, 4096 MB |
-| App & DB Config | Git repos, versions, database passwords (only for selected apps); 3-Tier .NET app choice (eShopOnWeb / CleanArchitecture) | JDK 17, PostgreSQL password |
+| App & DB Config | Git repos, versions, database passwords (only for selected apps); 3-Tier and Windows single-VM .NET app choice (eShopOnWeb / CleanArchitecture) | JDK 17, PostgreSQL password |
 | Azure Migrate | Install dependency agent? | Yes/No |
 
 After confirming the summary, choose a run mode:
@@ -789,17 +790,19 @@ bash scripts/deploy-all.sh all
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Java VM** | lin-java | Ubuntu 22.04 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **\.NET VM** | lin-dotnet | Ubuntu 22.04 | ASP.NET Core MVC (.NET 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
+| **Java VM** | lin-java | Ubuntu 22.04 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 10.1 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **\.NET VM** | lin-dotnet | Ubuntu 22.04 | eShopOnWeb (ASP.NET Core 8) | Kestrel + Nginx reverse proxy | SQL Server 2022 Express | `http://<dotnet-ip>` |
 | **PHP VM** | lin-php | Ubuntu 22.04 | Laravel sample app (PHP 8.1) | Apache2 + mod_php | MySQL 8.0 | `http://<php-ip>` |
 
 ### Windows Single-VM (deploy_windows_1tier = true)
 
 | VM | Hostname (default) | OS | Application | Web Server | Database | Access URL |
 |----|----------|-----|------------|------------|----------|------------|
-| **Win Java VM** | win-java | Windows Server 2019 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 11 | PostgreSQL 15 | `http://<java-ip>:8080` |
-| **Win .NET VM** | win-dotnet | Windows Server 2019 | ASP.NET Framework Web Forms (.NET 4.5) | IIS 10 | SQL Server 2019 Express | `http://<dotnet-ip>` |
+| **Win Java VM** | win-java | Windows Server 2019 | Spring PetClinic (Java 21, Spring Boot) | Standalone Apache Tomcat 10.1 | PostgreSQL 15 | `http://<java-ip>:8080` |
+| **Win .NET VM** | win-dotnet | Windows Server 2019 | eShopOnWeb (ASP.NET Core 8) | IIS 10 (ASP.NET Core Module V2) | SQL Server 2019 Express | `http://<dotnet-ip>` |
 | **Win PHP VM** | win-php | Windows Server 2019 | Laravel (PHP + IIS FastCGI) | IIS 10 | MySQL | `http://<php-ip>` |
+
+> **Windows single-VM .NET choice:** the wizard can deploy **eShopOnWeb** (default) or **CleanArchitecture** (Angular SPA + ASP.NET Core Web API + SQL Server Express, all on the one `win-dotnet` VM) in place of eShopOnWeb.
 
 ### Linux 3-Tier (deploy_linux_3tier = true)
 
@@ -809,7 +812,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 |-------|------------|---------------|-------------|
 | **Java** | Angular + Nginx (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
 | **.NET** (eShopOnWeb, default) | Nginx reverse proxy (:80) | eShopOnWeb ASP.NET Core 8.0 Kestrel (:5000) | SQL Server 2022 Express (:1433) |
-| **.NET** (CleanArchitecture) | Nginx serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 8 Web API Kestrel (:5000) | SQL Server 2022 Express (:1433) |
+| **.NET** (CleanArchitecture) | Nginx serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 10 Web API Kestrel (:5000) | SQL Server 2022 Express (:1433) |
 | **PHP** | Nginx reverse proxy (:80) | Laravel artisan (:8000) | MySQL 8.0 (:3306) |
 
 ### Windows 3-Tier (deploy_windows_3tier = true)
@@ -818,7 +821,7 @@ Each app is split across 3 VMs — 9 VMs total for all apps:
 |-------|------------|---------------|-------------|
 | **Java** | IIS + ARR reverse proxy (:80) | Standalone Tomcat WAR (:9966) | PostgreSQL 15 (:5432) |
 | **.NET** (eShopOnWeb, default) | IIS + ARR reverse proxy (:80) | eShopOnWeb ASP.NET Core (NSSM, :5000) | SQL Server 2019 Express (:1433) |
-| **.NET** (CleanArchitecture) | IIS + ARR serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 8 Web API (NSSM, :5000) | SQL Server 2019 Express (:1433) |
+| **.NET** (CleanArchitecture) | IIS + ARR serving Angular SPA, proxies `/api` (:80) | ASP.NET Core 10 Web API (NSSM, :5000) | SQL Server 2019 Express (:1433) |
 | **PHP** | IIS + ARR reverse proxy (:80) | IIS + PHP FastCGI (:80) | MySQL (:3306) |
 
 ### Per-App Selection
@@ -865,10 +868,10 @@ legacy-app-vmware-setup/
 │   │   └── all.yml.example            # App config + DB passwords template
 │   └── playbooks/
 │       ├── java-petclinic.yml         # Linux: Java 21 + Spring PetClinic + PostgreSQL
-│       ├── dotnet-app.yml             # Linux: .NET 6 + ASP.NET MVC + SQL Server
+│       ├── dotnet-app.yml             # Linux: eShopOnWeb (ASP.NET Core 8) + SQL Server
 │       ├── php-app.yml                # Linux: PHP 8.1 + Laravel + MySQL + Apache2
 │       ├── win-java-petclinic.yml     # Windows: Java PetClinic + PostgreSQL
-│       ├── win-iis-app.yml            # Windows: IIS + ASP.NET Framework + SQL Server
+│       ├── win-iis-app.yml            # Windows: IIS + eShopOnWeb (ASP.NET Core 8) + SQL Server
 │       ├── win-php-app.yml            # Windows: PHP Laravel + MySQL + IIS
 │       ├── azure-migrate-prep.yml     # SSH, sysstat, firewall, dependency agent
 │       ├── win-cleanup-appliance.yml  # Windows: remove appliance/IIS leftovers from template
@@ -1003,7 +1006,7 @@ Azure Portal → Azure Migrate → Create project
 | VM | Discovered Apps | Discovered DBs | Dependencies |
 |----|----------------|----------------|-------------|
 | win-java | Java 21, Spring Boot, NSSM | PostgreSQL 15 | → PostgreSQL (localhost:5432) |
-| win-dotnet | .NET 4.5, IIS 10, ASP.NET | SQL Server 2019 | → SQL Server (localhost:1433) |
+| win-dotnet | eShopOnWeb (ASP.NET Core 8), IIS 10 | SQL Server 2019 | → SQL Server (localhost:1433) |
 | win-php | PHP, IIS 10, Laravel | MySQL | → MySQL (localhost:3306) |
 
 **3-Tier Mode — Inter-VM Dependencies (the key value-add):**
@@ -1022,7 +1025,7 @@ Azure Migrate will discover these cross-VM network connections and map them as *
 
 | Stack | Application | Source | Notes |
 |-------|-------------|--------|-------|
-| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: WAR deployed on standalone Apache Tomcat 11 :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
+| **Java** | Spring PetClinic (Angular frontend + REST API) | [`spring-petclinic-angular`](https://github.com/spring-petclinic/spring-petclinic-angular) + [`spring-petclinic-rest`](https://github.com/spring-petclinic/spring-petclinic-rest) | Frontend: Angular SPA via Nginx; API: WAR deployed on standalone Apache Tomcat 10.1 :9966; Swagger UI at `/petclinic/`; requires `postgresql,spring-data-jpa` profiles |
 | **.NET** | eShopOnWeb (ASP.NET Core 8.0) | [`eShopOnWeb`](https://github.com/dotnet-architecture/eShopOnWeb) (archived, frozen at .NET 8) | Runs with `ASPNETCORE_ENVIRONMENT=Docker`; uses `signed-by` GPG key for SQL Server APT repo |
 | **PHP** | Laravel sample app | [`laravel`](https://github.com/laravel/laravel) | PHP-FPM behind Nginx; MySQL remote DB |
 
